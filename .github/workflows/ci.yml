@@ -29,6 +29,14 @@ jobs:
       - name: Install gateway
         run: python -m pip install ./packages/easyeda-gateway
 
+      - name: Install gateway render runtime
+        run: |
+          render_runtime="$RUNNER_TEMP/gateway-render-runtime"
+          npm install --prefix "$render_runtime" --no-save --no-package-lock playwright@1.62.1
+          "$render_runtime/node_modules/.bin/playwright" install --with-deps chromium
+          echo "JLC_NODE_EXECUTABLE=$(command -v node)" >> "$GITHUB_ENV"
+          echo "JLC_NODE_PATH=$render_runtime/node_modules" >> "$GITHUB_ENV"
+
       - name: Test gateway
         run: python -m unittest discover -s packages/easyeda-gateway/tests -t packages/easyeda-gateway -v
 
