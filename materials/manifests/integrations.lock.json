@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "easyeda.integration-lock.v3",
+  "generatedAt": "2026-08-27T00:00:00+08:00",
+  "integrations": [
+    {
+      "name": "JLC Hardware Learning",
+      "plugin": "jlc-hardware-learning",
+      "role": "hardware-learning-canvas-ui",
+      "trustLevel": "public-vendored-ui-integration",
+      "distributionMode": "public-vendored-source",
+      "localPath": "../integrations/jlc-hardware-learning-plugin",
+      "sourceRepository": "../integrations/jlc-hardware-learning-plugin",
+      "sourceCommit": "c811392e5c00f8c9b0e2c07efcc7fd41df209840",
+      "version": "0.1.3",
+      "license": "MIT",
+      "licensePath": "../integrations/jlc-hardware-learning-plugin/LICENSE",
+      "licenseSha256": "3c08a70917d02378b2618646bd70a1e189645a17b4161f2cfbc3e1e276cb7b33",
+      "sourceEvidence": {
+        "pluginManifest": {
+          "path": "../integrations/jlc-hardware-learning-plugin/.codex-plugin/plugin.json",
+          "sha256": "5b9bca76b1e3eabe819fb24bfbe5a500e4a9f339d3ec382f562810a1d036f325"
+        },
+        "releaseManifest": {
+          "path": "../integrations/jlc-hardware-learning-plugin/mcp/generated/release-manifest.json",
+          "sha256": "da0e0163766bf9a4f26bb1da6b917aa54f0725eff32ae4dbe4e3ac0e44368415"
+        }
+      },
+      "runtime": {
+        "mcpServer": "jlc_hardware_learning_mcp",
+        "serverInfoName": "jlc-hardware-learning",
+        "transport": "stdio",
+        "command": "node ./scripts/start-mcp.mjs",
+        "serverVersionVerified": "0.1.3",
+        "toolCountVerified": 14,
+        "widget": "ui://widget/jlc-hardware-learning/canvas-{pluginVersion}.html",
+        "storage": "<projectDir>/canvas/pages/<page-id>/hardware-learning-canvas.json"
+      },
+      "capabilityBoundary": {
+        "imageGeneration": false,
+        "aiHtml": false,
+        "slides": false,
+        "analytics": false,
+        "directEasyedaAccess": false,
+        "localExports": ["PNG", "SVG", "JSON"]
+      },
+      "migration": {
+        "legacyStorageRead": true,
+        "legacyStorageWrite": false,
+        "canonicalStoragePrefix": "hardware-learning"
+      },
+      "authorityBoundary": {
+        "isEasyedaApiAuthority": false,
+        "mayDefineEasyedaSignatures": false,
+        "mayCallEasyedaDirectly": false,
+        "easyedaDataEntry": "Only through the workbench adapter backed by the locked official EasyEDA API manifest and an identified project/document snapshot."
+      }
+    }
+  ],
+  "legacyProvenance": {
+    "status": "ARCHIVED_NOT_RUNTIME",
+    "sourceSnapshot": "sources/integrations/cowart",
+    "patchArchive": "../integrations/cowart-patches",
+    "note": "Retained only for MIT attribution, reproducible history, and legacy-data migration tests. It is not the active plugin identity or runtime contract."
+  }
+}

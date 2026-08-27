@@ -1,0 +1,275 @@
+From f3be65210f38b2261ada04d21e7c03ebc4375d90 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Wed, 26 Aug 2026 14:32:03 +0800
+Subject: [PATCH] feat: place text from select mode double click
+
+---
+ scripts/probe-hardware-learning.mjs           |  5 +
+ .../HardwareLearningCanvas.jsx                | 92 ++++++++++++++++---
+ .../InlineCanvasTextEditor.jsx                |  7 +-
+ src/learning-canvas/interaction.js            | 22 +++++
+ src/learning-canvas/interaction.test.mjs      | 18 ++++
+ 5 files changed, 130 insertions(+), 14 deletions(-)
+
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index 0263e0d..d46daaf 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -77,6 +77,10 @@ assert.match(learningCanvasSource, /shouldBeginTextEditFromPointerDown/);
+ assert.match(learningCanvasSource, /completeTextEditPointerActivation/);
+ assert.match(learningCanvasSource, /textEditActivationCandidate/);
+ assert.match(learningCanvasSource, /\['move', 'resize'\]\.includes\(gesture\.type\)/);
++assert.match(learningCanvasSource, /shouldBeginCanvasTextFromDoubleClick/);
++assert.match(learningCanvasSource, /rightClickCanvasAction/);
++assert.match(learningCanvasSource, /onDoubleClick=\{handleCanvasDoubleClick\}/);
++assert.match(learningCanvasSource, /onContextMenu=\{handleCanvasContextMenu\}/);
+ assert.match(learningCanvasSource, /selectionForShapePointerDown/);
+ assert.match(learningCanvasSource, /translateCanvasSelection/);
+ assert.match(learningCanvasSource, /onPointerCancel=\{handlePointerCancel\}/);
+@@ -94,6 +98,7 @@ assert.match(inlineEditorSource, /data-cowart-preserve-text-editor/);
+ assert.match(inlineEditorSource, /learning-inline-editor-hint/);
+ assert.match(inlineEditorSource, /indentInlineLearningText/);
+ assert.match(inlineEditorSource, /保持文本工具/);
++assert.match(inlineEditorSource, /Esc\/右键退出选择/);
+ assert.match(learningCanvasSource, /toolAfterInlineTextEdit/);
+ assert.doesNotMatch(inlineEditorSource, /<foreignObject/);
+ 
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index c537ea3..daab6ba 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -97,7 +97,9 @@ import {
+   learningTextEditState,
+   movableShapeIds,
+   nudgeDeltaForKey,
++  rightClickCanvasAction,
+   selectionForShapePointerDown,
++  shouldBeginCanvasTextFromDoubleClick,
+   shouldBeginTextEditFromActivation,
+   shouldBeginTextEditFromPointerDown,
+   translateCanvasSelection
+@@ -742,8 +744,51 @@ export default function HardwareLearningCanvas() {
+     setGesture({ type, pointerId: event.pointerId, ...data })
+   }
+ 
++  function beginInlineTextAtPoint(point, mode, { armTool = false } = {}) {
++    const draft = {
++      point,
++      text: '',
++      mode,
++      style: mode === 'note'
++        ? normalizeLearningStyle({ color: 'yellow', fill: 'solid', dash: 'solid', size: style.size, opacity: style.opacity })
++        : style
++    }
++    lastTextEditPointerActivationRef.current = null
++    setGesture(null)
++    setDraftShape(null)
++    setDraftShapes([])
++    setMarqueeBounds(null)
++    setOpenMenu(null)
++    flushSync(() => {
++      if (armTool) setTool(mode)
++      setNoteDraft(draft)
++    })
++    const input = rootRef.current?.querySelector('[data-cowart-inline-editor="true"]')
++    input?.focus({ preventScroll: true })
++  }
++
++  function exitCanvasModeFromRightClick() {
++    lastTextEditPointerActivationRef.current = null
++    if (noteDraft) {
++      cancelTextEdit()
++      return
++    }
++    cancelActiveGesture()
++    setOpenMenu(null)
++    setTool('select')
++    setStatus({ kind: 'saved', text: '已退出当前模式并返回选择' })
++  }
++
+   function handleCanvasPointerDown(event) {
+     if (!rootRef.current || !snapshot || !pageId) return
++    const rightClickAction = event.button === 2
++      ? rightClickCanvasAction({ tool, hasTextDraft: Boolean(noteDraft), hasGesture: Boolean(gesture) })
++      : null
++    if (rightClickAction && rightClickAction !== 'pan') {
++      event.preventDefault()
++      exitCanvasModeFromRightClick()
++      return
++    }
+     if (noteDraft) return
+     lastTextEditPointerActivationRef.current = null
+     const screen = pointerPosition(event, rootRef.current)
+@@ -762,17 +807,7 @@ export default function HardwareLearningCanvas() {
+     }
+     if (tool === 'note' || tool === 'text') {
+       event.preventDefault()
+-      const draft = {
+-        point: page,
+-        text: '',
+-        mode: tool,
+-        style: tool === 'note'
+-          ? normalizeLearningStyle({ color: 'yellow', fill: 'solid', dash: 'solid', size: style.size, opacity: style.opacity })
+-          : style
+-      }
+-      flushSync(() => setNoteDraft(draft))
+-      const input = rootRef.current?.querySelector('[data-cowart-inline-editor="true"]')
+-      input?.focus({ preventScroll: true })
++      beginInlineTextAtPoint(page, tool)
+       return
+     }
+     if (['frame', 'arrow', 'line', 'rectangle', 'ellipse'].includes(tool)) {
+@@ -888,6 +923,36 @@ export default function HardwareLearningCanvas() {
+     if (noteDraft?.shapeId !== shape.id) beginShapeTextEdit(shape)
+   }
+ 
++  function handleCanvasDoubleClick(event) {
++    if (!rootRef.current || !snapshot || !pageId || noteDraft) return
++    const shapeElement = event.target?.closest?.('[data-shape-id]')
++    const targetShape = shapeElement?.dataset?.shapeId ? snapshot.store[shapeElement.dataset.shapeId] : null
++    const targetIsControl = Boolean(event.target?.closest?.('[data-cowart-canvas-control="true"]'))
++    if (!shouldBeginCanvasTextFromDoubleClick({
++      tool,
++      button: event.button,
++      detail: event.detail,
++      targetIsText: Boolean(learningTextEditMode(targetShape)),
++      targetIsControl,
++      shiftKey: event.shiftKey,
++      ctrlKey: event.ctrlKey,
++      metaKey: event.metaKey,
++      altKey: event.altKey
++    })) return
++    event.preventDefault()
++    event.stopPropagation()
++    const page = screenToPage(pointerPosition(event, rootRef.current), camera)
++    setSelectedIds([])
++    beginInlineTextAtPoint(page, 'text', { armTool: true })
++    setStatus({ kind: 'saved', text: '双击位置已进入文字输入；右键可退出并返回选择' })
++  }
++
++  function handleCanvasContextMenu(event) {
++    event.preventDefault()
++    const action = rightClickCanvasAction({ tool, hasTextDraft: Boolean(noteDraft), hasGesture: Boolean(gesture) })
++    if (action !== 'pan') exitCanvasModeFromRightClick()
++  }
++
+   function handlePointerMove(event) {
+     if (!gesture || !rootRef.current || gesture.pointerId !== event.pointerId) return
+     const screen = pointerPosition(event, rootRef.current)
+@@ -1288,7 +1353,8 @@ export default function HardwareLearningCanvas() {
+     <main className="learning-canvas-shell" data-engine="cowart-learning-canvas-v2">
+       <section
+         className={`learning-canvas-viewport tool-${effectiveTool}`}
+-        onContextMenu={(event) => event.preventDefault()}
++        onContextMenu={handleCanvasContextMenu}
++        onDoubleClick={handleCanvasDoubleClick}
+         onPointerDown={handleCanvasPointerDown}
+         onPointerMove={handlePointerMove}
+         onPointerUp={finishGesture}
+@@ -1335,7 +1401,7 @@ export default function HardwareLearningCanvas() {
+                     {selectedBounds && selectedShape?.type === 'geo' && ['nw', 'ne', 'sw', 'se'].map((handle) => {
+                       const x = handle.endsWith('w') ? selectedBounds.x : selectedBounds.x + selectedBounds.w
+                       const y = handle.startsWith('n') ? selectedBounds.y : selectedBounds.y + selectedBounds.h
+-                      return <circle key={handle} cx={x} cy={y} onPointerDown={(event) => handleResizePointerDown(event, selectedShape, handle)} r={7 / camera.z} />
++                      return <circle data-cowart-canvas-control="true" key={handle} cx={x} cy={y} onPointerDown={(event) => handleResizePointerDown(event, selectedShape, handle)} r={7 / camera.z} />
+                     })}
+                   </g>
+                 )}
+diff --git a/src/learning-canvas/InlineCanvasTextEditor.jsx b/src/learning-canvas/InlineCanvasTextEditor.jsx
+index f4eddb1..5f5085b 100644
+--- a/src/learning-canvas/InlineCanvasTextEditor.jsx
++++ b/src/learning-canvas/InlineCanvasTextEditor.jsx
+@@ -79,6 +79,11 @@ export default function InlineCanvasTextEditor({ camera, draft, shape, style, on
+     <div
+       className="learning-inline-editor"
+       data-mode={draft.mode}
++      onContextMenu={(event) => {
++        event.preventDefault()
++        event.stopPropagation()
++        finish(onCancel)
++      }}
+       onDoubleClick={(event) => event.stopPropagation()}
+       onPointerDown={(event) => event.stopPropagation()}
+       style={{
+@@ -148,7 +153,7 @@ export default function InlineCanvasTextEditor({ camera, draft, shape, style, on
+         />
+       </div>
+       <div className="learning-inline-editor-hint" role="status">
+-        <span>{draft.mode === 'note' ? 'Enter 完成并保持便签工具' : 'Enter 完成并保持文本工具'} · Shift+Enter 换行 · Esc 退出</span>
++        <span>{draft.mode === 'note' ? 'Enter 完成并保持便签工具' : 'Enter 完成并保持文本工具'} · Shift+Enter 换行 · Esc/右键退出选择</span>
+         <span>{draft.text.length}/{INLINE_LEARNING_TEXT_LIMIT}</span>
+       </div>
+     </div>
+diff --git a/src/learning-canvas/interaction.js b/src/learning-canvas/interaction.js
+index 23bde35..27270d3 100644
+--- a/src/learning-canvas/interaction.js
++++ b/src/learning-canvas/interaction.js
+@@ -64,6 +64,28 @@ export function shouldBeginTextEditFromPointerDown(shape, previous, current = {}
+   return pointerDistance(previous.point, current.point) <= TEXT_EDIT_POINTER_TOLERANCE_PX
+ }
+ 
++export function shouldBeginCanvasTextFromDoubleClick({
++  tool = 'select',
++  button = 0,
++  detail = 0,
++  targetIsText = false,
++  targetIsControl = false,
++  shiftKey = false,
++  ctrlKey = false,
++  metaKey = false,
++  altKey = false
++} = {}) {
++  return tool === 'select' && Number(button) === 0 && Number(detail) >= 2 &&
++    !targetIsText && !targetIsControl &&
++    !shiftKey && !ctrlKey && !metaKey && !altKey
++}
++
++export function rightClickCanvasAction({ tool = 'select', hasTextDraft = false, hasGesture = false } = {}) {
++  if (hasTextDraft) return 'cancel-text'
++  if (hasGesture || tool !== 'select') return 'select'
++  return 'pan'
++}
++
+ export function selectionForShapePointerDown(selectedIds, shapeId, { shiftKey = false } = {}) {
+   const current = Array.isArray(selectedIds) ? selectedIds : []
+   if (shiftKey) {
+diff --git a/src/learning-canvas/interaction.test.mjs b/src/learning-canvas/interaction.test.mjs
+index 6ffbb07..c955ed6 100644
+--- a/src/learning-canvas/interaction.test.mjs
++++ b/src/learning-canvas/interaction.test.mjs
+@@ -9,7 +9,9 @@ import {
+   learningTextEditMode,
+   learningTextEditState,
+   nudgeDeltaForKey,
++  rightClickCanvasAction,
+   selectionForShapePointerDown,
++  shouldBeginCanvasTextFromDoubleClick,
+   shouldBeginTextEditFromActivation,
+   shouldBeginTextEditFromPointerDown,
+   translateCanvasSelection
+@@ -96,6 +98,22 @@ test('text and sticky notes enter editing on a double activation only', () => {
+   ), null)
+ })
+ 
++test('select-mode double-click places text without stealing existing text edits or resize handles', () => {
++  assert.equal(shouldBeginCanvasTextFromDoubleClick({ tool: 'select', button: 0, detail: 2 }), true)
++  assert.equal(shouldBeginCanvasTextFromDoubleClick({ tool: 'select', button: 0, detail: 2, targetIsText: true }), false)
++  assert.equal(shouldBeginCanvasTextFromDoubleClick({ tool: 'select', button: 0, detail: 2, targetIsControl: true }), false)
++  assert.equal(shouldBeginCanvasTextFromDoubleClick({ tool: 'text', button: 0, detail: 2 }), false)
++  assert.equal(shouldBeginCanvasTextFromDoubleClick({ tool: 'select', button: 0, detail: 1 }), false)
++  assert.equal(shouldBeginCanvasTextFromDoubleClick({ tool: 'select', button: 0, detail: 2, shiftKey: true }), false)
++})
++
++test('right click exits active canvas modes while preserving select-mode right-drag pan', () => {
++  assert.equal(rightClickCanvasAction({ tool: 'text', hasTextDraft: true }), 'cancel-text')
++  assert.equal(rightClickCanvasAction({ tool: 'frame' }), 'select')
++  assert.equal(rightClickCanvasAction({ tool: 'select', hasGesture: true }), 'select')
++  assert.equal(rightClickCanvasAction({ tool: 'select' }), 'pan')
++})
++
+ test('multi-selection movement preserves locked schematic evidence', () => {
+   const initial = snapshot()
+   assert.equal(canMoveCanvasShape(initial.store['shape:image-unlocked']), true)
+-- 
+2.55.0.windows.3
+

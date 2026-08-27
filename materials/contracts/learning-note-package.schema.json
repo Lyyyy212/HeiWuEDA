@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.easyeda-workbench.invalid/schemas/learning-note-package.schema.json",
+  "title": "JLC Hardware Learning hardware learning note package",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "packageId",
+    "generatedAt",
+    "contentSha256",
+    "page",
+    "canvasSnapshot",
+    "sourceImages",
+    "frames",
+    "annotations",
+    "dialogue",
+    "larkPlan"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "learning.note-package.v1" },
+    "packageId": { "type": "string", "pattern": "^learning-note:[a-f0-9]{32}$" },
+    "generatedAt": { "type": "string" },
+    "contentSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "page": {
+      "type": "object",
+      "required": ["canvasPageId", "name"],
+      "properties": {
+        "canvasPageId": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "nextFrameNumber": { "type": ["integer", "null"], "minimum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "canvasSnapshot": {
+      "type": "object",
+      "required": ["path", "sha256", "schemaVersion"],
+      "properties": {
+        "path": { "type": ["string", "null"] },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "schemaVersion": { "type": ["integer", "string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "sourceImages": { "type": "array", "items": { "$ref": "#/$defs/sourceImage" } },
+    "frames": { "type": "array", "items": { "$ref": "#/$defs/frame" } },
+    "annotations": { "type": "array", "items": { "$ref": "#/$defs/annotation" } },
+    "dialogue": {
+      "type": "object",
+      "required": ["sessions", "turns", "unlinkedTurnIds"],
+      "properties": {
+        "sessions": { "type": "array", "items": { "type": "object" } },
+        "turns": { "type": "array", "items": { "$ref": "#/$defs/dialogueTurn" } },
+        "unlinkedTurnIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      },
+      "additionalProperties": false
+    },
+    "larkPlan": {
+      "type": "object",
+      "required": ["schemaVersion", "mode", "direction", "documentOutline", "whiteboard", "dialogueIndex"],
+      "properties": {
+        "schemaVersion": { "const": "learning.lark-note-plan.v1" },
+        "mode": { "const": "PLAN_ONLY_NO_CLOUD_WRITE" },
+        "direction": { "const": "hardware-learning-to-lark" },
+        "documentOutline": { "type": "array", "items": { "type": "string" } },
+        "whiteboard": {
+          "type": "object",
+          "required": ["learningFrameMarkerStyleTargets", "learningFrameMarkerStyle"],
+          "properties": {
+            "learningFrameMarkerStyleTargets": {
+              "const": ["synchronized-learning-board", "module-index-board"]
+            },
+            "learningFrameMarkerStyle": { "$ref": "#/$defs/learningFrameMarkerStyle" },
+            "moduleIndexBoard": { "$ref": "#/$defs/moduleIndexBoardPlan" }
+          },
+          "additionalProperties": true
+        },
+        "dialogueIndex": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "bounds": {
+      "type": "object",
+      "required": ["x", "y", "width", "height", "rotation", "coordinateSpace"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "rotation": { "type": "number" },
+        "coordinateSpace": { "const": "hardware-learning-page" }
+      },
+      "additionalProperties": false
+    },
+    "learningFrameMarkerStyle": {
+      "type": "object",
+      "required": ["colorOpacityPercent", "numberOpacityPercent", "borderWidthScale", "preserveBounds", "numberBadgeStyle"],
+      "properties": {
+        "colorOpacityPercent": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "numberOpacityPercent": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "borderWidthScale": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "preserveBounds": { "const": true },
+        "numberBadgeStyle": { "$ref": "#/$defs/numberBadgeStyle" }
+      },
+      "additionalProperties": false
+    },
+    "numberBadgeStyle": {
+      "type": "object",
+      "required": ["shape", "width", "height", "fontSize", "anchor", "offsetX", "offsetY", "colorMode"],
+      "properties": {
+        "shape": { "const": "round_rect" },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "fontSize": { "type": "number", "exclusiveMinimum": 0 },
+        "anchor": { "const": "frame-top-left" },
+        "offsetX": { "type": "number" },
+        "offsetY": { "type": "number" },
+        "colorMode": { "const": "follow-frame" }
+      },
+      "additionalProperties": false
+    },
+    "moduleIndexBoardPlan": {
+      "type": "object",
+      "required": ["profile", "placement", "contentScope", "nativeZoomAndAnnotation", "learningFrameMarkerStyle"],
+      "properties": {
+        "profile": { "const": "learning.module-index-board.v1" },
+        "placement": { "const": "after-module-index-heading" },
+        "contentScope": { "const": "source-page-images-and-learning-frames" },
+        "nativeZoomAndAnnotation": { "const": true },
+        "learningFrameMarkerStyle": { "$ref": "#/$defs/learningFrameMarkerStyle" }
+      },
+      "additionalProperties": false
+    },
+    "sourceImage": {
+      "type": "object",
+      "required": ["shapeId", "bounds", "admittedForLearningSync", "easyedaIdentity"],
+      "properties": {
+        "shapeId": { "type": "string" },
+        "bounds": { "$ref": "#/$defs/bounds" },
+        "admittedForLearningSync": { "type": "boolean" },
+        "assetSha256": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+        "easyedaIdentity": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+    "frame": {
+      "type": "object",
+      "required": ["frameId", "frameNumber", "title", "bounds", "sourceImageIds", "dialogueTurnIds"],
+      "properties": {
+        "frameId": { "type": "string" },
+        "frameNumber": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "bounds": { "$ref": "#/$defs/bounds" },
+        "sourceImageIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "dialogueTurnIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      },
+      "additionalProperties": true
+    },
+    "annotation": {
+      "type": "object",
+      "required": ["shapeId", "kind", "bounds"],
+      "properties": {
+        "shapeId": { "type": "string" },
+        "kind": { "type": "string" },
+        "text": { "type": ["string", "null"] },
+        "bounds": { "$ref": "#/$defs/bounds" }
+      },
+      "additionalProperties": true
+    },
+    "dialogueTurn": {
+      "type": "object",
+      "required": [
+        "turnId", "sessionId", "sequence", "questionId", "userQuestion",
+        "frameLinks", "selectedFrameNumbers", "referencedFrameNumbers"
+      ],
+      "properties": {
+        "turnId": { "type": "string", "pattern": "^turn:" },
+        "sessionId": { "type": "string", "pattern": "^learning:" },
+        "sequence": { "type": "integer", "minimum": 1 },
+        "questionId": { "type": "string", "pattern": "^question:" },
+        "userQuestion": { "type": "string", "minLength": 1 },
+        "assistantResponse": { "type": ["string", "null"] },
+        "frameLinks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["frameNumber", "frameId", "linkSource"],
+            "properties": {
+              "frameNumber": { "type": "integer", "minimum": 1 },
+              "frameId": { "type": "string" },
+              "linkSource": { "enum": ["explicit-number", "canvas-selection"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "selectedFrameNumbers": { "type": "array", "items": { "type": "integer", "minimum": 1 }, "uniqueItems": true },
+        "referencedFrameNumbers": { "type": "array", "items": { "type": "integer", "minimum": 1 }, "uniqueItems": true }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

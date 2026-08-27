@@ -1,0 +1,655 @@
+From d1fb89808794e4984bbcdf84757fe0274dbf6b2c Mon Sep 17 00:00:00 2001
+From: Codex <codex@local.invalid>
+Date: Tue, 25 Aug 2026 12:50:22 +0800
+Subject: [PATCH] fix: make Cowart text editing and exports host-safe
+
+---
+ mcp/server.mjs                                | 66 ++++++++++++++--
+ scripts/probe-hardware-learning.mjs           |  3 +
+ scripts/probe-mcp.mjs                         | 44 ++++++++++-
+ src/cowartClient.js                           | 75 ++++++++++++++-----
+ src/cowartClient.test.mjs                     | 42 ++++++++++-
+ .../HardwareLearningCanvas.jsx                | 75 +++++++++++++------
+ src/learning-canvas/styles.css                |  8 +-
+ 7 files changed, 258 insertions(+), 55 deletions(-)
+
+diff --git a/mcp/server.mjs b/mcp/server.mjs
+index e667883..1f9389b 100644
+--- a/mcp/server.mjs
++++ b/mcp/server.mjs
+@@ -1,5 +1,5 @@
+ import { execFile } from "node:child_process";
+-import { randomUUID } from "node:crypto";
++import { createHash, randomUUID } from "node:crypto";
+ import { readFileSync } from "node:fs";
+ import { appendFile, copyFile, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+ import { homedir, platform, tmpdir } from "node:os";
+@@ -128,8 +128,10 @@ const widgetModeSchema = z.enum(["default", "hardware-learning"]);
+ const HARDWARE_LEARNING_MODE = "hardware-learning";
+ const hardwareLearningCanvasDirs = new Set();
+ const activeCowartDownloads = new Map();
++const completedCowartDownloads = new Map();
+ const MAX_CHUNKED_DOWNLOAD_BYTES = 128 * 1024 * 1024;
+ const MAX_DOWNLOAD_CHUNK_BYTES = 1024 * 1024;
++const MAX_COMPLETED_DOWNLOAD_RESULTS = 64;
+ const LEARNING_EVIDENCE_SOURCES = new Set([
+   "user-provided-local-image",
+   "official-easyeda-export",
+@@ -1010,6 +1012,23 @@ async function beginChunkedCowartDownload(args = {}) {
+     throw new Error(`Chunked Cowart download expectedBytes must be between 1 and ${MAX_CHUNKED_DOWNLOAD_BYTES}.`);
+   }
+ 
++  const requestedDownloadId = nonEmptyString(args.downloadId);
++  const existing = requestedDownloadId ? activeCowartDownloads.get(requestedDownloadId) : null;
++  if (existing) {
++    if (existing.expectedBytes !== expectedBytes) {
++      throw new Error("Cowart chunked download retry changed expectedBytes.");
++    }
++    return {
++      ok: true,
++      action: "begin",
++      downloadId: existing.downloadId,
++      expectedBytes: existing.expectedBytes,
++      fileName: existing.fileName,
++      mimeType: existing.mimeType,
++      resumed: true,
++    };
++  }
++
+   const downloadsDir = join(homedir(), "Downloads");
+   const requestedName = sanitizeFileName(nonEmptyString(args.fileName), `cowart-download-${Date.now()}.bin`);
+   const requestedDirectoryName = nonEmptyString(args.directoryName);
+@@ -1034,7 +1053,8 @@ async function beginChunkedCowartDownload(args = {}) {
+   const temporaryDir = await mkdtemp(join(tmpdir(), "cowart-download-"));
+   const temporaryPath = join(temporaryDir, "payload.part");
+   await writeFile(temporaryPath, Buffer.alloc(0));
+-  const downloadId = randomUUID();
++  const downloadId = requestedDownloadId || randomUUID();
++  completedCowartDownloads.delete(downloadId);
+   activeCowartDownloads.set(downloadId, {
+     downloadId,
+     directoryName,
+@@ -1043,6 +1063,7 @@ async function beginChunkedCowartDownload(args = {}) {
+     fileName,
+     filePath,
+     mimeType: nonEmptyString(args.mimeType) || "application/octet-stream",
++    chunkDigests: new Map(),
+     nextChunkIndex: 0,
+     overwrite: args.overwrite === true,
+     receivedBytes: 0,
+@@ -1062,19 +1083,38 @@ function activeCowartDownload(args = {}) {
+ async function appendChunkedCowartDownload(args = {}) {
+   const download = activeCowartDownload(args);
+   const chunkIndex = Number(args.chunkIndex);
+-  if (!Number.isInteger(chunkIndex) || chunkIndex !== download.nextChunkIndex) {
+-    throw new Error(`Cowart download expected chunk ${download.nextChunkIndex}, received ${args.chunkIndex}.`);
+-  }
+   const chunkBase64 = nonEmptyString(args.chunkBase64);
+   if (!chunkBase64) throw new Error("Cowart download chunkBase64 is required.");
+   const chunk = Buffer.from(chunkBase64, "base64");
+   if (!chunk.length || chunk.length > MAX_DOWNLOAD_CHUNK_BYTES) {
+     throw new Error(`Cowart download chunks must contain between 1 and ${MAX_DOWNLOAD_CHUNK_BYTES} bytes.`);
+   }
++  if (!Number.isInteger(chunkIndex) || chunkIndex < 0) {
++    throw new Error(`Cowart download received invalid chunk index ${args.chunkIndex}.`);
++  }
++  const chunkDigest = createHash("sha256").update(chunk).digest("hex");
++  if (chunkIndex < download.nextChunkIndex) {
++    if (download.chunkDigests.get(chunkIndex) !== chunkDigest) {
++      throw new Error(`Cowart download retry changed the contents of chunk ${chunkIndex}.`);
++    }
++    return {
++      ok: true,
++      action: "append",
++      downloadId: download.downloadId,
++      chunkIndex,
++      duplicate: true,
++      receivedBytes: download.receivedBytes,
++      expectedBytes: download.expectedBytes,
++    };
++  }
++  if (chunkIndex !== download.nextChunkIndex) {
++    throw new Error(`Cowart download expected chunk ${download.nextChunkIndex}, received ${args.chunkIndex}.`);
++  }
+   if (download.receivedBytes + chunk.length > download.expectedBytes) {
+     throw new Error("Cowart download received more bytes than expected.");
+   }
+   await appendFile(download.temporaryPath, chunk);
++  download.chunkDigests.set(chunkIndex, chunkDigest);
+   download.receivedBytes += chunk.length;
+   download.nextChunkIndex += 1;
+   return {
+@@ -1088,13 +1128,20 @@ async function appendChunkedCowartDownload(args = {}) {
+ }
+ 
+ async function cancelChunkedCowartDownload(args = {}) {
+-  const download = activeCowartDownload(args);
++  const downloadId = nonEmptyString(args.downloadId);
++  const download = downloadId ? activeCowartDownloads.get(downloadId) : null;
++  if (!download) {
++    return { ok: true, action: "cancel", downloadId, alreadyClosed: true };
++  }
+   activeCowartDownloads.delete(download.downloadId);
+   await rm(download.temporaryDir, { recursive: true, force: true });
+   return { ok: true, action: "cancel", downloadId: download.downloadId };
+ }
+ 
+ async function finishChunkedCowartDownload(args = {}) {
++  const downloadId = nonEmptyString(args.downloadId);
++  const completed = downloadId ? completedCowartDownloads.get(downloadId) : null;
++  if (completed) return { ...completed, duplicate: true };
+   const download = activeCowartDownload(args);
+   if (download.receivedBytes !== download.expectedBytes) {
+     throw new Error(`Cowart download is incomplete: ${download.receivedBytes} of ${download.expectedBytes} bytes.`);
+@@ -1103,7 +1150,7 @@ async function finishChunkedCowartDownload(args = {}) {
+   await rename(download.temporaryPath, download.filePath);
+   activeCowartDownloads.delete(download.downloadId);
+   await rm(download.temporaryDir, { recursive: true, force: true });
+-  return {
++  const result = {
+     ok: true,
+     action: "finish",
+     downloadId: download.downloadId,
+@@ -1114,6 +1161,11 @@ async function finishChunkedCowartDownload(args = {}) {
+     mimeType: download.mimeType,
+     fileSize: download.receivedBytes,
+   };
++  completedCowartDownloads.set(download.downloadId, result);
++  while (completedCowartDownloads.size > MAX_COMPLETED_DOWNLOAD_RESULTS) {
++    completedCowartDownloads.delete(completedCowartDownloads.keys().next().value);
++  }
++  return result;
+ }
+ 
+ async function downloadCowartFile(args = {}) {
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index 7700080..20b303c 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -57,6 +57,9 @@ assert.match(learningCanvasSource, /cowart-bottom-toolbar/);
+ assert.match(learningCanvasSource, /cowart-zoom-controls/);
+ assert.match(learningCanvasSource, /learning-inline-text-editor/);
+ assert.match(learningCanvasSource, /<InlineCanvasTextEditor/);
++assert.match(learningCanvasSource, /<div[\s\S]*?className="learning-inline-editor"/);
++assert.match(learningCanvasSource, /pageToScreen\(point, camera\)/);
++assert.doesNotMatch(learningCanvasSource, /<foreignObject/);
+ assert.doesNotMatch(learningCanvasSource, /learning-note-dialog|learning-dialog-backdrop|<small>\{label\}<\/small>/);
+ assert.match(learningCanvasSource, /id: 'eraser', label: '橡皮擦'/);
+ assert.match(learningCanvasSource, /id: 'rectangle', label: '矩形'/);
+diff --git a/scripts/probe-mcp.mjs b/scripts/probe-mcp.mjs
+index 73b3375..e4e657c 100644
+--- a/scripts/probe-mcp.mjs
++++ b/scripts/probe-mcp.mjs
+@@ -1,4 +1,5 @@
+ import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
++import { randomUUID } from "node:crypto";
+ import { tmpdir } from "node:os";
+ import path from "node:path";
+ import { performance } from "node:perf_hooks";
+@@ -189,11 +190,13 @@ try {
+ 
+   const chunkedText = "Cowart chunked export probe ".repeat(20_000);
+   const chunkedBase64 = Buffer.from(chunkedText, "utf8").toString("base64");
++  const requestedDownloadId = randomUUID();
+   const chunkedBegin = await client.callTool({
+     name: "download_cowart_file",
+     arguments: {
+       projectDir,
+       action: "begin",
++      downloadId: requestedDownloadId,
+       fileName: `cowart-chunked-export-probe-${process.pid}.txt`,
+       mimeType: "text/plain",
+       expectedBytes: Buffer.byteLength(chunkedText),
+@@ -201,19 +204,47 @@ try {
+   });
+   const downloadId = chunkedBegin.structuredContent?.downloadId;
+   if (!downloadId) throw new Error("Cowart chunked download did not create a session.");
+-  const chunkLength = 256 * 1024;
++  if (downloadId !== requestedDownloadId) throw new Error("Cowart chunked download changed the requested session ID.");
++  const resumedBegin = await client.callTool({
++    name: "download_cowart_file",
++    arguments: {
++      projectDir,
++      action: "begin",
++      downloadId,
++      fileName: `cowart-chunked-export-probe-${process.pid}.txt`,
++      mimeType: "text/plain",
++      expectedBytes: Buffer.byteLength(chunkedText),
++    },
++  });
++  if (resumedBegin.structuredContent?.resumed !== true) {
++    throw new Error("Cowart chunked download begin retry was not idempotent.");
++  }
++  const chunkLength = 48 * 1024;
+   let chunkIndex = 0;
+   for (let offset = 0; offset < chunkedBase64.length; offset += chunkLength) {
+-    await client.callTool({
++    const chunkBase64 = chunkedBase64.slice(offset, offset + chunkLength);
++    const appendResult = await client.callTool({
+       name: "download_cowart_file",
+       arguments: {
+         projectDir,
+         action: "append",
+         downloadId,
+         chunkIndex,
+-        chunkBase64: chunkedBase64.slice(offset, offset + chunkLength),
++        chunkBase64,
+       },
+     });
++    if (chunkIndex === 0) {
++      const duplicate = await client.callTool({
++        name: "download_cowart_file",
++        arguments: { projectDir, action: "append", downloadId, chunkIndex, chunkBase64 },
++      });
++      if (duplicate.structuredContent?.duplicate !== true) {
++        throw new Error("Cowart chunk retry was not idempotent.");
++      }
++    }
++    if (appendResult.structuredContent?.chunkIndex !== chunkIndex) {
++      throw new Error("Cowart chunked download returned an unexpected chunk index.");
++    }
+     chunkIndex += 1;
+   }
+   const chunkedFinish = await client.callTool({
+@@ -224,6 +255,13 @@ try {
+   if (!downloadedChunkedProbePath || await readFile(downloadedChunkedProbePath, "utf8") !== chunkedText) {
+     throw new Error("Cowart chunked export did not preserve the complete payload.");
+   }
++  const duplicateFinish = await client.callTool({
++    name: "download_cowart_file",
++    arguments: { projectDir, action: "finish", downloadId },
++  });
++  if (duplicateFinish.structuredContent?.duplicate !== true || duplicateFinish.structuredContent?.filePath !== downloadedChunkedProbePath) {
++    throw new Error("Cowart chunked download finish retry was not idempotent.");
++  }
+ 
+   const folderDownloadResult = await client.callTool({
+     name: "download_cowart_file",
+diff --git a/src/cowartClient.js b/src/cowartClient.js
+index c8e0da6..2a2bc83 100644
+--- a/src/cowartClient.js
++++ b/src/cowartClient.js
+@@ -13,7 +13,11 @@ const TOOL_COPY_IMAGE_TO_CLIPBOARD = 'copy_cowart_image_to_clipboard'
+ const TOOL_INSERT_HTML_DRAFT = 'insert_cowart_html_draft'
+ const TOOL_INSERT_LEARNING_ANNOTATIONS = 'insert_cowart_learning_annotations'
+ const WIDGET_PAYLOAD_TIMEOUT_MS = 5000
+-const DOWNLOAD_CHUNK_BASE64_LENGTH = 256 * 1024
++// Keep each JSON-RPC tool request comfortably below host message limits. The
++// decoded chunk is 36 KiB and the base64 field is 48 KiB before JSON overhead.
++const DOWNLOAD_CHUNK_BASE64_LENGTH = 48 * 1024
++const DOWNLOAD_TOOL_TIMEOUT_MS = 45_000
++const DOWNLOAD_TOOL_MAX_ATTEMPTS = 2
+ 
+ globalThis.__COWART_WIDGET_FETCH_GUARD__ = true
+ 
+@@ -94,7 +98,7 @@ async function callCowartServerTool(name, args = {}, options = {}) {
+   const result = await window.cowartMcp.callServerTool({
+     name,
+     arguments: serverToolArgs(args)
+-  })
++  }, options.timeoutMs ? { timeoutMs: options.timeoutMs } : undefined)
+   if (result?.isError) {
+     const message = result.content?.find((item) => item.type === 'text')?.text
+     throw new Error(message || `Cowart server tool failed: ${name}`)
+@@ -214,48 +218,83 @@ export async function acknowledgeCowartLearningAnnotations(operationId, commands
+ }
+ 
+ export async function downloadCowartFile(download) {
++  const { onProgress, ...downloadArgs } = download || {}
+   if (!hasCowartWidgetBridge()) {
+-    return downloadFileInBrowser(download)
++    return downloadFileInBrowser(downloadArgs)
+   }
+ 
+-  const payload = downloadBase64Payload(download)
++  const payload = downloadBase64Payload(downloadArgs)
+   if (!payload || payload.base64.length <= DOWNLOAD_CHUNK_BASE64_LENGTH) {
+-    return callCowartServerTool(TOOL_DOWNLOAD_FILE, download)
++    const result = await callCowartServerTool(TOOL_DOWNLOAD_FILE, downloadArgs, {
++      timeoutMs: DOWNLOAD_TOOL_TIMEOUT_MS
++    })
++    onProgress?.({ phase: 'finish', sentBytes: payload ? base64ByteLength(payload.base64) : 0, totalBytes: payload ? base64ByteLength(payload.base64) : 0 })
++    return result
+   }
+ 
+-  let downloadId = null
++  const expectedBytes = base64ByteLength(payload.base64)
++  let downloadId = typeof globalThis.crypto?.randomUUID === 'function' ? globalThis.crypto.randomUUID() : null
+   try {
+-    const started = await callCowartServerTool(TOOL_DOWNLOAD_FILE, {
++    const started = await callDownloadToolWithRetry({
+       action: 'begin',
+-      fileName: download.fileName,
+-      mimeType: download.mimeType || payload.mimeType,
+-      directoryName: download.directoryName,
+-      subdirectory: download.subdirectory,
+-      overwrite: download.overwrite,
+-      uniqueDirectory: download.uniqueDirectory,
+-      expectedBytes: base64ByteLength(payload.base64)
++      downloadId: downloadId || undefined,
++      fileName: downloadArgs.fileName,
++      mimeType: downloadArgs.mimeType || payload.mimeType,
++      directoryName: downloadArgs.directoryName,
++      subdirectory: downloadArgs.subdirectory,
++      overwrite: downloadArgs.overwrite,
++      uniqueDirectory: downloadArgs.uniqueDirectory,
++      expectedBytes
+     })
+     downloadId = started.downloadId
+     if (!downloadId) throw new Error('Cowart 分块导出未返回 downloadId。')
++    onProgress?.({ phase: 'begin', sentBytes: 0, totalBytes: expectedBytes })
+     let chunkIndex = 0
++    let sentBytes = 0
+     for (let offset = 0; offset < payload.base64.length; offset += DOWNLOAD_CHUNK_BASE64_LENGTH) {
+-      await callCowartServerTool(TOOL_DOWNLOAD_FILE, {
++      const chunkBase64 = payload.base64.slice(offset, offset + DOWNLOAD_CHUNK_BASE64_LENGTH)
++      await callDownloadToolWithRetry({
+         action: 'append',
+         downloadId,
+         chunkIndex,
+-        chunkBase64: payload.base64.slice(offset, offset + DOWNLOAD_CHUNK_BASE64_LENGTH)
++        chunkBase64
+       })
+       chunkIndex += 1
++      sentBytes = Math.min(expectedBytes, sentBytes + base64ByteLength(chunkBase64))
++      onProgress?.({
++        phase: 'append',
++        sentBytes,
++        totalBytes: expectedBytes
++      })
+     }
+-    return callCowartServerTool(TOOL_DOWNLOAD_FILE, { action: 'finish', downloadId })
++    const result = await callDownloadToolWithRetry({ action: 'finish', downloadId })
++    onProgress?.({ phase: 'finish', sentBytes: expectedBytes, totalBytes: expectedBytes })
++    return result
+   } catch (error) {
+     if (downloadId) {
+-      await callCowartServerTool(TOOL_DOWNLOAD_FILE, { action: 'cancel', downloadId }).catch(() => undefined)
++      await callCowartServerTool(TOOL_DOWNLOAD_FILE, { action: 'cancel', downloadId }, {
++        timeoutMs: DOWNLOAD_TOOL_TIMEOUT_MS
++      }).catch(() => undefined)
+     }
+     throw error
+   }
+ }
+ 
++async function callDownloadToolWithRetry(args) {
++  let lastError = null
++  for (let attempt = 1; attempt <= DOWNLOAD_TOOL_MAX_ATTEMPTS; attempt += 1) {
++    try {
++      return await callCowartServerTool(TOOL_DOWNLOAD_FILE, args, {
++        timeoutMs: DOWNLOAD_TOOL_TIMEOUT_MS
++      })
++    } catch (error) {
++      lastError = error
++      if (attempt === DOWNLOAD_TOOL_MAX_ATTEMPTS) break
++    }
++  }
++  throw lastError || new Error('Cowart 导出 Bridge 调用失败。')
++}
++
+ function downloadBase64Payload(download = {}) {
+   if (typeof download.dataBase64 === 'string' && download.dataBase64) {
+     return { base64: download.dataBase64, mimeType: download.mimeType || 'application/octet-stream' }
+diff --git a/src/cowartClient.test.mjs b/src/cowartClient.test.mjs
+index 19a72f4..eae04e1 100644
+--- a/src/cowartClient.test.mjs
++++ b/src/cowartClient.test.mjs
+@@ -5,6 +5,7 @@ import { downloadCowartFile } from './cowartClient.js'
+ 
+ test('large Cowart widget exports use ordered chunked Bridge calls', async () => {
+   const calls = []
++  const progress = []
+   globalThis.window = {
+     openai: { toolOutput: { projectDir: 'D:\\fixture' } },
+     cowartMcp: {
+@@ -23,7 +24,8 @@ test('large Cowart widget exports use ordered chunked Bridge calls', async () =>
+     const result = await downloadCowartFile({
+       dataBase64,
+       fileName: 'fixture.png',
+-      mimeType: 'image/png'
++      mimeType: 'image/png',
++      onProgress: (event) => progress.push(event)
+     })
+     assert.equal(result.ok, true)
+     assert.equal(calls[0].arguments.action, 'begin')
+@@ -32,9 +34,45 @@ test('large Cowart widget exports use ordered chunked Bridge calls', async () =>
+     assert.ok(appendCalls.length > 1)
+     assert.deepEqual(appendCalls.map((call) => call.arguments.chunkIndex), appendCalls.map((_call, index) => index))
+     assert.equal(appendCalls.map((call) => call.arguments.chunkBase64).join(''), dataBase64)
+-    assert.ok(appendCalls.every((call) => call.arguments.chunkBase64.length <= 256 * 1024))
++    assert.ok(appendCalls.every((call) => call.arguments.chunkBase64.length <= 48 * 1024))
++    assert.equal(progress.at(-1).phase, 'finish')
++    assert.equal(progress.at(-1).sentBytes, progress.at(-1).totalBytes)
++    assert.ok(calls.every((call) => call.arguments.onProgress === undefined))
+   } finally {
+     delete globalThis.window
+   }
+ })
+ 
++test('Cowart chunk Bridge retries a transient host failure with the same session and chunk', async () => {
++  const calls = []
++  let failedOnce = false
++  globalThis.window = {
++    openai: { toolOutput: { projectDir: 'D:\\fixture' } },
++    cowartMcp: {
++      async callServerTool(request, options) {
++        calls.push({ request, options })
++        const action = request.arguments.action
++        if (action === 'begin') return { structuredContent: { downloadId: request.arguments.downloadId } }
++        if (action === 'append' && request.arguments.chunkIndex === 0 && !failedOnce) {
++          failedOnce = true
++          throw new Error('temporary host bridge failure')
++        }
++        if (action === 'finish') return { structuredContent: { ok: true, filePath: 'D:\\Downloads\\fixture.png' } }
++        return { structuredContent: { ok: true } }
++      }
++    }
++  }
++
++  try {
++    const dataBase64 = 'QUJD'.repeat(40_000)
++    const result = await downloadCowartFile({ dataBase64, fileName: 'fixture.png', mimeType: 'image/png' })
++    assert.equal(result.ok, true)
++    const firstChunkCalls = calls.filter(({ request }) => request.arguments.action === 'append' && request.arguments.chunkIndex === 0)
++    assert.equal(firstChunkCalls.length, 2)
++    assert.equal(firstChunkCalls[0].request.arguments.downloadId, firstChunkCalls[1].request.arguments.downloadId)
++    assert.equal(firstChunkCalls[0].request.arguments.chunkBase64, firstChunkCalls[1].request.arguments.chunkBase64)
++    assert.ok(calls.every(({ options }) => options?.timeoutMs === 45_000))
++  } finally {
++    delete globalThis.window
++  }
++})
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index 9b7583c..48aa1a6 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -64,6 +64,7 @@ import {
+   normalizeBounds,
+   normalizeLearningStyle,
+   pageBoundsForShape,
++  pageToScreen,
+   pageRecords,
+   resizeRectangleShape,
+   screenToPage,
+@@ -270,12 +271,15 @@ function LearningShape({ shape, snapshot, assetSources, editing, selected, onPoi
+   return null
+ }
+ 
+-function InlineCanvasTextEditor({ draft, shape, style, onCancel, onChange, onCommit }) {
++function InlineCanvasTextEditor({ camera, draft, shape, style, onCancel, onChange, onCommit }) {
+   const inputRef = useRef(null)
+   const editingStyle = normalizeLearningStyle(draft.style ?? style)
+   const point = shape ? { x: shape.x, y: shape.y } : draft.point
+   const width = shape?.props?.w || (draft.mode === 'note' ? 260 : 320)
+   const height = shape?.props?.h || (draft.mode === 'note' ? 120 : 82)
++  const screenPoint = pageToScreen(point, camera)
++  const screenWidth = Math.max(draft.mode === 'note' ? 210 : 240, width * camera.z)
++  const screenHeight = Math.max(draft.mode === 'note' ? 104 : 74, height * camera.z)
+   const color = colorValue(editingStyle.color, draft.mode === 'note' ? '#eab308' : '#1f2937')
+   const fillOpacity = editingStyle.fill === 'solid' ? (draft.mode === 'note' ? 0.34 : 0.92) : editingStyle.fill === 'semi' ? 0.18 : 0
+   const background = fillOpacity > 0 ? `${color}${Math.round(fillOpacity * 255).toString(16).padStart(2, '0')}` : 'transparent'
+@@ -283,25 +287,36 @@ function InlineCanvasTextEditor({ draft, shape, style, onCancel, onChange, onCom
+   useEffect(() => {
+     const input = inputRef.current
+     if (!input) return
+-    input.focus()
+-    if (draft.shapeId) input.select()
+-  }, [draft.shapeId])
++    let frame = 0
++    let attempts = 0
++    const focusEditor = () => {
++      attempts += 1
++      input.focus({ preventScroll: true })
++      if (draft.shapeId) input.select()
++      if (document.activeElement !== input && attempts < 8) {
++        frame = requestAnimationFrame(focusEditor)
++      }
++    }
++    focusEditor()
++    return () => cancelAnimationFrame(frame)
++  }, [draft.mode, draft.shapeId])
+ 
+   return (
+-    <foreignObject
++    <div
+       className="learning-inline-editor"
+       data-mode={draft.mode}
+-      height={height}
+       onDoubleClick={(event) => event.stopPropagation()}
+       onPointerDown={(event) => event.stopPropagation()}
+-      width={width}
+-      x={point.x}
+-      y={point.y}
++      style={{
++        height: screenHeight,
++        left: screenPoint.x,
++        top: screenPoint.y,
++        width: screenWidth
++      }}
+     >
+       <div
+         className="learning-inline-editor-surface"
+         style={{ '--editor-color': color, '--editor-background': background }}
+-        xmlns="http://www.w3.org/1999/xhtml"
+       >
+         <textarea
+           aria-label={draft.mode === 'note' ? '便签文字' : '画布文字'}
+@@ -327,7 +342,7 @@ function InlineCanvasTextEditor({ draft, shape, style, onCancel, onChange, onCom
+           value={draft.text}
+         />
+       </div>
+-    </foreignObject>
++    </div>
+   )
+ }
+ 
+@@ -1063,13 +1078,24 @@ export default function HardwareLearningCanvas() {
+     setExporting(true)
+     setOpenMenu(null)
+     setStatus({ kind: 'saving', text: '正在准备导出…' })
++    let lastReportedProgress = -1
++    const downloadExportFile = (args) => downloadCowartFile({
++      ...args,
++      onProgress: ({ sentBytes, totalBytes }) => {
++        if (!totalBytes) return
++        const progress = Math.min(100, Math.floor(sentBytes * 100 / totalBytes))
++        if (progress < 100 && progress < lastReportedProgress + 5) return
++        lastReportedProgress = progress
++        setStatus({ kind: 'saving', text: `正在写入下载文件 ${progress}%…` })
++      }
++    })
+     try {
+       await new Promise((resolve) => requestAnimationFrame(resolve))
+       const selectedShapeIds = selectedOnly ? selectedIds : []
+       const filePart = timestampFilePart()
+       if (kind === 'json') {
+         const json = `${JSON.stringify(snapshotRef.current, null, 2)}\n`
+-        await downloadCowartFile({
++        await downloadExportFile({
+           dataBase64: textToBase64(json),
+           fileName: `cowart-learning-canvas-${filePart}.json`,
+           mimeType: 'application/json'
+@@ -1083,7 +1109,7 @@ export default function HardwareLearningCanvas() {
+           selectedShapeIds
+         })
+         if (kind === 'svg') {
+-          await downloadCowartFile({
++          await downloadExportFile({
+             dataUrl: svgDataUrl(result.svg),
+             fileName: `cowart-learning-${selectedOnly ? 'selection' : 'page'}-${filePart}.svg`,
+             mimeType: 'image/svg+xml'
+@@ -1093,7 +1119,7 @@ export default function HardwareLearningCanvas() {
+           if (kind === 'clipboard') {
+             await copyCowartImageToClipboard({ dataUrl: png.dataUrl, mimeType: 'image/png' })
+           } else {
+-            await downloadCowartFile({
++            await downloadExportFile({
+               dataUrl: png.dataUrl,
+               fileName: `cowart-learning-${selectedOnly ? 'selection' : 'page'}-${filePart}.png`,
+               mimeType: 'image/png'
+@@ -1161,16 +1187,6 @@ export default function HardwareLearningCanvas() {
+                   snapshot={snapshot}
+                 />
+               ))}
+-              {noteDraft && (
+-                <InlineCanvasTextEditor
+-                  draft={noteDraft}
+-                  onCancel={() => { setNoteDraft(null); setTool('select') }}
+-                  onChange={(text) => setNoteDraft((current) => current ? { ...current, text } : current)}
+-                  onCommit={saveNote}
+-                  shape={noteDraft.shapeId ? snapshot.store[noteDraft.shapeId] : null}
+-                  style={style}
+-                />
+-              )}
+               {selectionBounds && (
+                 <g className="learning-selection-overlay">
+                   <rect fill="none" height={selectionBounds.h} pointerEvents="none" stroke="#2563eb" strokeDasharray="6 4" strokeWidth={2 / camera.z} width={selectionBounds.w} x={selectionBounds.x} y={selectionBounds.y} />
+@@ -1201,6 +1217,17 @@ export default function HardwareLearningCanvas() {
+         ) : (
+           <div className="learning-empty-state">{status.text}</div>
+         )}
++        {snapshot && pageId && noteDraft && (
++          <InlineCanvasTextEditor
++            camera={camera}
++            draft={noteDraft}
++            onCancel={() => { setNoteDraft(null); setTool('select') }}
++            onChange={(text) => setNoteDraft((current) => current ? { ...current, text } : current)}
++            onCommit={saveNote}
++            shape={noteDraft.shapeId ? snapshot.store[noteDraft.shapeId] : null}
++            style={style}
++          />
++        )}
+       </section>
+ 
+       <nav aria-label="画布操作" className="cowart-top-actions">
+diff --git a/src/learning-canvas/styles.css b/src/learning-canvas/styles.css
+index 8e12d3b..7fd43bf 100644
+--- a/src/learning-canvas/styles.css
++++ b/src/learning-canvas/styles.css
+@@ -75,8 +75,13 @@ textarea:focus-visible {
+ }
+ 
+ .learning-inline-editor {
++  position: absolute;
++  z-index: 32;
++  box-sizing: border-box;
+   overflow: visible;
+-  pointer-events: all;
++  pointer-events: auto;
++  touch-action: auto;
++  user-select: text;
+ }
+ 
+ .learning-inline-editor-surface {
+@@ -107,6 +112,7 @@ textarea:focus-visible {
+   background: transparent;
+   border: 0;
+   outline: 0;
++  pointer-events: auto;
+   user-select: text;
+ }
+ 
+-- 
+2.55.0.windows.3
+

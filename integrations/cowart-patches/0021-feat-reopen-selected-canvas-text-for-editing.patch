@@ -1,0 +1,97 @@
+From 7b49ebde83203d48ebf822118f5653f9092dbbac Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Tue, 25 Aug 2026 17:46:30 +0800
+Subject: [PATCH 21/21] feat: reopen selected canvas text for editing
+
+---
+ .../HardwareLearningCanvas.jsx                | 57 ++++++++++++++-----
+ 1 file changed, 42 insertions(+), 15 deletions(-)
+
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index 5ce89d6..2e4e565 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -724,6 +724,13 @@ export default function HardwareLearningCanvas() {
+         setOpenMenu(null)
+         setSelectedIds([])
+       }
++      if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.altKey && selectedIds.length === 1) {
++        const selectedShape = snapshotRef.current?.store?.[selectedIds[0]]
++        if (beginShapeTextEdit(selectedShape)) {
++          event.preventDefault()
++          return
++        }
++      }
+       const shortcut = {
+         v: 'select', h: 'hand', f: 'frame', d: 'pen', e: 'eraser', t: 'text',
+         a: 'arrow', n: 'note', r: 'rectangle', o: 'ellipse', l: 'line', k: 'highlight'
+@@ -897,6 +904,13 @@ export default function HardwareLearningCanvas() {
+       }
+       return
+     }
++    const textKind = shape.meta?.cowartLearningKind
++    if ((tool === 'text' && textKind === 'text') || (tool === 'note' && textKind === 'note')) {
++      event.preventDefault()
++      event.stopPropagation()
++      beginShapeTextEdit(shape)
++      return
++    }
+     if (tool !== 'select') return
+     event.stopPropagation()
+     const screen = pointerPosition(event, rootRef.current)
+@@ -918,24 +932,37 @@ export default function HardwareLearningCanvas() {
+     }
+   }
+ 
++  function beginShapeTextEdit(shape) {
++    const mode = shape?.meta?.cowartLearningKind
++    if (!['note', 'text'].includes(mode)) return false
++    setGesture(null)
++    setDraftShape(null)
++    setMarqueeBounds(null)
++    setOpenMenu(null)
++    flushSync(() => {
++      setSelectedIds([shape.id])
++      setTool('select')
++      setNoteDraft({
++        point: { x: shape.x, y: shape.y },
++        text: shape.meta?.cowartLearningText || '',
++        shapeId: shape.id,
++        mode,
++        style: normalizeLearningStyle({
++          color: shape.props?.color,
++          fill: shape.props?.fill,
++          dash: shape.props?.dash,
++          size: shape.props?.size,
++          opacity: shape.opacity
++        })
++      })
++    })
++    return true
++  }
++
+   function handleShapeDoubleClick(event, shape) {
+     if (!['note', 'text'].includes(shape.meta?.cowartLearningKind)) return
+     event.stopPropagation()
+-    setSelectedIds([shape.id])
+-    setTool('select')
+-    setNoteDraft({
+-      point: { x: shape.x, y: shape.y },
+-      text: shape.meta?.cowartLearningText || '',
+-      shapeId: shape.id,
+-      mode: shape.meta?.cowartLearningKind,
+-      style: normalizeLearningStyle({
+-        color: shape.props?.color,
+-        fill: shape.props?.fill,
+-        dash: shape.props?.dash,
+-        size: shape.props?.size,
+-        opacity: shape.opacity
+-      })
+-    })
++    beginShapeTextEdit(shape)
+   }
+ 
+   function handlePointerMove(event) {
+-- 
+2.55.0.windows.3
+

@@ -1,0 +1,7 @@
+interface:
+  display_name: "EasyEDA Hardware Lifecycle"
+  short_description: "Design, review, learning canvas, BOM, and guarded sync"
+  default_prompt: "Use $easyeda-hardware-lifecycle to run the staged hardware workflow or evidence-bound JLC Hardware Learning learning mode for this EasyEDA project."
+
+policy:
+  allow_implicit_invocation: true

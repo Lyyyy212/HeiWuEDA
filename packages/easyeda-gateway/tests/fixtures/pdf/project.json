@@ -1,0 +1,20 @@
+{
+  "config": {"title": "PDF fixture"},
+  "boards": {"FixtureBoard": {"schematic": "schematic-uuid", "pcb": ""}},
+  "devices": {},
+  "symbols": {
+    "sym-used": {"uuid": "sym-used", "title": "Used Symbol"},
+    "sym-unused": {"uuid": "sym-unused", "title": "Unused Symbol"}
+  },
+  "footprints": {},
+  "schematics": {
+    "schematic-uuid": {
+      "name": "Fixture Schematic",
+      "sheets": [
+        {"uuid": "sheet-uuid", "id": 1, "name": "Fixture Sheet", "display_title": "Fixture Sheet"}
+      ]
+    }
+  },
+  "pcbs": {},
+  "panels": {}
+}

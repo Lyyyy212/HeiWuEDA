@@ -1,0 +1,2227 @@
+From 6500ab9818ccaf326631f7defd82ea96c0fafdfa Mon Sep 17 00:00:00 2001
+From: Codex <codex@local.invalid>
+Date: Tue, 25 Aug 2026 11:05:53 +0800
+Subject: [PATCH] feat: replicate original Cowart learning UI
+
+---
+ scripts/probe-hardware-learning.mjs           |   9 +-
+ .../HardwareLearningCanvas.jsx                | 593 +++++++++++++----
+ src/learning-canvas/export.js                 |  55 +-
+ src/learning-canvas/model.js                  | 226 ++++++-
+ src/learning-canvas/model.test.mjs            |  51 +-
+ src/learning-canvas/styles.css                | 616 +++++++++++-------
+ 6 files changed, 1143 insertions(+), 407 deletions(-)
+
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index 28ce3f9..e564bd6 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -50,7 +50,14 @@ const learningCanvasSource = await readFile(
+   "utf8",
+ );
+ assert.match(learningCanvasSource, /data-engine="cowart-learning-canvas-v2"/);
+-assert.match(learningCanvasSource, /id: 'frame', label: '学习框'/);
++assert.match(learningCanvasSource, /id: 'frame', label: '标注'/);
++assert.match(learningCanvasSource, /cowart-top-actions/);
++assert.match(learningCanvasSource, /cowart-style-panel/);
++assert.match(learningCanvasSource, /cowart-bottom-toolbar/);
++assert.match(learningCanvasSource, /cowart-zoom-controls/);
++assert.match(learningCanvasSource, /id: 'eraser', label: '橡皮擦'/);
++assert.match(learningCanvasSource, /id: 'rectangle', label: '矩形'/);
++assert.match(learningCanvasSource, /duplicateLearningShapes/);
+ assert.match(learningCanvasSource, /selectionRevisionRef/);
+ assert.match(learningCanvasSource, /buildLearningCanvasSvg/);
+ assert.doesNotMatch(learningCanvasSource, /from ['"]tldraw['"]|tl-watermark|Made with tldraw/);
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index 0d9703b..d117f85 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -4,16 +4,27 @@ import {
+   Brush,
+   Check,
+   ChevronDown,
++  Circle,
+   Clipboard,
++  Copy,
+   Download,
++  Eraser,
+   Hand,
+   Highlighter,
+   LoaderCircle,
++  Map as MapIcon,
+   Maximize2,
++  Menu,
++  Minus,
++  MoreHorizontal,
+   MousePointer2,
++  Plus,
++  RectangleHorizontal,
+   Redo2,
++  Shapes,
+   StickyNote,
+   Trash2,
++  Type,
+   Undo2,
+   ZoomIn,
+   ZoomOut
+@@ -36,19 +47,27 @@ import { applyLearningAnnotationOperations } from './annotations.js'
+ import {
+   addShape,
+   createArrowShape,
++  createEllipseShape,
+   createFrameShape,
++  createLineShape,
+   createNoteShape,
++  createRectangleShape,
+   createStrokeShape,
++  createTextShape,
++  DEFAULT_LEARNING_STYLE,
+   deleteLearningShapes,
++  duplicateLearningShapes,
+   fitCamera,
+   migrateLegacyLearningFrames,
+   normalizeBounds,
++  normalizeLearningStyle,
+   pageBoundsForShape,
+   pageRecords,
+   resizeRectangleShape,
+   screenToPage,
+   selectionState,
+   shapesForPage,
++  styleLearningShapes,
+   translateShape,
+   unionBounds,
+   updateShape,
+@@ -57,22 +76,43 @@ import {
+ import {
+   buildLearningCanvasSvg,
+   colorValue,
++  dashArrayForStyle,
++  strokeWidthForSize,
+   svgDataUrl,
+   svgToPngDataUrl,
+   textToBase64
+ } from './export.js'
+ import './styles.css'
+ 
+-const TOOLS = [
++const PRIMARY_TOOLS = [
++  { id: 'frame', label: '标注', Icon: BoxSelect, featured: true },
+   { id: 'select', label: '选择', Icon: MousePointer2 },
+   { id: 'hand', label: '平移', Icon: Hand },
+-  { id: 'frame', label: '学习框', Icon: BoxSelect },
+   { id: 'pen', label: '画笔', Icon: Brush },
+-  { id: 'highlight', label: '高亮', Icon: Highlighter },
++  { id: 'eraser', label: '橡皮擦', Icon: Eraser },
++  { id: 'text', label: '文本', Icon: Type },
+   { id: 'arrow', label: '箭头', Icon: ArrowUpRight },
+-  { id: 'note', label: '文字', Icon: StickyNote }
++  { id: 'note', label: '便签', Icon: StickyNote }
+ ]
+ 
++const MORE_TOOLS = [
++  { id: 'rectangle', label: '矩形', Icon: RectangleHorizontal },
++  { id: 'ellipse', label: '椭圆', Icon: Circle },
++  { id: 'line', label: '直线', Icon: Minus },
++  { id: 'highlight', label: '高亮', Icon: Highlighter }
++]
++
++const STYLE_COLORS = [
++  ['black', '#1f2937'], ['grey', '#64748b'], ['light-violet', '#c4b5fd'],
++  ['violet', '#7c3aed'], ['blue', '#2563eb'], ['light-blue', '#38bdf8'],
++  ['yellow', '#eab308'], ['orange', '#f97316'], ['green', '#16a34a'],
++  ['light-green', '#86efac'], ['light-red', '#fca5a5'], ['red', '#dc2626']
++]
++
++const FILL_OPTIONS = [['none', '无'], ['semi', '浅色'], ['solid', '实色']]
++const DASH_OPTIONS = [['draw', '手绘'], ['dashed', '虚线'], ['dotted', '点线'], ['solid', '实线']]
++const SIZE_OPTIONS = [['s', '小'], ['m', '中'], ['l', '大'], ['xl', '特大']]
++
+ const DEFAULT_CAMERA = { x: 0, y: 0, z: 1 }
+ const EMPTY_VIEW_STATE = { version: 1, currentPageId: null, camera: DEFAULT_CAMERA }
+ 
+@@ -104,6 +144,7 @@ function LearningShape({ shape, snapshot, assetSources, selected, onPointerDown,
+     onDoubleClick: (event) => onDoubleClick(event, shape),
+     onPointerDown: (event) => onPointerDown(event, shape),
+     style: { cursor: 'inherit' },
++    opacity: Math.min(1, Math.max(0.1, Number(shape.opacity) || 1)),
+     transform: `translate(${shape.x || 0} ${shape.y || 0}) rotate(${((shape.rotation || 0) * 180) / Math.PI})`
+   }
+   if (shape.type === 'image') {
+@@ -123,14 +164,16 @@ function LearningShape({ shape, snapshot, assetSources, selected, onPointerDown,
+   if (shape.type === 'arrow') {
+     const start = shape.props?.start ?? { x: 0, y: 0 }
+     const end = shape.props?.end ?? { x: 1, y: 1 }
++    const width = strokeWidthForSize(shape.props?.size)
+     return (
+       <line
+         {...common}
+         className={selected ? 'is-selected' : ''}
+-        markerEnd="url(#learning-arrow)"
++        markerEnd={shape.props?.arrowheadEnd === 'none' ? undefined : 'url(#learning-arrow)'}
+         stroke={colorValue(shape.props?.color, '#2563eb')}
++        strokeDasharray={dashArrayForStyle(shape.props?.dash, width)}
+         strokeLinecap="round"
+-        strokeWidth={3 / Math.max(0.2, 1)}
++        strokeWidth={width}
+         x1={start.x}
+         x2={end.x}
+         y1={start.y}
+@@ -140,17 +183,19 @@ function LearningShape({ shape, snapshot, assetSources, selected, onPointerDown,
+   }
+   if (shape.type === 'draw' || shape.type === 'highlight') {
+     const points = (shape.meta?.cowartLearningPoints ?? []).map((point) => `${point.x},${point.y}`).join(' ')
++    const width = shape.type === 'highlight'
++      ? strokeWidthForSize(shape.props?.size, 5) * 4
++      : strokeWidthForSize(shape.props?.size, 4)
+     return (
+       <polyline
+         {...common}
+         className={selected ? 'is-selected' : ''}
+         fill="none"
+         points={points}
+-        stroke={shape.type === 'highlight' ? '#facc15' : colorValue(shape.props?.color)}
++        stroke={colorValue(shape.props?.color, shape.type === 'highlight' ? '#facc15' : '#7c3aed')}
+         strokeLinecap="round"
+         strokeLinejoin="round"
+-        strokeOpacity={shape.type === 'highlight' ? 0.5 : 1}
+-        strokeWidth={shape.type === 'highlight' ? 18 : 4}
++        strokeWidth={width}
+       />
+     )
+   }
+@@ -158,23 +203,50 @@ function LearningShape({ shape, snapshot, assetSources, selected, onPointerDown,
+     const kind = shape.meta?.cowartLearningKind
+     const frame = shape.meta?.cowartLearningFrame === true
+     const note = kind === 'note'
++    const textOnly = kind === 'text'
+     const highlight = kind === 'highlight'
+     const text = shape.meta?.cowartLearningText || ''
++    const stroke = frame ? '#7c3aed' : colorValue(shape.props?.color, '#2563eb')
++    const fill = note
++      ? '#fff6a8'
++      : shape.props?.fill === 'solid'
++        ? stroke
++        : shape.props?.fill === 'semi' || highlight
++          ? stroke
++          : 'transparent'
++    const fillOpacity = note ? 1 : shape.props?.fill === 'solid' ? 0.92 : 0.22
++    const strokeWidth = frame ? 4 : strokeWidthForSize(shape.props?.size)
++    const geometry = shape.props?.geo === 'ellipse' ? 'ellipse' : 'rectangle'
+     return (
+       <g {...common} className={selected ? 'is-selected' : ''}>
+-        <rect
+-          className={frame ? 'learning-frame-shape' : ''}
+-          fill={note ? '#fff6a8' : highlight ? '#fde047' : 'transparent'}
+-          fillOpacity={highlight ? 0.35 : 1}
+-          height={shape.props?.h || 1}
+-          rx={note ? 10 : 3}
+-          stroke={frame ? '#7c3aed' : colorValue(shape.props?.color, '#2563eb')}
+-          strokeDasharray={frame ? '10 7' : shape.props?.dash === 'draw' ? '7 5' : undefined}
+-          strokeWidth={frame ? 4 : 3}
+-          width={shape.props?.w || 1}
+-        />
+-        {note && (
+-          <text className="learning-note-text" x="14" y="8">
++        {!textOnly && geometry === 'rectangle' && (
++          <rect
++            className={frame ? 'learning-frame-shape' : ''}
++            fill={fill}
++            fillOpacity={fillOpacity}
++            height={shape.props?.h || 1}
++            rx={note ? 10 : 3}
++            stroke={stroke}
++            strokeDasharray={frame ? '10 7' : dashArrayForStyle(shape.props?.dash, strokeWidth)}
++            strokeWidth={strokeWidth}
++            width={shape.props?.w || 1}
++          />
++        )}
++        {!textOnly && geometry === 'ellipse' && (
++          <ellipse
++            cx={(shape.props?.w || 1) / 2}
++            cy={(shape.props?.h || 1) / 2}
++            fill={fill}
++            fillOpacity={fillOpacity}
++            rx={(shape.props?.w || 1) / 2}
++            ry={(shape.props?.h || 1) / 2}
++            stroke={stroke}
++            strokeDasharray={dashArrayForStyle(shape.props?.dash, strokeWidth)}
++            strokeWidth={strokeWidth}
++          />
++        )}
++        {(note || textOnly) && (
++          <text className="learning-note-text" fill={textOnly ? stroke : undefined} x="14" y="8">
+             {noteTextLines(text).map((line, index) => (
+               <tspan key={`${shape.id}-${index}`} x="14" dy={index === 0 ? 24 : 20}>{line}</tspan>
+             ))}
+@@ -199,8 +271,25 @@ function ToolbarButton({ active = false, disabled = false, label, Icon, onClick,
+       title={label}
+       type="button"
+     >
+-      <Icon aria-hidden="true" size={18} strokeWidth={2} />
+-      <span>{label}</span>
++      <Icon aria-hidden="true" size={19} strokeWidth={2} />
++    </button>
++  )
++}
++
++function MenuButton({ active = false, disabled = false, label, Icon, onClick, testId, children }) {
++  return (
++    <button
++      aria-label={label}
++      className="cowart-icon-button"
++      data-active={active ? 'true' : 'false'}
++      data-testid={testId}
++      disabled={disabled}
++      onClick={onClick}
++      title={label}
++      type="button"
++    >
++      {Icon && <Icon aria-hidden="true" size={17} strokeWidth={2} />}
++      {children}
+     </button>
+   )
+ }
+@@ -236,14 +325,17 @@ export default function HardwareLearningCanvas() {
+   const [view, setView] = useState(EMPTY_VIEW_STATE)
+   const [selectedIds, setSelectedIds] = useState([])
+   const [tool, setTool] = useState('select')
++  const [style, setStyle] = useState(DEFAULT_LEARNING_STYLE)
+   const [gesture, setGesture] = useState(null)
+   const [draftShape, setDraftShape] = useState(null)
++  const [marqueeBounds, setMarqueeBounds] = useState(null)
+   const [assetSources, setAssetSources] = useState(new Map())
+   const [status, setStatus] = useState({ kind: 'loading', text: '正在加载学习画布…' })
+   const [historyVersion, setHistoryVersion] = useState(0)
+   const [noteDraft, setNoteDraft] = useState(null)
+-  const [exportOpen, setExportOpen] = useState(false)
++  const [openMenu, setOpenMenu] = useState(null)
+   const [exporting, setExporting] = useState(false)
++  const [minimapOpen, setMinimapOpen] = useState(false)
+ 
+   const pages = useMemo(() => pageRecords(snapshot), [snapshot])
+   const pageId = view.currentPageId || pages[0]?.id || null
+@@ -253,6 +345,19 @@ export default function HardwareLearningCanvas() {
+     [snapshot, pageId]
+   )
+ 
++  useEffect(() => {
++    if (selectedIds.length !== 1 || !snapshot) return
++    const shape = snapshot.store[selectedIds[0]]
++    if (!shape || shape.type === 'image') return
++    setStyle(normalizeLearningStyle({
++      color: shape.props?.color,
++      fill: shape.props?.fill,
++      dash: shape.props?.dash,
++      size: shape.props?.size,
++      opacity: shape.opacity
++    }))
++  }, [selectedIds, snapshot])
++
+   const persistSnapshot = useCallback((next, message = '已保存') => {
+     snapshotRef.current = next
+     remoteSignatureRef.current = snapshotSignature(next)
+@@ -318,9 +423,9 @@ export default function HardwareLearningCanvas() {
+         setView(loadedView)
+         setStatus({
+           kind: 'saved',
+-          text: migration.changed ? `已迁移 ${migration.migratedShapeIds.length} 个旧学习框` : '学习画布已就绪'
++          text: migration.changed ? '学习画布兼容迁移完成' : '学习画布已就绪'
+         })
+-        if (migration.changed) await persistSnapshot(migration.snapshot, '旧学习框迁移完成')
++        if (migration.changed) await persistSnapshot(migration.snapshot, '学习画布兼容迁移完成')
+       } catch (error) {
+         if (error.name === 'AbortError') return
+         console.error(error)
+@@ -461,13 +566,36 @@ export default function HardwareLearningCanvas() {
+         if (event.shiftKey) redo()
+         else undo()
+       }
++      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') {
++        event.preventDefault()
++        duplicateSelected()
++      }
++      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
++        event.preventDefault()
++        setSelectedIds(pageShapes.map((shape) => shape.id))
++      }
++      if ((event.ctrlKey || event.metaKey) && event.key === '0') {
++        event.preventDefault()
++        fitContent()
++      }
++      if ((event.ctrlKey || event.metaKey) && event.key === '1') {
++        event.preventDefault()
++        zoomTo100()
++      }
++      if (!event.ctrlKey && !event.metaKey && (event.key === '+' || event.key === '=')) zoomBy(1.2)
++      if (!event.ctrlKey && !event.metaKey && event.key === '-') zoomBy(1 / 1.2)
+       if (event.key === 'Escape') {
+         setGesture(null)
+         setDraftShape(null)
++        setMarqueeBounds(null)
+         setNoteDraft(null)
+-        setExportOpen(false)
++        setOpenMenu(null)
++        setSelectedIds([])
+       }
+-      const shortcut = { v: 'select', h: 'hand', f: 'frame', p: 'pen', l: 'highlight', a: 'arrow', n: 'note' }[event.key.toLowerCase()]
++      const shortcut = {
++        v: 'select', h: 'hand', f: 'frame', d: 'pen', e: 'eraser', t: 'text',
++        a: 'arrow', n: 'note', r: 'rectangle', o: 'ellipse', l: 'line', k: 'highlight'
++      }[event.key.toLowerCase()]
+       if (shortcut && !event.ctrlKey && !event.metaKey) setTool(shortcut)
+     }
+     window.addEventListener('keydown', keyDown)
+@@ -505,6 +633,59 @@ export default function HardwareLearningCanvas() {
+     }))
+   }, [pageId, setViewState])
+ 
++  function zoomBy(factor) {
++    if (!rootRef.current) return
++    const center = { x: rootRef.current.clientWidth / 2, y: rootRef.current.clientHeight / 2 }
++    setViewState((current) => ({
++      ...current,
++      camera: zoomCameraAt(current.camera, center, current.camera.z * factor)
++    }))
++  }
++
++  function zoomTo100() {
++    if (!rootRef.current) return
++    const center = { x: rootRef.current.clientWidth / 2, y: rootRef.current.clientHeight / 2 }
++    setViewState((current) => ({ ...current, camera: zoomCameraAt(current.camera, center, 1) }))
++  }
++
++  function duplicateSelected() {
++    if (!snapshotRef.current || !selectedIds.length) return
++    const result = duplicateLearningShapes(snapshotRef.current, selectedIds)
++    if (!result.duplicated.length) {
++      setStatus({ kind: 'saved', text: '原理图底图受保护，不能复制' })
++      return
++    }
++    setSelectedIds(result.duplicated)
++    commitSnapshot(result.snapshot, { message: `已复制 ${result.duplicated.length} 个标注` })
++  }
++
++  function deleteSelected() {
++    if (!snapshotRef.current || !selectedIds.length) return
++    const result = deleteLearningShapes(snapshotRef.current, selectedIds)
++    if (!result.deleted.length) {
++      setStatus({ kind: 'saved', text: '原理图底图受保护，不能删除' })
++      return
++    }
++    setSelectedIds([])
++    commitSnapshot(result.snapshot, { message: `已删除 ${result.deleted.length} 个标注` })
++  }
++
++  function applyStyle(stylePatch) {
++    const nextStyle = normalizeLearningStyle({ ...style, ...stylePatch })
++    setStyle(nextStyle)
++    if (!snapshotRef.current || !selectedIds.length) return
++    const result = styleLearningShapes(snapshotRef.current, selectedIds, stylePatch)
++    if (result.updated.length) commitSnapshot(result.snapshot, { message: '样式已更新' })
++  }
++
++  function chooseTool(nextTool) {
++    setTool(nextTool)
++    setGesture(null)
++    setDraftShape(null)
++    setMarqueeBounds(null)
++    setOpenMenu(null)
++  }
++
+   function startPointerGesture(event, type, data = {}) {
+     rootRef.current?.setPointerCapture?.(event.pointerId)
+     setGesture({ type, pointerId: event.pointerId, ...data })
+@@ -522,13 +703,14 @@ export default function HardwareLearningCanvas() {
+     if (event.button !== 0) return
+     if (tool === 'select') {
+       setSelectedIds([])
++      startPointerGesture(event, 'marquee', { startPage: page, currentPage: page })
+       return
+     }
+-    if (tool === 'note') {
+-      setNoteDraft({ point: page, text: '' })
++    if (tool === 'note' || tool === 'text') {
++      setNoteDraft({ point: page, text: '', mode: tool })
+       return
+     }
+-    if (tool === 'frame' || tool === 'arrow') {
++    if (['frame', 'arrow', 'line', 'rectangle', 'ellipse'].includes(tool)) {
+       startPointerGesture(event, tool, { startPage: page, currentPage: page })
+       return
+     }
+@@ -538,7 +720,21 @@ export default function HardwareLearningCanvas() {
+   }
+ 
+   function handleShapePointerDown(event, shape) {
+-    if (tool !== 'select' || event.button !== 0 || !rootRef.current) return
++    if (event.button !== 0 || !rootRef.current) return
++    if (tool === 'eraser') {
++      event.stopPropagation()
++      if (shape.type === 'image') {
++        setStatus({ kind: 'saved', text: '原理图底图受保护，不能擦除' })
++        return
++      }
++      const result = deleteLearningShapes(snapshotRef.current, [shape.id])
++      if (result.deleted.length) {
++        setSelectedIds((current) => current.filter((id) => id !== shape.id))
++        commitSnapshot(result.snapshot, { message: '标注已擦除' })
++      }
++      return
++    }
++    if (tool !== 'select') return
+     event.stopPropagation()
+     const screen = pointerPosition(event, rootRef.current)
+     const page = screenToPage(screen, camera)
+@@ -552,12 +748,13 @@ export default function HardwareLearningCanvas() {
+   }
+ 
+   function handleShapeDoubleClick(event, shape) {
+-    if (shape.meta?.cowartLearningKind !== 'note') return
++    if (!['note', 'text'].includes(shape.meta?.cowartLearningKind)) return
+     event.stopPropagation()
+     setNoteDraft({
+       point: { x: shape.x, y: shape.y },
+       text: shape.meta?.cowartLearningText || '',
+-      shapeId: shape.id
++      shapeId: shape.id,
++      mode: shape.meta?.cowartLearningKind
+     })
+   }
+ 
+@@ -573,6 +770,11 @@ export default function HardwareLearningCanvas() {
+       }))
+       return
+     }
++    if (gesture.type === 'marquee') {
++      setMarqueeBounds(normalizeBounds(gesture.startPage, page, 0))
++      setGesture({ ...gesture, currentPage: page })
++      return
++    }
+     if (gesture.type === 'frame') {
+       const bounds = normalizeBounds(gesture.startPage, page)
+       setDraftShape(createFrameShape({ snapshot, pageId, bounds, id: 'shape:cowart-frame-preview', index: 'a0' }))
+@@ -580,7 +782,20 @@ export default function HardwareLearningCanvas() {
+       return
+     }
+     if (gesture.type === 'arrow') {
+-      setDraftShape(createArrowShape({ snapshot, pageId, start: gesture.startPage, end: page, id: 'shape:cowart-arrow-preview', index: 'a0' }))
++      setDraftShape(createArrowShape({ snapshot, pageId, start: gesture.startPage, end: page, style, id: 'shape:cowart-arrow-preview', index: 'a0' }))
++      setGesture({ ...gesture, currentPage: page })
++      return
++    }
++    if (gesture.type === 'line') {
++      setDraftShape(createLineShape({ snapshot, pageId, start: gesture.startPage, end: page, style, id: 'shape:cowart-line-preview', index: 'a0' }))
++      setGesture({ ...gesture, currentPage: page })
++      return
++    }
++    if (gesture.type === 'rectangle' || gesture.type === 'ellipse') {
++      const bounds = normalizeBounds(gesture.startPage, page)
++      setDraftShape(gesture.type === 'ellipse'
++        ? createEllipseShape({ snapshot, pageId, bounds, style, id: 'shape:cowart-ellipse-preview', index: 'a0' })
++        : createRectangleShape({ snapshot, pageId, bounds, style, id: 'shape:cowart-rectangle-preview', index: 'a0' }))
+       setGesture({ ...gesture, currentPage: page })
+       return
+     }
+@@ -590,7 +805,7 @@ export default function HardwareLearningCanvas() {
+       const points = [...gesture.points, page]
+       setGesture({ ...gesture, points })
+       if (points.length > 1) {
+-        setDraftShape(createStrokeShape({ snapshot, pageId, points, kind: gesture.kind, id: 'shape:cowart-stroke-preview', index: 'a0' }))
++        setDraftShape(createStrokeShape({ snapshot, pageId, points, kind: gesture.kind, style, id: 'shape:cowart-stroke-preview', index: 'a0' }))
+       }
+       return
+     }
+@@ -610,17 +825,43 @@ export default function HardwareLearningCanvas() {
+     rootRef.current?.releasePointerCapture?.(event.pointerId)
+     let created = null
+     let next = snapshotRef.current
++    if (gesture.type === 'marquee') {
++      const bounds = marqueeBounds ?? normalizeBounds(gesture.startPage, gesture.currentPage, 0)
++      if (bounds.w > 3 / camera.z || bounds.h > 3 / camera.z) {
++        const matches = pageShapes
++          .filter((shape) => {
++            const shapeBounds = pageBoundsForShape(next.store, shape)
++            return shapeBounds.x <= bounds.x + bounds.w && shapeBounds.x + shapeBounds.w >= bounds.x &&
++              shapeBounds.y <= bounds.y + bounds.h && shapeBounds.y + shapeBounds.h >= bounds.y
++          })
++          .map((shape) => shape.id)
++        setSelectedIds(matches)
++      }
++      setGesture(null)
++      setMarqueeBounds(null)
++      return
++    }
+     if (gesture.type === 'frame' && draftShape) created = createFrameShape({ snapshot: next, pageId, bounds: { x: draftShape.x, y: draftShape.y, w: draftShape.props.w, h: draftShape.props.h } })
+     if (gesture.type === 'arrow' && draftShape) {
+       created = createArrowShape({
+         snapshot: next,
+         pageId,
+         start: gesture.startPage,
+-        end: gesture.currentPage
++        end: gesture.currentPage,
++        style
+       })
+     }
++    if (gesture.type === 'line' && draftShape) {
++      created = createLineShape({ snapshot: next, pageId, start: gesture.startPage, end: gesture.currentPage, style })
++    }
++    if (gesture.type === 'rectangle' && draftShape) {
++      created = createRectangleShape({ snapshot: next, pageId, bounds: { x: draftShape.x, y: draftShape.y, w: draftShape.props.w, h: draftShape.props.h }, style })
++    }
++    if (gesture.type === 'ellipse' && draftShape) {
++      created = createEllipseShape({ snapshot: next, pageId, bounds: { x: draftShape.x, y: draftShape.y, w: draftShape.props.w, h: draftShape.props.h }, style })
++    }
+     if (gesture.type === 'stroke' && gesture.points.length > 1) {
+-      created = createStrokeShape({ snapshot: next, pageId, points: gesture.points, kind: gesture.kind })
++      created = createStrokeShape({ snapshot: next, pageId, points: gesture.points, kind: gesture.kind, style })
+     }
+     if (created) {
+       next = addShape(next, created)
+@@ -661,7 +902,9 @@ export default function HardwareLearningCanvas() {
+       commitSnapshot(updateShape(snapshotRef.current, updated), { message: '文字标注已更新' })
+       setSelectedIds([updated.id])
+     } else {
+-      const shape = createNoteShape({ snapshot: snapshotRef.current, pageId, point: noteDraft.point, text })
++      const shape = noteDraft.mode === 'text'
++        ? createTextShape({ snapshot: snapshotRef.current, pageId, point: noteDraft.point, text, style })
++        : createNoteShape({ snapshot: snapshotRef.current, pageId, point: noteDraft.point, text })
+       commitSnapshot(addShape(snapshotRef.current, shape), { message: '文字标注已保存' })
+       setSelectedIds([shape.id])
+     }
+@@ -671,7 +914,7 @@ export default function HardwareLearningCanvas() {
+   async function exportCanvas(kind, selectedOnly = false) {
+     if (!snapshotRef.current || !pageId || exporting) return
+     setExporting(true)
+-    setExportOpen(false)
++    setOpenMenu(null)
+     setStatus({ kind: 'saving', text: '正在准备导出…' })
+     try {
+       await new Promise((resolve) => requestAnimationFrame(resolve))
+@@ -722,88 +965,22 @@ export default function HardwareLearningCanvas() {
+ 
+   const selectedShape = selectedIds.length === 1 ? snapshot?.store?.[selectedIds[0]] : null
+   const selectedBounds = selectedShape && pageBoundsForShape(snapshot.store, draftShape?.id === selectedShape.id ? draftShape : selectedShape)
++  const selectionBounds = snapshot && unionBounds(selectedIds
++    .map((id) => snapshot.store[id])
++    .filter(Boolean)
++    .map((shape) => pageBoundsForShape(snapshot.store, shape)))
+   const visibleShapes = pageShapes.map((shape) => draftShape?.id === shape.id ? draftShape : shape)
+   if (draftShape && !snapshot?.store?.[draftShape.id]) visibleShapes.push(draftShape)
++  const contentBounds = snapshot && unionBounds(pageShapes.map((shape) => pageBoundsForShape(snapshot.store, shape)))
++  const viewportBounds = rootRef.current ? {
++    x: -camera.x / camera.z,
++    y: -camera.y / camera.z,
++    w: rootRef.current.clientWidth / camera.z,
++    h: rootRef.current.clientHeight / camera.z
++  } : null
+ 
+   return (
+     <main className="learning-canvas-shell" data-engine="cowart-learning-canvas-v2">
+-      <header className="learning-topbar">
+-        <div className="learning-brand">
+-          <span className="learning-brand-mark">HW</span>
+-          <div><strong>硬件学习画板</strong><small>框选原理图，然后在 Codex 对话栏提问</small></div>
+-        </div>
+-        <div className="learning-page-controls">
+-          <label htmlFor="learning-page-select">图页</label>
+-          <select
+-            id="learning-page-select"
+-            onChange={(event) => {
+-              const nextPageId = event.target.value
+-              setSelectedIds([])
+-              setViewState((current) => ({ ...current, currentPageId: nextPageId }))
+-              window.setTimeout(() => fitContent([], nextPageId), 0)
+-            }}
+-            value={pageId || ''}
+-          >
+-            {pages.map((page) => <option key={page.id} value={page.id}>{page.name || page.id}</option>)}
+-          </select>
+-        </div>
+-      </header>
+-
+-      <nav aria-label="学习画布工具" className="learning-toolbar">
+-        {TOOLS.map(({ id, label, Icon }) => (
+-          <ToolbarButton
+-            key={id}
+-            active={tool === id}
+-            Icon={Icon}
+-            label={label}
+-            onClick={() => setTool(id)}
+-            testId={`learning-tool-${id}`}
+-          />
+-        ))}
+-        <span className="learning-toolbar-separator" />
+-        <ToolbarButton disabled={!undoRef.current.length} Icon={Undo2} label="撤销" onClick={undo} testId="learning-undo" />
+-        <ToolbarButton disabled={!redoRef.current.length} Icon={Redo2} label="重做" onClick={redo} testId="learning-redo" />
+-        <ToolbarButton
+-          disabled={!selectedIds.some((id) => snapshot?.store?.[id]?.type !== 'image')}
+-          Icon={Trash2}
+-          label="删除"
+-          onClick={() => {
+-            const result = deleteLearningShapes(snapshotRef.current, selectedIds)
+-            if (result.deleted.length) {
+-              setSelectedIds([])
+-              commitSnapshot(result.snapshot, { message: `已删除 ${result.deleted.length} 个标注` })
+-            }
+-          }}
+-          testId="learning-delete"
+-        />
+-        <span className="learning-toolbar-separator" />
+-        <ToolbarButton Icon={Maximize2} label="适合内容" onClick={() => fitContent()} testId="learning-fit" />
+-        <ToolbarButton Icon={ZoomOut} label="缩小" onClick={() => setViewState((current) => ({ ...current, camera: zoomCameraAt(current.camera, { x: rootRef.current.clientWidth / 2, y: rootRef.current.clientHeight / 2 }, current.camera.z / 1.2) }))} testId="learning-zoom-out" />
+-        <span className="learning-zoom-label">{Math.round(camera.z * 100)}%</span>
+-        <ToolbarButton Icon={ZoomIn} label="放大" onClick={() => setViewState((current) => ({ ...current, camera: zoomCameraAt(current.camera, { x: rootRef.current.clientWidth / 2, y: rootRef.current.clientHeight / 2 }, current.camera.z * 1.2) }))} testId="learning-zoom-in" />
+-        <div className="learning-export-menu">
+-          <button
+-            className="learning-export-button"
+-            data-testid="learning-export"
+-            disabled={exporting}
+-            onClick={() => setExportOpen((value) => !value)}
+-            type="button"
+-          >
+-            {exporting ? <LoaderCircle className="is-spinning" size={18} /> : <Download size={18} />}
+-            导出 <ChevronDown size={14} />
+-          </button>
+-          {exportOpen && (
+-            <div className="learning-export-popover" role="menu">
+-              <button onClick={() => exportCanvas('png')} role="menuitem" type="button">当前图页 PNG</button>
+-              <button onClick={() => exportCanvas('svg')} role="menuitem" type="button">当前图页 SVG</button>
+-              <button disabled={!selectedIds.length} onClick={() => exportCanvas('png', true)} role="menuitem" type="button">当前选区 PNG</button>
+-              <button disabled={!selectedIds.length} onClick={() => exportCanvas('clipboard', true)} role="menuitem" type="button"><Clipboard size={14} />复制选区 PNG</button>
+-              <button onClick={() => exportCanvas('json')} role="menuitem" type="button">画布备份 JSON</button>
+-            </div>
+-          )}
+-        </div>
+-      </nav>
+-
+       <section
+         className={`learning-canvas-viewport tool-${tool}`}
+         onContextMenu={(event) => event.preventDefault()}
+@@ -816,11 +993,11 @@ export default function HardwareLearningCanvas() {
+         {snapshot && pageId ? (
+           <svg aria-label="硬件学习画布" className="learning-canvas-svg" data-testid="learning-canvas-svg">
+             <defs>
+-              <pattern height="24" id="learning-grid-small" patternUnits="userSpaceOnUse" width="24">
+-                <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#dbe4ef" strokeWidth="1" />
++              <pattern height="28" id="learning-grid-small" patternUnits="userSpaceOnUse" width="28">
++                <circle cx="1" cy="1" fill="#d7dce3" r="1" />
+               </pattern>
+               <marker id="learning-arrow" markerHeight="10" markerWidth="10" orient="auto" refX="8" refY="3">
+-                <path d="M0,0 L0,6 L9,3 z" fill="#2563eb" />
++                <path d="M0,0 L0,6 L9,3 z" fill="context-stroke" />
+               </marker>
+             </defs>
+             <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.z})`}>
+@@ -836,16 +1013,31 @@ export default function HardwareLearningCanvas() {
+                   snapshot={snapshot}
+                 />
+               ))}
+-              {selectedBounds && selectedShape?.type === 'geo' && (
++              {selectionBounds && (
+                 <g className="learning-selection-overlay">
+-                  <rect fill="none" height={selectedBounds.h} pointerEvents="none" stroke="#2563eb" strokeDasharray="6 4" strokeWidth={2 / camera.z} width={selectedBounds.w} x={selectedBounds.x} y={selectedBounds.y} />
+-                  {['nw', 'ne', 'sw', 'se'].map((handle) => {
++                  <rect fill="none" height={selectionBounds.h} pointerEvents="none" stroke="#2563eb" strokeDasharray="6 4" strokeWidth={2 / camera.z} width={selectionBounds.w} x={selectionBounds.x} y={selectionBounds.y} />
++                  {selectedBounds && selectedShape?.type === 'geo' && ['nw', 'ne', 'sw', 'se'].map((handle) => {
+                     const x = handle.endsWith('w') ? selectedBounds.x : selectedBounds.x + selectedBounds.w
+                     const y = handle.startsWith('n') ? selectedBounds.y : selectedBounds.y + selectedBounds.h
+                     return <circle key={handle} cx={x} cy={y} onPointerDown={(event) => handleResizePointerDown(event, selectedShape, handle)} r={7 / camera.z} />
+                   })}
+                 </g>
+               )}
++              {marqueeBounds && (
++                <rect
++                  className="learning-marquee"
++                  fill="#3b82f6"
++                  fillOpacity="0.08"
++                  height={marqueeBounds.h}
++                  pointerEvents="none"
++                  stroke="#2563eb"
++                  strokeDasharray="5 4"
++                  strokeWidth={1.5 / camera.z}
++                  width={marqueeBounds.w}
++                  x={marqueeBounds.x}
++                  y={marqueeBounds.y}
++                />
++              )}
+             </g>
+           </svg>
+         ) : (
+@@ -853,6 +1045,146 @@ export default function HardwareLearningCanvas() {
+         )}
+       </section>
+ 
++      <nav aria-label="画布操作" className="cowart-top-actions">
++        <div className="cowart-popover-anchor">
++          <MenuButton active={openMenu === 'main'} Icon={Menu} label="菜单" onClick={() => setOpenMenu(openMenu === 'main' ? null : 'main')} testId="learning-main-menu" />
++          {openMenu === 'main' && (
++            <div className="cowart-menu cowart-menu-left" role="menu">
++              <button onClick={() => { setSelectedIds(pageShapes.map((shape) => shape.id)); setOpenMenu(null) }} role="menuitem" type="button">全选 <kbd>Ctrl A</kbd></button>
++              <button onClick={() => { fitContent(); setOpenMenu(null) }} role="menuitem" type="button">适合内容 <kbd>Ctrl 0</kbd></button>
++              <button onClick={() => { zoomTo100(); setOpenMenu(null) }} role="menuitem" type="button">缩放到 100% <kbd>Ctrl 1</kbd></button>
++              <button onClick={() => { setSelectedIds([]); setOpenMenu(null) }} role="menuitem" type="button">取消选择 <kbd>Esc</kbd></button>
++            </div>
++          )}
++        </div>
++
++        <select
++          aria-label="切换图页"
++          className="cowart-page-select"
++          data-testid="learning-page-select"
++          onChange={(event) => {
++            const nextPageId = event.target.value
++            setSelectedIds([])
++            setViewState((current) => ({ ...current, currentPageId: nextPageId }))
++            window.setTimeout(() => fitContent([], nextPageId), 0)
++          }}
++          value={pageId || ''}
++        >
++          {pages.map((page, index) => <option key={page.id} value={page.id}>{page.name || `Page ${index + 1}`}</option>)}
++        </select>
++
++        <span className="cowart-control-separator" />
++        <MenuButton disabled={!undoRef.current.length} Icon={Undo2} label="撤销" onClick={undo} testId="learning-undo" />
++        <MenuButton disabled={!redoRef.current.length} Icon={Redo2} label="重做" onClick={redo} testId="learning-redo" />
++        <MenuButton disabled={!selectedIds.some((id) => snapshot?.store?.[id]?.type !== 'image')} Icon={Trash2} label="删除" onClick={deleteSelected} testId="learning-delete" />
++        <MenuButton disabled={!selectedIds.some((id) => snapshot?.store?.[id]?.type !== 'image')} Icon={Copy} label="复制" onClick={duplicateSelected} testId="learning-duplicate" />
++
++        <div className="cowart-popover-anchor">
++          <MenuButton active={openMenu === 'actions'} Icon={Shapes} label="操作" onClick={() => setOpenMenu(openMenu === 'actions' ? null : 'actions')} testId="learning-actions"><ChevronDown size={12} /></MenuButton>
++          {openMenu === 'actions' && (
++            <div className="cowart-menu" role="menu">
++              <button disabled={!selectedIds.length} onClick={() => { fitContent(selectedIds); setOpenMenu(null) }} role="menuitem" type="button">缩放至选区</button>
++              <button disabled={!selectedIds.length} onClick={() => { duplicateSelected(); setOpenMenu(null) }} role="menuitem" type="button">复制标注 <kbd>Ctrl D</kbd></button>
++              <button disabled={!selectedIds.length} onClick={() => { deleteSelected(); setOpenMenu(null) }} role="menuitem" type="button">删除标注 <kbd>Del</kbd></button>
++            </div>
++          )}
++        </div>
++
++        <div className="cowart-popover-anchor">
++          <button
++            className="cowart-export-button"
++            data-testid="learning-export"
++            disabled={exporting}
++            onClick={() => setOpenMenu(openMenu === 'export' ? null : 'export')}
++            type="button"
++          >
++            {exporting ? <LoaderCircle className="is-spinning" size={16} /> : <Download size={16} />}
++            导出 <ChevronDown size={12} />
++          </button>
++          {openMenu === 'export' && (
++            <div className="cowart-menu cowart-export-menu" role="menu">
++              <button onClick={() => exportCanvas('png')} role="menuitem" type="button">当前图页 PNG</button>
++              <button onClick={() => exportCanvas('svg')} role="menuitem" type="button">当前图页 SVG</button>
++              <button disabled={!selectedIds.length} onClick={() => exportCanvas('png', true)} role="menuitem" type="button">当前选区 PNG</button>
++              <button disabled={!selectedIds.length} onClick={() => exportCanvas('clipboard', true)} role="menuitem" type="button"><Clipboard size={14} />复制选区 PNG</button>
++              <button onClick={() => exportCanvas('json')} role="menuitem" type="button">画布备份 JSON</button>
++            </div>
++          )}
++        </div>
++      </nav>
++
++      <aside aria-label="样式" className="cowart-style-panel">
++        <div className="cowart-color-grid">
++          {STYLE_COLORS.map(([name, value]) => (
++            <button
++              aria-label={`颜色 ${name}`}
++              className="cowart-color-swatch"
++              data-active={style.color === name ? 'true' : 'false'}
++              key={name}
++              onClick={() => applyStyle({ color: name })}
++              style={{ '--swatch': value }}
++              title={name}
++              type="button"
++            />
++          ))}
++        </div>
++        <label className="cowart-opacity-control">
++          <span>不透明度</span><output>{Math.round(style.opacity * 100)}%</output>
++          <input max="100" min="10" onChange={(event) => applyStyle({ opacity: Number(event.target.value) / 100 })} type="range" value={Math.round(style.opacity * 100)} />
++        </label>
++        <StyleOptions label="填充" onChange={(fill) => applyStyle({ fill })} options={FILL_OPTIONS} value={style.fill} />
++        <StyleOptions label="线条" onChange={(dash) => applyStyle({ dash })} options={DASH_OPTIONS} value={style.dash} />
++        <StyleOptions label="大小" onChange={(size) => applyStyle({ size })} options={SIZE_OPTIONS} value={style.size} />
++      </aside>
++
++      <nav aria-label="学习画布工具" className="cowart-bottom-toolbar">
++        {PRIMARY_TOOLS.map(({ id, label, Icon, featured }, index) => (
++          <span className="cowart-tool-slot" key={id}>
++            {index === 1 && <span className="cowart-control-separator" />}
++            <ToolbarButton active={tool === id} Icon={Icon} label={label} onClick={() => chooseTool(id)} testId={`learning-tool-${id}`} />
++            {featured && <small>{label}</small>}
++          </span>
++        ))}
++        <span className="cowart-control-separator" />
++        <div className="cowart-popover-anchor">
++          <ToolbarButton active={MORE_TOOLS.some(({ id }) => id === tool)} Icon={MoreHorizontal} label="更多工具" onClick={() => setOpenMenu(openMenu === 'tools' ? null : 'tools')} testId="learning-tool-more" />
++          {openMenu === 'tools' && (
++            <div className="cowart-tool-menu" role="menu">
++              {MORE_TOOLS.map(({ id, label, Icon }) => (
++                <button data-active={tool === id ? 'true' : 'false'} key={id} onClick={() => chooseTool(id)} role="menuitem" type="button"><Icon size={18} />{label}</button>
++              ))}
++            </div>
++          )}
++        </div>
++      </nav>
++
++      <div className="cowart-zoom-controls">
++        <div className="cowart-popover-anchor">
++          <button className="cowart-zoom-percent" onClick={() => setOpenMenu(openMenu === 'zoom' ? null : 'zoom')} type="button">{Math.round(camera.z * 100)}% <ChevronDown size={12} /></button>
++          {openMenu === 'zoom' && (
++            <div className="cowart-menu cowart-zoom-menu" role="menu">
++              <button onClick={() => zoomBy(1.2)} role="menuitem" type="button"><ZoomIn size={15} />放大</button>
++              <button onClick={() => zoomBy(1 / 1.2)} role="menuitem" type="button"><ZoomOut size={15} />缩小</button>
++              <button onClick={zoomTo100} role="menuitem" type="button"><Plus size={15} />100%</button>
++              <button onClick={() => fitContent()} role="menuitem" type="button"><Maximize2 size={15} />适合内容</button>
++            </div>
++          )}
++        </div>
++        <button aria-label="小地图" className="cowart-minimap-button" data-active={minimapOpen ? 'true' : 'false'} onClick={() => setMinimapOpen((value) => !value)} title="小地图" type="button"><MapIcon size={18} /></button>
++      </div>
++
++      {minimapOpen && contentBounds && (
++        <div className="cowart-minimap">
++          <svg aria-label="小地图" preserveAspectRatio="xMidYMid meet" viewBox={`${contentBounds.x - 40} ${contentBounds.y - 40} ${contentBounds.w + 80} ${contentBounds.h + 80}`}>
++            {pageShapes.map((shape) => {
++              const bounds = pageBoundsForShape(snapshot.store, shape)
++              return <rect fill={shape.type === 'image' ? '#cbd5e1' : shape.meta?.cowartLearningFrame ? '#c4b5fd' : '#93c5fd'} height={Math.max(2, bounds.h)} key={shape.id} opacity="0.78" width={Math.max(2, bounds.w)} x={bounds.x} y={bounds.y} />
++            })}
++            {viewportBounds && <rect fill="none" height={viewportBounds.h} stroke="#2563eb" strokeWidth={Math.max(2, contentBounds.w / 160)} width={viewportBounds.w} x={viewportBounds.x} y={viewportBounds.y} />}
++          </svg>
++        </div>
++      )}
++
+       <aside className="learning-status" data-kind={status.kind}>
+         {status.kind === 'saving' ? <LoaderCircle className="is-spinning" size={15} /> : <Check size={15} />}
+         <span>{status.text}</span>
+@@ -862,7 +1194,7 @@ export default function HardwareLearningCanvas() {
+       {noteDraft && (
+         <div className="learning-dialog-backdrop" role="presentation">
+           <form className="learning-note-dialog" onSubmit={(event) => { event.preventDefault(); saveNote() }}>
+-            <h2>{noteDraft.shapeId ? '编辑文字标注' : '添加文字标注'}</h2>
++            <h2>{noteDraft.shapeId ? '编辑文字标注' : noteDraft.mode === 'text' ? '添加文本' : '添加便签'}</h2>
+             <textarea
+               autoFocus
+               maxLength={800}
+@@ -881,3 +1213,14 @@ export default function HardwareLearningCanvas() {
+     </main>
+   )
+ }
++
++function StyleOptions({ label, onChange, options, value }) {
++  return (
++    <fieldset className="cowart-style-options">
++      <legend>{label}</legend>
++      <div>
++        {options.map(([id, text]) => <button data-active={value === id ? 'true' : 'false'} key={id} onClick={() => onChange(id)} title={text} type="button">{text}</button>)}
++      </div>
++    </fieldset>
++  )
++}
+diff --git a/src/learning-canvas/export.js b/src/learning-canvas/export.js
+index 8098e82..1c32ee8 100644
+--- a/src/learning-canvas/export.js
++++ b/src/learning-canvas/export.js
+@@ -5,16 +5,29 @@ const COLOR_MAP = {
+   blue: '#2563eb',
+   green: '#16a34a',
+   grey: '#64748b',
+-  light_blue: '#38bdf8',
+-  light_green: '#86efac',
+-  light_red: '#fca5a5',
+-  light_violet: '#c4b5fd',
++  'light-blue': '#38bdf8',
++  'light-green': '#86efac',
++  'light-red': '#fca5a5',
++  'light-violet': '#c4b5fd',
+   orange: '#f97316',
+   red: '#dc2626',
+   violet: '#7c3aed',
+   yellow: '#eab308'
+ }
+ 
++const SIZE_STROKES = { s: 2, m: 3, l: 5, xl: 8 }
++
++export function strokeWidthForSize(size, fallback = 3) {
++  return SIZE_STROKES[size] || fallback
++}
++
++export function dashArrayForStyle(dash, width = 3) {
++  if (dash === 'dashed') return `${width * 3} ${width * 2}`
++  if (dash === 'dotted') return `${width * 0.5} ${width * 2}`
++  if (dash === 'draw') return `${width * 2.4} ${width * 1.5}`
++  return 'none'
++}
++
+ export function colorValue(color, fallback = '#7c3aed') {
+   return COLOR_MAP[color] || fallback
+ }
+@@ -51,22 +64,26 @@ function noteLines(text, maxLength = 28) {
+ 
+ function shapeSvg(shape, snapshot, assetSources) {
+   const transform = `translate(${shape.x || 0} ${shape.y || 0}) rotate(${((shape.rotation || 0) * 180) / Math.PI})`
++  const opacity = Math.min(1, Math.max(0.1, Number(shape.opacity) || 1))
+   if (shape.type === 'image') {
+     const asset = snapshot.store[shape.props?.assetId]
+     const href = assetSources.get(asset?.props?.src) || asset?.props?.src || ''
+-    return `<image data-shape-id="${escapeXml(shape.id)}" href="${escapeXml(href)}" width="${shape.props?.w || 1}" height="${shape.props?.h || 1}" transform="${transform}" preserveAspectRatio="none"/>`
++    return `<image data-shape-id="${escapeXml(shape.id)}" href="${escapeXml(href)}" width="${shape.props?.w || 1}" height="${shape.props?.h || 1}" transform="${transform}" opacity="${opacity}" preserveAspectRatio="none"/>`
+   }
+   if (shape.type === 'arrow') {
+     const start = shape.props?.start ?? { x: 0, y: 0 }
+     const end = shape.props?.end ?? { x: 1, y: 1 }
+     const stroke = colorValue(shape.props?.color, '#2563eb')
+-    return `<line data-shape-id="${escapeXml(shape.id)}" x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" transform="${transform}" stroke="${stroke}" stroke-width="3" marker-end="url(#cowart-arrow)"/>`
++    const width = strokeWidthForSize(shape.props?.size)
++    const marker = shape.props?.arrowheadEnd === 'none' ? '' : ' marker-end="url(#cowart-arrow)"'
++    return `<line data-shape-id="${escapeXml(shape.id)}" x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" transform="${transform}" opacity="${opacity}" stroke="${stroke}" stroke-width="${width}" stroke-dasharray="${dashArrayForStyle(shape.props?.dash, width)}"${marker}/>`
+   }
+   if (shape.type === 'draw' || shape.type === 'highlight') {
+     const points = polylinePoints(shape)
+     const stroke = shape.type === 'highlight' ? '#facc15' : colorValue(shape.props?.color)
+-    const width = shape.type === 'highlight' ? 18 : 4
+-    const opacity = shape.type === 'highlight' ? 0.42 : 1
++    const width = shape.type === 'highlight'
++      ? strokeWidthForSize(shape.props?.size, 5) * 4
++      : strokeWidthForSize(shape.props?.size, 4)
+     return `<polyline data-shape-id="${escapeXml(shape.id)}" points="${points}" transform="${transform}" fill="none" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round" opacity="${opacity}"/>`
+   }
+   if (shape.type === 'geo') {
+@@ -75,15 +92,29 @@ function shapeSvg(shape, snapshot, assetSources) {
+     const kind = shape.meta?.cowartLearningKind
+     const frame = shape.meta?.cowartLearningFrame === true
+     const note = kind === 'note'
++    const textOnly = kind === 'text'
+     const highlight = kind === 'highlight'
+     const stroke = frame ? '#7c3aed' : colorValue(shape.props?.color, '#2563eb')
+-    const fill = note ? '#fff6a8' : highlight ? '#fde047' : 'none'
+-    const dash = frame ? '10 7' : shape.props?.dash === 'draw' ? '7 5' : 'none'
++    const fill = note
++      ? '#fff6a8'
++      : shape.props?.fill === 'solid'
++        ? stroke
++        : shape.props?.fill === 'semi' || highlight
++          ? stroke
++          : 'none'
++    const fillOpacity = note ? 1 : shape.props?.fill === 'solid' ? 0.92 : 0.22
++    const strokeWidth = frame ? 4 : strokeWidthForSize(shape.props?.size)
++    const dash = frame ? '10 7' : dashArrayForStyle(shape.props?.dash, strokeWidth)
+     const text = shape.meta?.cowartLearningText || ''
+     const textSvg = noteLines(text).map((line, index) =>
+       `<tspan x="14" dy="${index === 0 ? 24 : 20}">${escapeXml(line)}</tspan>`
+     ).join('')
+-    return `<g data-shape-id="${escapeXml(shape.id)}" transform="${transform}"><rect width="${width}" height="${height}" rx="${note ? 10 : 3}" fill="${fill}" fill-opacity="${highlight ? 0.35 : 1}" stroke="${stroke}" stroke-width="${frame ? 4 : 3}" stroke-dasharray="${dash}"/><text font-family="system-ui,sans-serif" font-size="15" fill="#1f2937">${textSvg}</text></g>`
++    const geometry = shape.props?.geo === 'ellipse'
++      ? `<ellipse cx="${width / 2}" cy="${height / 2}" rx="${width / 2}" ry="${height / 2}" fill="${fill}" fill-opacity="${fillOpacity}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dash}"/>`
++      : textOnly
++        ? ''
++        : `<rect width="${width}" height="${height}" rx="${note ? 10 : 3}" fill="${fill}" fill-opacity="${fillOpacity}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dash}"/>`
++    return `<g data-shape-id="${escapeXml(shape.id)}" transform="${transform}" opacity="${opacity}">${geometry}<text font-family="system-ui,sans-serif" font-size="15" fill="${textOnly ? stroke : '#1f2937'}">${textSvg}</text></g>`
+   }
+   const bounds = localBoundsForShape(shape)
+   return `<rect data-shape-id="${escapeXml(shape.id)}" x="${bounds.x}" y="${bounds.y}" width="${bounds.w}" height="${bounds.h}" transform="${transform}" fill="none" stroke="#94a3b8" stroke-width="2"/>`
+@@ -123,7 +154,7 @@ export function buildLearningCanvasSvg({ snapshot, pageId, assetSources = new Ma
+     h: rawBounds.h + padding * 2
+   }
+   const body = shapes.map((shape) => shapeSvg(shape, snapshot, assetSources)).join('')
+-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${Math.ceil(bounds.w)}" height="${Math.ceil(bounds.h)}" viewBox="${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}"><defs><marker id="cowart-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#2563eb"/></marker></defs><rect x="${bounds.x}" y="${bounds.y}" width="${bounds.w}" height="${bounds.h}" fill="#f8fafc"/>${body}</svg>`
++  const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${Math.ceil(bounds.w)}" height="${Math.ceil(bounds.h)}" viewBox="${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}"><defs><marker id="cowart-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="context-stroke"/></marker></defs><rect x="${bounds.x}" y="${bounds.y}" width="${bounds.w}" height="${bounds.h}" fill="#f8fafc"/>${body}</svg>`
+   return { svg, bounds, shapeIds: shapes.map((shape) => shape.id) }
+ }
+ 
+diff --git a/src/learning-canvas/model.js b/src/learning-canvas/model.js
+index 84390ef..1e213a4 100644
+--- a/src/learning-canvas/model.js
++++ b/src/learning-canvas/model.js
+@@ -3,7 +3,35 @@ import { generateKeyBetween } from 'fractional-indexing'
+ export const LEARNING_CANVAS_VERSION = 2
+ export const DEFAULT_PAGE_ID = 'page:page'
+ export const FRAME_KIND = 'frame'
+-export const LEARNING_KINDS = new Set(['frame', 'pen', 'highlight', 'arrow', 'note', 'rectangle'])
++export const LEARNING_KINDS = new Set([
++  'frame', 'pen', 'highlight', 'arrow', 'line', 'note', 'text', 'rectangle', 'ellipse'
++])
++
++export const DEFAULT_LEARNING_STYLE = Object.freeze({
++  color: 'black',
++  fill: 'none',
++  dash: 'draw',
++  size: 'm',
++  opacity: 1
++})
++
++const LEARNING_COLORS = new Set([
++  'black', 'grey', 'light-violet', 'violet', 'blue', 'light-blue',
++  'yellow', 'orange', 'green', 'light-green', 'light-red', 'red'
++])
++const LEARNING_FILLS = new Set(['none', 'semi', 'solid'])
++const LEARNING_DASHES = new Set(['draw', 'dashed', 'dotted', 'solid'])
++const LEARNING_SIZES = new Set(['s', 'm', 'l', 'xl'])
++
++export function normalizeLearningStyle(style = {}) {
++  return {
++    color: LEARNING_COLORS.has(style.color) ? style.color : DEFAULT_LEARNING_STYLE.color,
++    fill: LEARNING_FILLS.has(style.fill) ? style.fill : DEFAULT_LEARNING_STYLE.fill,
++    dash: LEARNING_DASHES.has(style.dash) ? style.dash : DEFAULT_LEARNING_STYLE.dash,
++    size: LEARNING_SIZES.has(style.size) ? style.size : DEFAULT_LEARNING_STYLE.size,
++    opacity: Math.min(1, Math.max(0.1, finite(style.opacity, DEFAULT_LEARNING_STYLE.opacity)))
++  }
++}
+ 
+ const EMPTY_RICH_TEXT = Object.freeze({
+   type: 'doc',
+@@ -117,17 +145,19 @@ function learningMeta(kind, extra = {}) {
+   }
+ }
+ 
+-function rectangleProps(bounds, { color = 'violet', dash = 'draw', fill = 'none', text = '', size = 's' } = {}) {
++function rectangleProps(bounds, {
++  color = 'violet', dash = 'draw', fill = 'none', text = '', size = 's', geo = 'rectangle'
++} = {}) {
+   return {
+     w: bounds.w,
+     h: bounds.h,
+-    geo: 'rectangle',
++    geo,
+     dash,
+     growY: 0,
+     url: '',
+     scale: 1,
+     color,
+-    labelColor: 'black',
++    labelColor: color,
+     fill,
+     size,
+     font: 'draw',
+@@ -153,8 +183,19 @@ export function createFrameShape({ snapshot, pageId, bounds, id, index } = {}) {
+   })
+ }
+ 
+-export function createRectangleShape({ snapshot, pageId, bounds, command, id, index } = {}) {
+-  const kind = command?.kind === 'highlight' ? 'highlight' : 'rectangle'
++export function createGeoShape({
++  snapshot,
++  pageId,
++  bounds,
++  geo = 'rectangle',
++  kind = geo,
++  style,
++  text = '',
++  command,
++  id,
++  index
++} = {}) {
++  const normalizedStyle = normalizeLearningStyle(style)
+   return baseShape({
+     id,
+     pageId,
+@@ -162,14 +203,57 @@ export function createRectangleShape({ snapshot, pageId, bounds, command, id, in
+     x: bounds.x,
+     y: bounds.y,
+     type: 'geo',
+-    opacity: kind === 'highlight' ? 0.35 : 1,
+-    meta: learningMeta(kind, commandMeta(command)),
++    opacity: normalizedStyle.opacity,
++    meta: learningMeta(kind, {
++      ...(text ? { cowartLearningText: String(text) } : {}),
++      cowartLearningBounds: { x: 0, y: 0, w: bounds.w, h: bounds.h },
++      ...commandMeta(command)
++    }),
+     props: rectangleProps(bounds, {
++      ...normalizedStyle,
++      geo,
++      text
++    })
++  })
++}
++
++export function createRectangleShape({ snapshot, pageId, bounds, command, style, id, index } = {}) {
++  const kind = command?.kind === 'highlight' ? 'highlight' : 'rectangle'
++  return createGeoShape({
++    snapshot,
++    pageId,
++    bounds,
++    kind,
++    command,
++    id,
++    index: index ?? nextShapeIndex(snapshot, pageId),
++    style: style ?? {
+       color: command?.style?.color || (kind === 'highlight' ? 'yellow' : 'blue'),
+       dash: command?.style?.dash || 'solid',
+       fill: kind === 'highlight' ? 'semi' : 'none',
+-      text: command?.text || ''
+-    })
++      size: command?.style?.size || 'm',
++      opacity: kind === 'highlight' ? 0.35 : 1
++    },
++    text: command?.text || ''
++  })
++}
++
++export function createEllipseShape({ snapshot, pageId, bounds, style, id, index } = {}) {
++  return createGeoShape({ snapshot, pageId, bounds, geo: 'ellipse', kind: 'ellipse', style, id, index })
++}
++
++export function createTextShape({ snapshot, pageId, point, text, style, id, index } = {}) {
++  const normalizedStyle = normalizeLearningStyle(style)
++  const width = Math.max(120, Math.min(520, String(text || '').length * 16 + 28))
++  return createGeoShape({
++    snapshot,
++    pageId,
++    bounds: { x: point.x, y: point.y, w: width, h: 54 },
++    kind: 'text',
++    style: { ...normalizedStyle, fill: 'none', dash: 'solid' },
++    text,
++    id,
++    index
+   })
+ }
+ 
+@@ -196,7 +280,16 @@ export function createNoteShape({ snapshot, pageId, point, text, bounds, command
+   })
+ }
+ 
+-export function createArrowShape({ snapshot, pageId, start, end, command, id, index } = {}) {
++export function createArrowShape({
++  snapshot, pageId, start, end, command, style, kind = 'arrow', id, index
++} = {}) {
++  const normalizedStyle = normalizeLearningStyle(style ?? command?.style ?? {
++    color: 'blue',
++    fill: 'none',
++    dash: 'draw',
++    size: 'm',
++    opacity: 1
++  })
+   const x = Math.min(start.x, end.x)
+   const y = Math.min(start.y, end.y)
+   const localStart = { x: start.x - x, y: start.y - y }
+@@ -208,20 +301,21 @@ export function createArrowShape({ snapshot, pageId, start, end, command, id, in
+     x,
+     y,
+     type: 'arrow',
+-    meta: learningMeta('arrow', commandMeta(command)),
++    opacity: normalizedStyle.opacity,
++    meta: learningMeta(kind, commandMeta(command)),
+     props: {
+       kind: 'arc',
+       elbowMidPoint: 0.5,
+-      dash: command?.style?.dash || 'draw',
+-      size: 'm',
++      dash: normalizedStyle.dash,
++      size: normalizedStyle.size,
+       fill: 'none',
+-      color: command?.style?.color || 'blue',
+-      labelColor: 'black',
++      color: normalizedStyle.color,
++      labelColor: normalizedStyle.color,
+       bend: 0,
+       start: localStart,
+       end: localEnd,
+       arrowheadStart: 'none',
+-      arrowheadEnd: 'arrow',
++      arrowheadEnd: kind === 'line' ? 'none' : 'arrow',
+       richText: emptyRichText(command?.text || ''),
+       labelPosition: 0.5,
+       font: 'draw',
+@@ -230,7 +324,11 @@ export function createArrowShape({ snapshot, pageId, start, end, command, id, in
+   })
+ }
+ 
+-export function createStrokeShape({ snapshot, pageId, points, kind = 'pen', id, index } = {}) {
++export function createLineShape(options = {}) {
++  return createArrowShape({ ...options, kind: 'line' })
++}
++
++export function createStrokeShape({ snapshot, pageId, points, kind = 'pen', style, id, index } = {}) {
+   if (!Array.isArray(points) || points.length < 2) throw new Error('A learning stroke requires at least two points.')
+   const minX = Math.min(...points.map((point) => point.x))
+   const minY = Math.min(...points.map((point) => point.y))
+@@ -242,6 +340,9 @@ export function createStrokeShape({ snapshot, pageId, points, kind = 'pen', id,
+     z: finite(point.z, 0.5)
+   }))
+   const highlight = kind === 'highlight'
++  const normalizedStyle = normalizeLearningStyle(style ?? (highlight
++    ? { color: 'yellow', size: 'l', opacity: 0.42 }
++    : { color: 'violet', size: 'm' }))
+   return baseShape({
+     id,
+     pageId,
+@@ -249,18 +350,21 @@ export function createStrokeShape({ snapshot, pageId, points, kind = 'pen', id,
+     x: minX,
+     y: minY,
+     type: highlight ? 'highlight' : 'draw',
+-    opacity: highlight ? 0.42 : 1,
++    opacity: normalizedStyle.opacity,
+     meta: learningMeta(kind, {
+       cowartLearningPoints: localPoints,
+       cowartLearningBounds: { x: 0, y: 0, w: Math.max(1, maxX - minX), h: Math.max(1, maxY - minY) }
+     }),
+     props: highlight
+       ? {
+-          segments: [], color: 'yellow', size: 'l', isComplete: true,
++          segments: [{ type: 'free', points: localPoints }],
++          color: normalizedStyle.color, size: normalizedStyle.size, isComplete: true,
+           isPen: false, scale: 1, scaleX: 1, scaleY: 1
+         }
+       : {
+-          segments: [], color: 'violet', fill: 'none', dash: 'draw', size: 'm',
++          segments: [{ type: 'free', points: localPoints }],
++          color: normalizedStyle.color, fill: normalizedStyle.fill,
++          dash: normalizedStyle.dash, size: normalizedStyle.size,
+           isComplete: true, isClosed: false, isPen: false, scale: 1, scaleX: 1, scaleY: 1
+         }
+   })
+@@ -309,10 +413,24 @@ export function shapeForAnnotationCommand(snapshot, command) {
+ }
+ 
+ export function migrateLegacyLearningFrames(snapshot) {
+-  if (!snapshot?.store) return { snapshot, changed: false, migratedShapeIds: [] }
++  if (!snapshot?.store) return { snapshot, changed: false, migratedShapeIds: [], repairedStrokeIds: [] }
+   const next = cloneSnapshot(snapshot)
+   const migratedShapeIds = []
++  const repairedStrokeIds = []
+   for (const shape of Object.values(next.store)) {
++    if (
++      shape?.typeName === 'shape' &&
++      (shape.type === 'draw' || shape.type === 'highlight') &&
++      Array.isArray(shape.meta?.cowartLearningPoints) &&
++      shape.meta.cowartLearningPoints.length > 1 &&
++      !shape.props?.segments?.some((segment) => Array.isArray(segment?.points) && segment.points.length > 1)
++    ) {
++      shape.props = {
++        ...shape.props,
++        segments: [{ type: 'free', points: cloneSnapshot(shape.meta.cowartLearningPoints) }]
++      }
++      repairedStrokeIds.push(shape.id)
++    }
+     if (shape?.typeName !== 'shape' || shape.type !== 'geo' || shape.props?.geo !== 'rectangle') continue
+     if (shape.meta?.cowartLearningFrame === true) continue
+     const legacyFrame =
+@@ -333,7 +451,13 @@ export function migrateLegacyLearningFrames(snapshot) {
+     })
+     migratedShapeIds.push(shape.id)
+   }
+-  return { snapshot: migratedShapeIds.length ? next : snapshot, changed: migratedShapeIds.length > 0, migratedShapeIds }
++  const changed = migratedShapeIds.length > 0 || repairedStrokeIds.length > 0
++  return {
++    snapshot: changed ? next : snapshot,
++    changed,
++    migratedShapeIds,
++    repairedStrokeIds
++  }
+ }
+ 
+ function identityMatrix() {
+@@ -496,6 +620,62 @@ export function updateShape(snapshot, shape) {
+   return next
+ }
+ 
++export function updateShapes(snapshot, shapes) {
++  const valid = shapes.filter((shape) => snapshot?.store?.[shape.id])
++  if (!valid.length) return snapshot
++  const next = cloneSnapshot(snapshot)
++  for (const shape of valid) next.store[shape.id] = shape
++  return next
++}
++
++export function styleLearningShapes(snapshot, shapeIds, stylePatch) {
++  const next = cloneSnapshot(snapshot)
++  const updated = []
++  for (const id of shapeIds) {
++    const shape = next.store[id]
++    if (shape?.typeName !== 'shape' || shape.type === 'image') continue
++    if (!shape.meta?.cowartHardwareAnnotation && !shape.meta?.cowartLearningFrame) continue
++    const style = normalizeLearningStyle({
++      color: shape.props?.color,
++      fill: shape.props?.fill,
++      dash: shape.props?.dash,
++      size: shape.props?.size,
++      opacity: shape.opacity,
++      ...stylePatch
++    })
++    shape.opacity = style.opacity
++    shape.props = {
++      ...shape.props,
++      color: style.color,
++      labelColor: style.color,
++      fill: style.fill,
++      dash: style.dash,
++      size: style.size
++    }
++    updated.push(id)
++  }
++  return { snapshot: updated.length ? next : snapshot, updated }
++}
++
++export function duplicateLearningShapes(snapshot, shapeIds, offset = { x: 28, y: 28 }) {
++  let next = cloneSnapshot(snapshot)
++  const duplicated = []
++  for (const id of shapeIds) {
++    const source = next.store[id]
++    if (source?.typeName !== 'shape' || source.type === 'image') continue
++    if (!source.meta?.cowartHardwareAnnotation && !source.meta?.cowartLearningFrame) continue
++    const copy = cloneSnapshot(source)
++    copy.id = createRecordId()
++    copy.index = nextShapeIndex(next, pageIdForShape(next.store, source))
++    copy.x = finite(source.x) + finite(offset.x, 28)
++    copy.y = finite(source.y) + finite(offset.y, 28)
++    copy.meta = { ...copy.meta, cowartDuplicatedFrom: source.id }
++    next.store[copy.id] = copy
++    duplicated.push(copy.id)
++  }
++  return { snapshot: duplicated.length ? next : snapshot, duplicated }
++}
++
+ export function deleteLearningShapes(snapshot, shapeIds) {
+   const next = cloneSnapshot(snapshot)
+   const deleted = []
+diff --git a/src/learning-canvas/model.test.mjs b/src/learning-canvas/model.test.mjs
+index 92e357f..6d727f3 100644
+--- a/src/learning-canvas/model.test.mjs
++++ b/src/learning-canvas/model.test.mjs
+@@ -6,13 +6,19 @@ import { buildLearningCanvasSvg } from './export.js'
+ import {
+   addShape,
+   createArrowShape,
++  createEllipseShape,
+   createFrameShape,
++  createLineShape,
+   createNoteShape,
++  createRectangleShape,
+   createStrokeShape,
++  createTextShape,
++  duplicateLearningShapes,
+   migrateLegacyLearningFrames,
+   pageBoundsForShape,
+   selectionState,
+-  shapeRole
++  shapeRole,
++  styleLearningShapes
+ } from './model.js'
+ 
+ function fixtureSnapshot() {
+@@ -85,6 +91,21 @@ test('legacy violet hand-drawn rectangle migrates once', () => {
+   assert.equal(migrateLegacyLearningFrames(migrated.snapshot).changed, false)
+ })
+ 
++test('legacy learning strokes repair empty tldraw segments', () => {
++  const snapshot = fixtureSnapshot()
++  snapshot.store['shape:legacy-stroke'] = {
++    id: 'shape:legacy-stroke', typeName: 'shape', type: 'draw', parentId: 'page:page', index: 'a2',
++    x: 10, y: 20, rotation: 0, isLocked: false, opacity: 1,
++    props: { segments: [], color: 'violet', fill: 'none', dash: 'draw', size: 'm', isComplete: true, isClosed: false, isPen: false, scale: 1, scaleX: 1, scaleY: 1 },
++    meta: { cowartHardwareAnnotation: true, cowartLearningKind: 'pen', cowartLearningPoints: [{ x: 0, y: 0, z: 0.5 }, { x: 25, y: 40, z: 0.5 }] }
++  }
++  const migrated = migrateLegacyLearningFrames(snapshot)
++  assert.equal(migrated.changed, true)
++  assert.deepEqual(migrated.repairedStrokeIds, ['shape:legacy-stroke'])
++  assert.equal(migrated.snapshot.store['shape:legacy-stroke'].props.segments[0].points.length, 2)
++  assert.equal(migrateLegacyLearningFrames(migrated.snapshot).changed, false)
++})
++
+ test('pen, highlight, arrow and note preserve page bounds without tldraw runtime', () => {
+   let snapshot = fixtureSnapshot()
+   const shapes = [
+@@ -99,6 +120,34 @@ test('pen, highlight, arrow and note preserve page bounds without tldraw runtime
+   assert.equal(snapshot.store['shape:note'].meta.cowartLearningText, '电源路径')
+ })
+ 
++test('original Cowart geometry tools keep explicit learning semantics and styles', () => {
++  let snapshot = fixtureSnapshot()
++  const style = { color: 'red', fill: 'semi', dash: 'dashed', size: 'l', opacity: 0.7 }
++  const shapes = [
++    createRectangleShape({ snapshot, pageId: 'page:page', bounds: { x: 10, y: 20, w: 80, h: 60 }, style, id: 'shape:rectangle' }),
++    createEllipseShape({ snapshot, pageId: 'page:page', bounds: { x: 110, y: 20, w: 70, h: 50 }, style, id: 'shape:ellipse' }),
++    createLineShape({ snapshot, pageId: 'page:page', start: { x: 20, y: 110 }, end: { x: 180, y: 140 }, style, id: 'shape:line' }),
++    createTextShape({ snapshot, pageId: 'page:page', point: { x: 30, y: 160 }, text: '信号链', style, id: 'shape:text' })
++  ]
++  for (const shape of shapes) snapshot = addShape(snapshot, shape)
++  assert.equal(snapshot.store['shape:rectangle'].meta.cowartLearningKind, 'rectangle')
++  assert.equal(snapshot.store['shape:ellipse'].props.geo, 'ellipse')
++  assert.equal(snapshot.store['shape:line'].props.arrowheadEnd, 'none')
++  assert.equal(snapshot.store['shape:text'].meta.cowartLearningText, '信号链')
++  assert.equal(shapeRole(snapshot.store['shape:rectangle']), 'annotation')
++
++  const styled = styleLearningShapes(snapshot, ['shape:rectangle'], { color: 'green', opacity: 0.5 })
++  assert.deepEqual(styled.updated, ['shape:rectangle'])
++  assert.equal(styled.snapshot.store['shape:rectangle'].props.color, 'green')
++  assert.equal(styled.snapshot.store['shape:rectangle'].opacity, 0.5)
++
++  const duplicated = duplicateLearningShapes(styled.snapshot, ['shape:rectangle', 'shape:source'])
++  assert.equal(duplicated.duplicated.length, 1)
++  const copy = duplicated.snapshot.store[duplicated.duplicated[0]]
++  assert.equal(copy.x, styled.snapshot.store['shape:rectangle'].x + 28)
++  assert.equal(copy.meta.cowartDuplicatedFrom, 'shape:rectangle')
++})
++
+ test('queued teaching annotations apply idempotently with stable IDs', () => {
+   const snapshot = fixtureSnapshot()
+   const operation = {
+diff --git a/src/learning-canvas/styles.css b/src/learning-canvas/styles.css
+index 052133d..cd861e0 100644
+--- a/src/learning-canvas/styles.css
++++ b/src/learning-canvas/styles.css
+@@ -1,294 +1,449 @@
+ .learning-canvas-shell {
+-  --learning-blue: #2563eb;
+-  --learning-ink: #18212f;
+-  --learning-panel: rgb(255 255 255 / 94%);
++  --cowart-blue: #2f80ed;
++  --cowart-ink: #202124;
++  --cowart-muted: #667085;
++  --cowart-border: #d7d9df;
++  --cowart-panel: rgb(255 255 255 / 96%);
+   position: fixed;
+   inset: 0;
+-  display: grid;
+-  grid-template-rows: 58px 1fr;
+   overflow: hidden;
+-  color: var(--learning-ink);
+-  background: #edf2f7;
++  color: var(--cowart-ink);
++  background: #f7f7f8;
++  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+   user-select: none;
+ }
+ 
+-.learning-topbar {
+-  z-index: 20;
+-  display: flex;
+-  padding: 0 18px;
+-  align-items: center;
+-  justify-content: space-between;
+-  background: var(--learning-panel);
+-  border-bottom: 1px solid #d8e0ea;
+-  box-shadow: 0 1px 8px rgb(15 23 42 / 8%);
+-  backdrop-filter: blur(14px);
+-}
++button,
++select,
++input,
++textarea { font: inherit; }
+ 
+-.learning-brand {
+-  display: flex;
+-  min-width: 0;
+-  gap: 10px;
+-  align-items: center;
++button:focus-visible,
++select:focus-visible,
++input:focus-visible,
++textarea:focus-visible {
++  outline: 2px solid #60a5fa;
++  outline-offset: 2px;
+ }
+ 
+-.learning-brand-mark {
+-  display: grid;
+-  width: 34px;
+-  height: 34px;
+-  flex: 0 0 auto;
+-  place-items: center;
+-  color: #fff;
+-  font-size: 12px;
+-  font-weight: 800;
+-  letter-spacing: 0.04em;
+-  background: linear-gradient(135deg, #2563eb, #7c3aed);
+-  border-radius: 10px;
+-  box-shadow: 0 6px 18px rgb(79 70 229 / 24%);
++.learning-canvas-viewport {
++  position: absolute;
++  z-index: 0;
++  inset: 0;
++  overflow: hidden;
++  touch-action: none;
++  background: #f8f9fa;
+ }
+ 
+-.learning-brand div {
+-  display: grid;
+-  min-width: 0;
+-  gap: 1px;
++.learning-canvas-viewport.tool-select { cursor: default; }
++.learning-canvas-viewport.tool-hand { cursor: grab; }
++.learning-canvas-viewport.tool-hand:active { cursor: grabbing; }
++.learning-canvas-viewport.tool-frame,
++.learning-canvas-viewport.tool-pen,
++.learning-canvas-viewport.tool-highlight,
++.learning-canvas-viewport.tool-arrow,
++.learning-canvas-viewport.tool-line,
++.learning-canvas-viewport.tool-rectangle,
++.learning-canvas-viewport.tool-ellipse { cursor: crosshair; }
++.learning-canvas-viewport.tool-text,
++.learning-canvas-viewport.tool-note { cursor: text; }
++.learning-canvas-viewport.tool-eraser { cursor: cell; }
++
++.learning-canvas-svg {
++  display: block;
++  width: 100%;
++  height: 100%;
++  overflow: visible;
+ }
+ 
+-.learning-brand strong {
++.learning-canvas-svg image,
++.learning-canvas-svg line,
++.learning-canvas-svg polyline,
++.learning-canvas-svg g[data-shape-id] { pointer-events: all; }
++
++.learning-canvas-svg .is-selected { filter: drop-shadow(0 0 2px rgb(47 128 237 / 70%)); }
++
++.learning-frame-shape,
++.learning-marquee { vector-effect: non-scaling-stroke; }
++
++.learning-note-text {
++  fill: #1f2937;
++  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+   font-size: 15px;
+-  line-height: 1.25;
++  pointer-events: none;
++  user-select: none;
+ }
+ 
+-.learning-brand small {
+-  overflow: hidden;
+-  color: #64748b;
+-  font-size: 12px;
+-  text-overflow: ellipsis;
+-  white-space: nowrap;
++.learning-selection-overlay circle {
++  fill: #fff;
++  stroke: var(--cowart-blue);
++  stroke-width: 2px;
++  cursor: nwse-resize;
++  vector-effect: non-scaling-stroke;
+ }
+ 
+-.learning-page-controls {
+-  display: flex;
+-  gap: 8px;
+-  align-items: center;
+-  color: #64748b;
+-  font-size: 12px;
+-}
++.learning-selection-overlay circle:nth-of-type(2),
++.learning-selection-overlay circle:nth-of-type(3) { cursor: nesw-resize; }
+ 
+-.learning-page-controls select {
+-  min-width: 128px;
+-  height: 34px;
+-  padding: 0 30px 0 10px;
+-  color: #1e293b;
+-  background: #fff;
+-  border: 1px solid #cbd5e1;
+-  border-radius: 8px;
++.cowart-top-actions,
++.cowart-bottom-toolbar,
++.cowart-zoom-controls,
++.cowart-style-panel {
++  color: #34373d;
++  background: var(--cowart-panel);
++  border: 1px solid rgb(209 213 219 / 92%);
++  box-shadow: 0 2px 7px rgb(15 23 42 / 12%), 0 8px 28px rgb(15 23 42 / 7%);
++  backdrop-filter: blur(16px);
+ }
+ 
+-.learning-toolbar {
++.cowart-top-actions {
+   position: fixed;
+-  z-index: 30;
+-  top: 70px;
+-  left: 50%;
++  z-index: 40;
++  top: 8px;
++  left: 8px;
+   display: flex;
+-  max-width: calc(100vw - 32px);
+-  min-height: 48px;
+-  padding: 6px;
+-  gap: 3px;
++  height: 42px;
++  padding: 3px;
++  gap: 2px;
+   align-items: center;
+-  overflow: visible;
+-  background: var(--learning-panel);
+-  border: 1px solid #d8e0ea;
+-  border-radius: 13px;
+-  box-shadow: 0 12px 34px rgb(15 23 42 / 16%);
+-  transform: translateX(-50%);
+-  backdrop-filter: blur(14px);
++  border-radius: 9px;
+ }
+ 
++.cowart-icon-button,
+ .learning-toolbar-button,
+-.learning-export-button {
++.cowart-minimap-button,
++.cowart-zoom-percent,
++.cowart-export-button {
+   display: inline-flex;
+-  height: 36px;
+-  padding: 0 9px;
+-  gap: 5px;
++  height: 34px;
++  padding: 0 8px;
++  gap: 4px;
+   align-items: center;
+   justify-content: center;
+-  color: #475569;
+-  font: inherit;
+-  font-size: 12px;
+-  white-space: nowrap;
++  color: #4b4f57;
+   background: transparent;
+   border: 0;
+-  border-radius: 8px;
++  border-radius: 6px;
+   cursor: pointer;
+ }
+ 
+-.learning-toolbar-button:hover:not(:disabled),
+-.learning-export-button:hover:not(:disabled) {
+-  color: #1d4ed8;
+-  background: #eff6ff;
+-}
++.cowart-icon-button { width: 34px; padding: 0; }
+ 
+-.learning-toolbar-button[data-active="true"] {
+-  color: #fff;
+-  background: linear-gradient(135deg, #2563eb, #4f46e5);
+-  box-shadow: 0 5px 14px rgb(37 99 235 / 24%);
++.cowart-icon-button:hover:not(:disabled),
++.learning-toolbar-button:hover:not(:disabled),
++.cowart-minimap-button:hover,
++.cowart-zoom-percent:hover,
++.cowart-export-button:hover:not(:disabled),
++.cowart-icon-button[data-active="true"],
++.cowart-minimap-button[data-active="true"] {
++  color: #1f2937;
++  background: #eef0f3;
+ }
+ 
++.cowart-icon-button:disabled,
+ .learning-toolbar-button:disabled,
+-.learning-export-button:disabled,
+-.learning-export-popover button:disabled {
+-  opacity: 0.35;
+-  cursor: not-allowed;
++.cowart-export-button:disabled,
++.cowart-menu button:disabled { opacity: 0.32; cursor: not-allowed; }
++
++.cowart-page-select {
++  width: 94px;
++  height: 34px;
++  padding: 0 25px 0 8px;
++  color: #34373d;
++  background: transparent;
++  border: 0;
++  border-radius: 6px;
++  cursor: pointer;
+ }
+ 
+-.learning-toolbar-separator {
++.cowart-page-select:hover { background: #eef0f3; }
++
++.cowart-control-separator {
++  display: block;
+   width: 1px;
+   height: 24px;
+-  margin: 0 3px;
+-  background: #d8e0ea;
+-}
+-
+-.learning-zoom-label {
+-  min-width: 40px;
+-  color: #64748b;
+-  font-size: 11px;
+-  text-align: center;
++  margin: 0 2px;
++  flex: 0 0 auto;
++  background: #d9dce1;
+ }
+ 
+-.learning-export-menu {
+-  position: relative;
++.cowart-export-button {
++  width: auto;
++  padding: 0 9px;
++  color: #2767b0;
+ }
+ 
+-.learning-export-button {
+-  color: #1d4ed8;
+-  font-weight: 650;
+-  background: #eff6ff;
+-}
++.cowart-popover-anchor { position: relative; display: flex; }
+ 
+-.learning-export-popover {
++.cowart-menu,
++.cowart-tool-menu {
+   position: absolute;
+-  top: calc(100% + 10px);
++  z-index: 90;
++  top: calc(100% + 8px);
+   right: 0;
+   display: grid;
+-  width: 190px;
+-  padding: 6px;
++  width: 205px;
++  padding: 5px;
+   gap: 2px;
++  color: #30343a;
+   background: #fff;
+-  border: 1px solid #d8e0ea;
+-  border-radius: 10px;
+-  box-shadow: 0 14px 38px rgb(15 23 42 / 20%);
++  border: 1px solid var(--cowart-border);
++  border-radius: 9px;
++  box-shadow: 0 12px 35px rgb(15 23 42 / 19%);
+ }
+ 
+-.learning-export-popover button {
++.cowart-menu-left { right: auto; left: 0; }
++
++.cowart-menu button,
++.cowart-tool-menu button {
+   display: flex;
++  width: 100%;
+   min-height: 34px;
+-  padding: 7px 10px;
+-  gap: 6px;
++  padding: 7px 9px;
++  gap: 8px;
+   align-items: center;
+-  color: #334155;
+-  font: inherit;
+-  font-size: 12px;
++  justify-content: flex-start;
++  color: inherit;
+   text-align: left;
+   background: transparent;
+   border: 0;
+-  border-radius: 7px;
++  border-radius: 6px;
+   cursor: pointer;
+ }
+ 
+-.learning-export-popover button:hover:not(:disabled) {
++.cowart-menu button:hover:not(:disabled),
++.cowart-tool-menu button:hover,
++.cowart-tool-menu button[data-active="true"] {
+   color: #1d4ed8;
+   background: #eff6ff;
+ }
+ 
+-.learning-canvas-viewport {
++.cowart-menu kbd {
++  margin-left: auto;
++  color: #8a9099;
++  font-family: inherit;
++  font-size: 11px;
++}
++
++.cowart-export-menu { width: 190px; }
++
++.cowart-style-panel {
++  position: fixed;
++  z-index: 35;
++  top: 8px;
++  right: 8px;
++  display: grid;
++  width: 166px;
++  padding: 11px;
++  gap: 12px;
++  border-radius: 9px;
++}
++
++.cowart-color-grid {
++  display: grid;
++  grid-template-columns: repeat(6, 1fr);
++  gap: 6px;
++}
++
++.cowart-color-swatch {
+   position: relative;
+-  grid-row: 2;
+-  min-width: 0;
+-  min-height: 0;
+-  overflow: hidden;
+-  touch-action: none;
+-  background: #f8fafc;
++  width: 18px;
++  height: 18px;
++  padding: 0;
++  background: var(--swatch);
++  border: 2px solid #fff;
++  border-radius: 50%;
++  box-shadow: 0 0 0 1px rgb(15 23 42 / 18%);
++  cursor: pointer;
+ }
+ 
+-.learning-canvas-viewport.tool-select { cursor: default; }
+-.learning-canvas-viewport.tool-hand { cursor: grab; }
+-.learning-canvas-viewport.tool-frame { cursor: crosshair; }
+-.learning-canvas-viewport.tool-pen,
+-.learning-canvas-viewport.tool-highlight { cursor: crosshair; }
+-.learning-canvas-viewport.tool-arrow { cursor: crosshair; }
+-.learning-canvas-viewport.tool-note { cursor: text; }
++.cowart-color-swatch:hover { transform: scale(1.1); }
+ 
+-.learning-canvas-svg {
+-  display: block;
++.cowart-color-swatch[data-active="true"]::after {
++  position: absolute;
++  inset: -4px;
++  border: 2px solid var(--cowart-blue);
++  border-radius: 50%;
++  content: "";
++}
++
++.cowart-opacity-control {
++  display: grid;
++  grid-template-columns: 1fr auto;
++  gap: 5px 8px;
++  color: #555b65;
++  font-size: 11px;
++}
++
++.cowart-opacity-control output { color: #858b95; }
++
++.cowart-opacity-control input {
+   width: 100%;
+-  height: 100%;
+-  overflow: visible;
++  height: 4px;
++  grid-column: 1 / -1;
++  accent-color: #41454c;
++  cursor: pointer;
+ }
+ 
+-.learning-canvas-svg image,
+-.learning-canvas-svg line,
+-.learning-canvas-svg polyline,
+-.learning-canvas-svg g[data-shape-id] {
+-  pointer-events: all;
++.cowart-style-options { min-width: 0; margin: 0; padding: 0; border: 0; }
++
++.cowart-style-options legend {
++  margin-bottom: 5px;
++  color: #757b84;
++  font-size: 11px;
+ }
+ 
+-.learning-canvas-svg .is-selected {
+-  filter: drop-shadow(0 0 2px rgb(37 99 235 / 70%));
++.cowart-style-options > div {
++  display: grid;
++  grid-auto-flow: column;
++  grid-auto-columns: 1fr;
++  gap: 2px;
++  padding: 2px;
++  background: #f1f2f4;
++  border-radius: 6px;
+ }
+ 
+-.learning-frame-shape {
+-  vector-effect: non-scaling-stroke;
++.cowart-style-options button {
++  min-width: 0;
++  height: 25px;
++  padding: 0 3px;
++  overflow: hidden;
++  color: #676d76;
++  font-size: 10px;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++  background: transparent;
++  border: 0;
++  border-radius: 4px;
++  cursor: pointer;
+ }
+ 
+-.learning-note-text {
+-  fill: #1f2937;
+-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+-  font-size: 15px;
++.cowart-style-options button:hover,
++.cowart-style-options button[data-active="true"] {
++  color: #282c32;
++  background: #fff;
++  box-shadow: 0 1px 3px rgb(15 23 42 / 13%);
++}
++
++.cowart-bottom-toolbar {
++  position: fixed;
++  z-index: 45;
++  bottom: 12px;
++  left: 50%;
++  display: flex;
++  height: 51px;
++  padding: 4px;
++  gap: 2px;
++  align-items: center;
++  border-radius: 10px;
++  transform: translateX(-50%);
++}
++
++.cowart-bottom-toolbar .learning-toolbar-button { width: 40px; height: 40px; padding: 0; }
++
++.cowart-bottom-toolbar .learning-toolbar-button[data-active="true"] {
++  color: #fff;
++  background: var(--cowart-blue);
++  box-shadow: 0 3px 8px rgb(47 128 237 / 25%);
++}
++
++.cowart-tool-slot {
++  position: relative;
++  display: flex;
++  height: 42px;
++  align-items: center;
++}
++
++.cowart-tool-slot > small {
++  position: absolute;
++  right: 0;
++  bottom: -1px;
++  left: 0;
++  overflow: hidden;
++  color: currentColor;
++  font-size: 9px;
++  line-height: 10px;
++  text-align: center;
+   pointer-events: none;
+-  user-select: none;
+ }
+ 
+-.learning-selection-overlay circle {
+-  fill: #fff;
+-  stroke: #2563eb;
+-  stroke-width: 2px;
+-  cursor: nwse-resize;
+-  vector-effect: non-scaling-stroke;
++.cowart-tool-slot:has(> small) .learning-toolbar-button { padding-bottom: 9px; }
++
++.cowart-tool-menu {
++  top: auto;
++  right: 0;
++  bottom: calc(100% + 10px);
++  width: 142px;
+ }
+ 
+-.learning-selection-overlay circle:nth-of-type(2),
+-.learning-selection-overlay circle:nth-of-type(3) {
+-  cursor: nesw-resize;
++.cowart-zoom-controls {
++  position: fixed;
++  z-index: 42;
++  bottom: 12px;
++  left: 12px;
++  display: flex;
++  height: 40px;
++  padding: 3px;
++  align-items: center;
++  border-radius: 9px;
++}
++
++.cowart-zoom-percent { min-width: 66px; }
++.cowart-minimap-button { width: 34px; padding: 0; }
++
++.cowart-zoom-menu {
++  top: auto;
++  right: auto;
++  bottom: calc(100% + 8px);
++  left: 0;
++  width: 170px;
++}
++
++.cowart-minimap {
++  position: fixed;
++  z-index: 39;
++  bottom: 60px;
++  left: 12px;
++  width: 210px;
++  height: 140px;
++  padding: 6px;
++  overflow: hidden;
++  background: rgb(255 255 255 / 96%);
++  border: 1px solid var(--cowart-border);
++  border-radius: 9px;
++  box-shadow: 0 8px 25px rgb(15 23 42 / 16%);
++}
++
++.cowart-minimap svg {
++  display: block;
++  width: 100%;
++  height: 100%;
++  background: #f5f6f8;
++  border-radius: 5px;
+ }
+ 
+ .learning-status {
+   position: fixed;
+-  z-index: 22;
+-  bottom: 16px;
++  z-index: 38;
++  bottom: 72px;
+   left: 16px;
+   display: flex;
+-  min-height: 34px;
+-  padding: 0 12px;
+-  gap: 8px;
++  max-width: min(520px, calc(100vw - 32px));
++  min-height: 32px;
++  padding: 0 10px;
++  gap: 7px;
+   align-items: center;
+-  color: #475569;
+-  font-size: 12px;
+-  background: rgb(255 255 255 / 92%);
+-  border: 1px solid #d8e0ea;
+-  border-radius: 10px;
+-  box-shadow: 0 8px 24px rgb(15 23 42 / 10%);
++  color: #5d6470;
++  font-size: 11px;
++  background: rgb(255 255 255 / 91%);
++  border: 1px solid #dadde3;
++  border-radius: 8px;
++  box-shadow: 0 5px 18px rgb(15 23 42 / 9%);
+   backdrop-filter: blur(10px);
+ }
+ 
+-.learning-status[data-kind="error"] {
+-  color: #b91c1c;
+-  border-color: #fecaca;
+-}
+-
+-.learning-status span + span::before {
+-  margin-right: 8px;
+-  color: #cbd5e1;
+-  content: "·";
+-}
++.learning-status[data-kind="error"] { color: #b91c1c; border-color: #fecaca; }
++.learning-status span + span::before { margin-right: 7px; color: #cbd5e1; content: "·"; }
+ 
+ .learning-empty-state {
+   display: grid;
+@@ -301,7 +456,7 @@
+ 
+ .learning-dialog-backdrop {
+   position: fixed;
+-  z-index: 100;
++  z-index: 120;
+   inset: 0;
+   display: grid;
+   padding: 24px;
+@@ -317,85 +472,56 @@
+   gap: 14px;
+   background: #fff;
+   border: 1px solid #d8e0ea;
+-  border-radius: 14px;
++  border-radius: 12px;
+   box-shadow: 0 24px 70px rgb(15 23 42 / 28%);
+ }
+ 
+-.learning-note-dialog h2 {
+-  margin: 0;
+-  font-size: 17px;
+-}
++.learning-note-dialog h2 { margin: 0; font-size: 17px; }
+ 
+ .learning-note-dialog textarea {
+   width: 100%;
+   padding: 12px;
+   resize: vertical;
+   color: #1e293b;
+-  font: inherit;
+   font-size: 14px;
+   line-height: 1.55;
+   background: #f8fafc;
+   border: 1px solid #cbd5e1;
+-  border-radius: 9px;
++  border-radius: 8px;
+   outline: none;
+   user-select: text;
+ }
+ 
+-.learning-note-dialog textarea:focus {
+-  border-color: #60a5fa;
+-  box-shadow: 0 0 0 3px rgb(59 130 246 / 14%);
+-}
+-
+-.learning-note-dialog > div {
+-  display: flex;
+-  gap: 8px;
+-  justify-content: flex-end;
+-}
++.learning-note-dialog textarea:focus { border-color: #60a5fa; box-shadow: 0 0 0 3px rgb(59 130 246 / 14%); }
++.learning-note-dialog > div { display: flex; gap: 8px; justify-content: flex-end; }
+ 
+ .learning-note-dialog button {
+   min-height: 36px;
+   padding: 0 14px;
+   color: #475569;
+-  font: inherit;
+   background: #f1f5f9;
+   border: 0;
+-  border-radius: 8px;
++  border-radius: 7px;
+   cursor: pointer;
+ }
+ 
+-.learning-note-dialog button[type="submit"] {
+-  color: #fff;
+-  background: #2563eb;
+-}
++.learning-note-dialog button[type="submit"] { color: #fff; background: var(--cowart-blue); }
++.learning-note-dialog button:disabled { opacity: 0.4; cursor: not-allowed; }
++.is-spinning { animation: learning-spin 0.9s linear infinite; }
+ 
+-.learning-note-dialog button:disabled {
+-  opacity: 0.4;
+-  cursor: not-allowed;
+-}
++@keyframes learning-spin { to { transform: rotate(360deg); } }
+ 
+-.is-spinning {
+-  animation: learning-spin 0.9s linear infinite;
++@media (max-width: 900px) {
++  .cowart-style-panel { width: 150px; }
++  .cowart-top-actions { max-width: calc(100vw - 174px); }
++  .cowart-export-button { width: 34px; overflow: hidden; padding: 0; font-size: 0; }
++  .cowart-export-button svg:last-child { display: none; }
+ }
+ 
+-@keyframes learning-spin {
+-  to { transform: rotate(360deg); }
+-}
+-
+-@media (max-width: 1080px) {
+-  .learning-toolbar {
+-    right: 12px;
+-    left: 12px;
+-    justify-content: flex-start;
+-    overflow-x: auto;
+-    transform: none;
+-  }
+-
+-  .learning-toolbar-button span {
+-    display: none;
+-  }
+-
+-  .learning-toolbar-button {
+-    width: 36px;
+-    padding: 0;
+-  }
++@media (max-width: 690px) {
++  .cowart-style-panel { display: none; }
++  .cowart-top-actions { right: 8px; max-width: none; overflow-x: auto; }
++  .cowart-page-select { width: 82px; }
++  .cowart-bottom-toolbar { right: 8px; left: 8px; justify-content: flex-start; overflow-x: auto; transform: none; }
++  .learning-status { display: none; }
+ }
+-- 
+2.55.0.windows.3
+

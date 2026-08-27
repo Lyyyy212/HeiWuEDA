@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "easyeda.hardware-lifecycle.api-plan.v1",
+  "planId": "read-current-context-example",
+  "risk": "READ",
+  "registry": {
+    "schemaVersion": "easyeda.api-manifest.v1",
+    "package": "@jlceda/pro-api-types",
+    "version": "0.4.15",
+    "declarationSha256": "088146a3e913a7e08c164a4c7c60aae41c0cfecafe18697c68d6aa470ffa4254"
+  },
+  "identity": {
+    "projectUuid": null,
+    "documentUuid": null,
+    "documentType": null,
+    "capturedAt": "2026-08-24T00:00:00Z",
+    "bridgeService": "easyeda-bridge",
+    "windowId": null,
+    "gatewayVersion": "0.4.0",
+    "bridgeScriptSha256": null
+  },
+  "calls": [
+    {
+      "methodId": "DMT_Project.getCurrentProjectInfo#1",
+      "effect": "READ",
+      "purpose": "Read current project information",
+      "args": [],
+      "resultKey": "project",
+      "pick": ["uuid", "friendlyName", "name", "teamUuid"]
+    },
+    {
+      "methodId": "DMT_SelectControl.getCurrentDocumentInfo#1",
+      "effect": "READ",
+      "purpose": "Read current document information",
+      "args": [],
+      "resultKey": "document",
+      "pick": ["documentType", "uuid", "tabId", "parentProjectUuid"]
+    }
+  ],
+  "save": false,
+  "planDigest": "247c3355224d6d1cf1c93be148a1a64c2454a72ed8c2b26d34109db89552022f"
+}

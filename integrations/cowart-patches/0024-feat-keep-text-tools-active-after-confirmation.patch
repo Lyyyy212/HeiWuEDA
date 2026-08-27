@@ -1,0 +1,154 @@
+From bfbc44e77930073798900a2a8cee089789fc1445 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Tue, 25 Aug 2026 19:57:56 +0800
+Subject: [PATCH] feat: keep text tools active after confirmation
+
+---
+ scripts/probe-hardware-learning.mjs            |  2 ++
+ src/learning-canvas/HardwareLearningCanvas.jsx | 17 +++++++++--------
+ src/learning-canvas/InlineCanvasTextEditor.jsx |  2 +-
+ src/learning-canvas/textEditing.js             |  5 +++++
+ src/learning-canvas/textEditing.test.mjs       | 11 ++++++++++-
+ 5 files changed, 27 insertions(+), 10 deletions(-)
+
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index 971a9bb..fe34c69 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -81,6 +81,8 @@ assert.match(inlineEditorSource, /event\.nativeEvent\.isComposing/);
+ assert.match(inlineEditorSource, /data-cowart-preserve-text-editor/);
+ assert.match(inlineEditorSource, /learning-inline-editor-hint/);
+ assert.match(inlineEditorSource, /indentInlineLearningText/);
++assert.match(inlineEditorSource, /保持文本工具/);
++assert.match(learningCanvasSource, /toolAfterInlineTextEdit/);
+ assert.doesNotMatch(inlineEditorSource, /<foreignObject/);
+ 
+ const historySource = await readFile(
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index 585d627..10b4c5c 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -101,7 +101,7 @@ import {
+   svgToPngDataUrl,
+   textToBase64
+ } from './export.js'
+-import { normalizeInlineLearningText } from './textEditing.js'
++import { normalizeInlineLearningText, toolAfterInlineTextEdit } from './textEditing.js'
+ import './styles.css'
+ 
+ const PRIMARY_TOOLS = [
+@@ -788,7 +788,7 @@ export default function HardwareLearningCanvas() {
+     setOpenMenu(null)
+     flushSync(() => {
+       setSelectedIds([shape.id])
+-      setTool('select')
++      setTool(toolAfterInlineTextEdit(mode))
+       setNoteDraft({
+         point: { x: shape.x, y: shape.y },
+         text: shape.meta?.cowartLearningText || '',
+@@ -973,9 +973,10 @@ export default function HardwareLearningCanvas() {
+   }
+ 
+   function cancelTextEdit() {
++    const mode = noteDraft?.mode
+     const wasExisting = Boolean(noteDraft?.shapeId)
+     setNoteDraft(null)
+-    setTool('select')
++    setTool(toolAfterInlineTextEdit(mode, 'cancel'))
+     setStatus({
+       kind: 'saved',
+       text: wasExisting ? '已取消编辑，保留原文字' : '已取消新建文字'
+@@ -988,10 +989,10 @@ export default function HardwareLearningCanvas() {
+     if (!text.trim()) {
+       const wasExisting = Boolean(noteDraft.shapeId)
+       setNoteDraft(null)
+-      setTool('select')
++      setTool(toolAfterInlineTextEdit(noteDraft.mode))
+       setStatus({
+         kind: 'saved',
+-        text: wasExisting ? '内容为空，保留原文字' : '空文字未保存'
++        text: wasExisting ? '内容为空，保留原文字并保持当前工具' : '空文字未保存，可继续单击输入'
+       })
+       return
+     }
+@@ -999,7 +1000,7 @@ export default function HardwareLearningCanvas() {
+       const original = snapshotRef.current.store[noteDraft.shapeId]
+       const updated = updateLearningTextShapeContent(original, text, noteDraft.style)
+       commitSnapshot(updateShape(snapshotRef.current, updated), {
+-        message: noteDraft.mode === 'note' ? '便签已更新' : '文字已更新'
++        message: noteDraft.mode === 'note' ? '便签已更新，可继续使用便签工具' : '文字已更新，可继续使用文本工具'
+       })
+       setSelectedIds([updated.id])
+     } else {
+@@ -1007,11 +1008,11 @@ export default function HardwareLearningCanvas() {
+         ? createTextShape({ snapshot: snapshotRef.current, pageId, point: noteDraft.point, text, style: noteDraft.style })
+         : createNoteShape({ snapshot: snapshotRef.current, pageId, point: noteDraft.point, text, style: noteDraft.style })
+       commitSnapshot(addShape(snapshotRef.current, shape), {
+-        message: noteDraft.mode === 'note' ? '便签已保存' : '文字已保存'
++        message: noteDraft.mode === 'note' ? '便签已保存，可继续单击创建' : '文字已保存，可继续单击创建'
+       })
+       setSelectedIds([shape.id])
+     }
+-    setTool('select')
++    setTool(toolAfterInlineTextEdit(noteDraft.mode))
+     setNoteDraft(null)
+   }
+ 
+diff --git a/src/learning-canvas/InlineCanvasTextEditor.jsx b/src/learning-canvas/InlineCanvasTextEditor.jsx
+index db0805f..f4eddb1 100644
+--- a/src/learning-canvas/InlineCanvasTextEditor.jsx
++++ b/src/learning-canvas/InlineCanvasTextEditor.jsx
+@@ -148,7 +148,7 @@ export default function InlineCanvasTextEditor({ camera, draft, shape, style, on
+         />
+       </div>
+       <div className="learning-inline-editor-hint" role="status">
+-        <span>Enter 完成 · Shift+Enter 换行 · Esc 取消</span>
++        <span>{draft.mode === 'note' ? 'Enter 完成并保持便签工具' : 'Enter 完成并保持文本工具'} · Shift+Enter 换行 · Esc 退出</span>
+         <span>{draft.text.length}/{INLINE_LEARNING_TEXT_LIMIT}</span>
+       </div>
+     </div>
+diff --git a/src/learning-canvas/textEditing.js b/src/learning-canvas/textEditing.js
+index 4bbefd3..6586174 100644
+--- a/src/learning-canvas/textEditing.js
++++ b/src/learning-canvas/textEditing.js
+@@ -20,6 +20,11 @@ export function inlineEditorActionForKey({
+   return shiftKey ? 'newline' : 'commit'
+ }
+ 
++export function toolAfterInlineTextEdit(mode, outcome = 'commit') {
++  if (outcome === 'cancel') return 'select'
++  return ['text', 'note'].includes(mode) ? mode : 'select'
++}
++
+ export function indentInlineLearningText(text, selectionStart, selectionEnd, { outdent = false } = {}) {
+   const value = normalizeInlineLearningText(text)
+   const start = Math.max(0, Math.min(value.length, Number(selectionStart) || 0))
+diff --git a/src/learning-canvas/textEditing.test.mjs b/src/learning-canvas/textEditing.test.mjs
+index 70cf2aa..004decf 100644
+--- a/src/learning-canvas/textEditing.test.mjs
++++ b/src/learning-canvas/textEditing.test.mjs
+@@ -5,7 +5,8 @@ import {
+   indentInlineLearningText,
+   INLINE_LEARNING_TEXT_LIMIT,
+   inlineEditorActionForKey,
+-  normalizeInlineLearningText
++  normalizeInlineLearningText,
++  toolAfterInlineTextEdit
+ } from './textEditing.js'
+ 
+ test('inline editor keeps Enter confirmation distinct from newline and IME composition', () => {
+@@ -37,3 +38,11 @@ test('inline editor normalizes line endings and enforces its persisted limit', (
+   assert.equal(normalizeInlineLearningText('一\r\n二\r三'), '一\n二\n三')
+   assert.equal(normalizeInlineLearningText('x'.repeat(INLINE_LEARNING_TEXT_LIMIT + 20)).length, INLINE_LEARNING_TEXT_LIMIT)
+ })
++
++test('confirmed text and notes keep their tool while Escape returns to select', () => {
++  assert.equal(toolAfterInlineTextEdit('text', 'commit'), 'text')
++  assert.equal(toolAfterInlineTextEdit('note', 'commit'), 'note')
++  assert.equal(toolAfterInlineTextEdit('text', 'cancel'), 'select')
++  assert.equal(toolAfterInlineTextEdit('note', 'cancel'), 'select')
++  assert.equal(toolAfterInlineTextEdit('unknown', 'commit'), 'select')
++})
+-- 
+2.55.0.windows.3
+

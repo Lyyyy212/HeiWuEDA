@@ -1,0 +1,7 @@
+# Keep shell scripts runnable by bash on Windows checkouts.
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Release artifacts are generated from source and intentionally tracked so the
+# installed plugin can start without npm or node_modules.
+mcp/generated/** linguist-generated=true

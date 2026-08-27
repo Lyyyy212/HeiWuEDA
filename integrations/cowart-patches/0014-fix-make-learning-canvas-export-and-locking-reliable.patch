@@ -1,0 +1,676 @@
+From 38b3a653d560c29159d906d12b572a551f97d1d5 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local.invalid>
+Date: Tue, 25 Aug 2026 12:07:33 +0800
+Subject: [PATCH] fix: make learning canvas export and locking reliable
+
+---
+ mcp/server.mjs                                | 144 +++++++++++++++++-
+ package.json                                  |   2 +-
+ scripts/probe-mcp.mjs                         |  46 ++++++
+ src/cowartClient.js                           |  94 +++++++++++-
+ src/cowartClient.test.mjs                     |  40 +++++
+ .../HardwareLearningCanvas.jsx                |  46 +++++-
+ src/learning-canvas/export.js                 |   2 +-
+ src/learning-canvas/model.js                  |  13 ++
+ src/learning-canvas/model.test.mjs            |  20 +++
+ 9 files changed, 395 insertions(+), 12 deletions(-)
+ create mode 100644 src/cowartClient.test.mjs
+
+diff --git a/mcp/server.mjs b/mcp/server.mjs
+index b4d2338..e667883 100644
+--- a/mcp/server.mjs
++++ b/mcp/server.mjs
+@@ -1,6 +1,7 @@
+ import { execFile } from "node:child_process";
++import { randomUUID } from "node:crypto";
+ import { readFileSync } from "node:fs";
+-import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
++import { appendFile, copyFile, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+ import { homedir, platform, tmpdir } from "node:os";
+ import { basename, extname, join, relative, resolve, sep } from "node:path";
+ import { promisify } from "node:util";
+@@ -126,6 +127,9 @@ const displayModeSchema = z.enum(["fullscreen", "inline"]);
+ const widgetModeSchema = z.enum(["default", "hardware-learning"]);
+ const HARDWARE_LEARNING_MODE = "hardware-learning";
+ const hardwareLearningCanvasDirs = new Set();
++const activeCowartDownloads = new Map();
++const MAX_CHUNKED_DOWNLOAD_BYTES = 128 * 1024 * 1024;
++const MAX_DOWNLOAD_CHUNK_BYTES = 1024 * 1024;
+ const LEARNING_EVIDENCE_SOURCES = new Set([
+   "user-provided-local-image",
+   "official-easyeda-export",
+@@ -936,7 +940,7 @@ async function saveCowartReferenceImage(args = {}) {
+   };
+ }
+ 
+-async function downloadCowartFile(args = {}) {
++async function downloadCowartFileDirect(args = {}) {
+   const assetUrl = nonEmptyString(args.assetUrl);
+   const dataUrl = nonEmptyString(args.dataUrl);
+   const dataBase64 = nonEmptyString(args.dataBase64);
+@@ -1000,6 +1004,126 @@ async function downloadCowartFile(args = {}) {
+   };
+ }
+ 
++async function beginChunkedCowartDownload(args = {}) {
++  const expectedBytes = Number(args.expectedBytes);
++  if (!Number.isInteger(expectedBytes) || expectedBytes <= 0 || expectedBytes > MAX_CHUNKED_DOWNLOAD_BYTES) {
++    throw new Error(`Chunked Cowart download expectedBytes must be between 1 and ${MAX_CHUNKED_DOWNLOAD_BYTES}.`);
++  }
++
++  const downloadsDir = join(homedir(), "Downloads");
++  const requestedName = sanitizeFileName(nonEmptyString(args.fileName), `cowart-download-${Date.now()}.bin`);
++  const requestedDirectoryName = nonEmptyString(args.directoryName);
++  const requestedSubdirectory = nonEmptyString(args.subdirectory);
++  let directoryName = requestedDirectoryName ? sanitizeDirectoryName(requestedDirectoryName) : null;
++  let exportRoot = directoryName ? join(downloadsDir, directoryName) : downloadsDir;
++  if (directoryName && args.uniqueDirectory === true) {
++    const uniqueDirectory = await uniqueDirectoryPath(downloadsDir, directoryName);
++    directoryName = uniqueDirectory.directoryName;
++    exportRoot = uniqueDirectory.directoryPath;
++  }
++  const targetDir = requestedSubdirectory
++    ? join(exportRoot, sanitizeDirectoryName(requestedSubdirectory, "pages"))
++    : exportRoot;
++  if (!isSafeChildPath(downloadsDir, targetDir) && targetDir !== downloadsDir) {
++    throw new Error("Invalid Cowart download directory.");
++  }
++  await mkdir(targetDir, { recursive: true });
++  const { fileName, filePath } = args.overwrite === true
++    ? { fileName: requestedName, filePath: join(targetDir, requestedName) }
++    : await uniqueFilePath(targetDir, requestedName);
++  const temporaryDir = await mkdtemp(join(tmpdir(), "cowart-download-"));
++  const temporaryPath = join(temporaryDir, "payload.part");
++  await writeFile(temporaryPath, Buffer.alloc(0));
++  const downloadId = randomUUID();
++  activeCowartDownloads.set(downloadId, {
++    downloadId,
++    directoryName,
++    directoryPath: exportRoot,
++    expectedBytes,
++    fileName,
++    filePath,
++    mimeType: nonEmptyString(args.mimeType) || "application/octet-stream",
++    nextChunkIndex: 0,
++    overwrite: args.overwrite === true,
++    receivedBytes: 0,
++    temporaryDir,
++    temporaryPath,
++  });
++  return { ok: true, action: "begin", downloadId, expectedBytes, fileName, mimeType: nonEmptyString(args.mimeType) || "application/octet-stream" };
++}
++
++function activeCowartDownload(args = {}) {
++  const downloadId = nonEmptyString(args.downloadId);
++  const download = downloadId ? activeCowartDownloads.get(downloadId) : null;
++  if (!download) throw new Error("Cowart chunked download session was not found or has expired.");
++  return download;
++}
++
++async function appendChunkedCowartDownload(args = {}) {
++  const download = activeCowartDownload(args);
++  const chunkIndex = Number(args.chunkIndex);
++  if (!Number.isInteger(chunkIndex) || chunkIndex !== download.nextChunkIndex) {
++    throw new Error(`Cowart download expected chunk ${download.nextChunkIndex}, received ${args.chunkIndex}.`);
++  }
++  const chunkBase64 = nonEmptyString(args.chunkBase64);
++  if (!chunkBase64) throw new Error("Cowart download chunkBase64 is required.");
++  const chunk = Buffer.from(chunkBase64, "base64");
++  if (!chunk.length || chunk.length > MAX_DOWNLOAD_CHUNK_BYTES) {
++    throw new Error(`Cowart download chunks must contain between 1 and ${MAX_DOWNLOAD_CHUNK_BYTES} bytes.`);
++  }
++  if (download.receivedBytes + chunk.length > download.expectedBytes) {
++    throw new Error("Cowart download received more bytes than expected.");
++  }
++  await appendFile(download.temporaryPath, chunk);
++  download.receivedBytes += chunk.length;
++  download.nextChunkIndex += 1;
++  return {
++    ok: true,
++    action: "append",
++    downloadId: download.downloadId,
++    chunkIndex,
++    receivedBytes: download.receivedBytes,
++    expectedBytes: download.expectedBytes,
++  };
++}
++
++async function cancelChunkedCowartDownload(args = {}) {
++  const download = activeCowartDownload(args);
++  activeCowartDownloads.delete(download.downloadId);
++  await rm(download.temporaryDir, { recursive: true, force: true });
++  return { ok: true, action: "cancel", downloadId: download.downloadId };
++}
++
++async function finishChunkedCowartDownload(args = {}) {
++  const download = activeCowartDownload(args);
++  if (download.receivedBytes !== download.expectedBytes) {
++    throw new Error(`Cowart download is incomplete: ${download.receivedBytes} of ${download.expectedBytes} bytes.`);
++  }
++  if (download.overwrite) await rm(download.filePath, { force: true });
++  await rename(download.temporaryPath, download.filePath);
++  activeCowartDownloads.delete(download.downloadId);
++  await rm(download.temporaryDir, { recursive: true, force: true });
++  return {
++    ok: true,
++    action: "finish",
++    downloadId: download.downloadId,
++    fileName: download.fileName,
++    filePath: download.filePath,
++    directoryName: download.directoryName,
++    directoryPath: download.directoryPath,
++    mimeType: download.mimeType,
++    fileSize: download.receivedBytes,
++  };
++}
++
++async function downloadCowartFile(args = {}) {
++  if (args.action === "begin") return beginChunkedCowartDownload(args);
++  if (args.action === "append") return appendChunkedCowartDownload(args);
++  if (args.action === "finish") return finishChunkedCowartDownload(args);
++  if (args.action === "cancel") return cancelChunkedCowartDownload(args);
++  return downloadCowartFileDirect(args);
++}
++
+ async function copyCowartImageToClipboard(args = {}) {
+   const dataUrl = nonEmptyString(args.dataUrl);
+   const dataBase64 = nonEmptyString(args.dataBase64);
+@@ -1583,7 +1707,8 @@ function registerCowartImageTools(mcpServer) {
+     },
+   );
+ 
+-  mcpServer.registerTool(
++  registerAppTool(
++    mcpServer,
+     TOOL_DOWNLOAD_FILE,
+     {
+       title: "Download Cowart File",
+@@ -1600,6 +1725,11 @@ function registerCowartImageTools(mcpServer) {
+         subdirectory: z.string().trim().optional(),
+         overwrite: z.boolean().optional(),
+         uniqueDirectory: z.boolean().optional(),
++        action: z.enum(["begin", "append", "finish", "cancel"]).optional(),
++        downloadId: z.string().uuid().optional(),
++        chunkIndex: z.number().int().nonnegative().optional(),
++        chunkBase64: z.string().optional(),
++        expectedBytes: z.number().int().positive().max(MAX_CHUNKED_DOWNLOAD_BYTES).optional(),
+       },
+       annotations: {
+         readOnlyHint: false,
+@@ -1607,6 +1737,10 @@ function registerCowartImageTools(mcpServer) {
+         idempotentHint: false,
+         openWorldHint: false,
+       },
++      _meta: {
++        ui: { visibility: ["model", "app"] },
++        "openai/widgetAccessible": true,
++      },
+     },
+     async (input = {}) => {
+       const result = await downloadCowartFile(input);
+@@ -1614,7 +1748,9 @@ function registerCowartImageTools(mcpServer) {
+         content: [
+           {
+             type: "text",
+-            text: `Downloaded Cowart file to ${result.filePath}.`,
++            text: result.filePath
++              ? `Downloaded Cowart file to ${result.filePath}.`
++              : `Cowart chunked download ${result.action}.`,
+           },
+         ],
+         structuredContent: result,
+diff --git a/package.json b/package.json
+index cb6acb1..e50efe7 100644
+--- a/package.json
++++ b/package.json
+@@ -18,7 +18,7 @@
+     "probe:analytics": "node ./scripts/probe-analytics.mjs",
+     "probe:hardware-learning": "node ./scripts/probe-hardware-learning.mjs",
+     "probe:learning-tools": "node ./scripts/probe-learning-tools.mjs",
+-    "test:learning-canvas": "node --test ./src/learning-canvas/model.test.mjs",
++    "test:learning-canvas": "node --test ./src/learning-canvas/model.test.mjs ./src/cowartClient.test.mjs",
+     "probe:ga4": "node ./scripts/probe-ga4.mjs",
+     "quality": "npm run check:plugin && npm run check && npm run test:learning-canvas && npm run check:artifacts && npm run probe:hardware-learning && npm run probe:learning-tools && npm run probe:mcp:cold && npm run probe:mcp && npm run probe:analytics && npm run probe:ga4"
+   },
+diff --git a/scripts/probe-mcp.mjs b/scripts/probe-mcp.mjs
+index 5e50d3c..73b3375 100644
+--- a/scripts/probe-mcp.mjs
++++ b/scripts/probe-mcp.mjs
+@@ -29,6 +29,7 @@ const startupStartedAt = performance.now();
+ await client.connect(transport);
+ 
+ let downloadedProbePath = null;
++let downloadedChunkedProbePath = null;
+ let downloadedProbeDirectory = null;
+ let projectDir = null;
+ 
+@@ -83,6 +84,10 @@ try {
+   if (JSON.stringify(clipboardTool?._meta?.ui?.visibility) !== JSON.stringify(["app"])) {
+     throw new Error("Cowart clipboard tool should only be visible to the widget app.");
+   }
++  const downloadTool = tools.tools.find((tool) => tool.name === "download_cowart_file");
++  if (!downloadTool?._meta?.["openai/widgetAccessible"] || !downloadTool?._meta?.ui?.visibility?.includes("app")) {
++    throw new Error("Cowart download tool should be callable from the widget app.");
++  }
+ 
+   projectDir = await mkdtemp(path.join(tmpdir(), "cowart-widget-probe-"));
+   const renderResult = await client.callTool({
+@@ -182,6 +187,44 @@ try {
+     throw new Error("Cowart download tool did not write the expected file into Downloads.");
+   }
+ 
++  const chunkedText = "Cowart chunked export probe ".repeat(20_000);
++  const chunkedBase64 = Buffer.from(chunkedText, "utf8").toString("base64");
++  const chunkedBegin = await client.callTool({
++    name: "download_cowart_file",
++    arguments: {
++      projectDir,
++      action: "begin",
++      fileName: `cowart-chunked-export-probe-${process.pid}.txt`,
++      mimeType: "text/plain",
++      expectedBytes: Buffer.byteLength(chunkedText),
++    },
++  });
++  const downloadId = chunkedBegin.structuredContent?.downloadId;
++  if (!downloadId) throw new Error("Cowart chunked download did not create a session.");
++  const chunkLength = 256 * 1024;
++  let chunkIndex = 0;
++  for (let offset = 0; offset < chunkedBase64.length; offset += chunkLength) {
++    await client.callTool({
++      name: "download_cowart_file",
++      arguments: {
++        projectDir,
++        action: "append",
++        downloadId,
++        chunkIndex,
++        chunkBase64: chunkedBase64.slice(offset, offset + chunkLength),
++      },
++    });
++    chunkIndex += 1;
++  }
++  const chunkedFinish = await client.callTool({
++    name: "download_cowart_file",
++    arguments: { projectDir, action: "finish", downloadId },
++  });
++  downloadedChunkedProbePath = chunkedFinish.structuredContent?.filePath;
++  if (!downloadedChunkedProbePath || await readFile(downloadedChunkedProbePath, "utf8") !== chunkedText) {
++    throw new Error("Cowart chunked export did not preserve the complete payload.");
++  }
++
+   const folderDownloadResult = await client.callTool({
+     name: "download_cowart_file",
+     arguments: {
+@@ -278,6 +321,9 @@ try {
+   if (downloadedProbePath) {
+     await unlink(downloadedProbePath).catch(() => undefined);
+   }
++  if (downloadedChunkedProbePath) {
++    await unlink(downloadedChunkedProbePath).catch(() => undefined);
++  }
+   if (downloadedProbeDirectory) {
+     await rm(downloadedProbeDirectory, { recursive: true, force: true }).catch(() => undefined);
+   }
+diff --git a/src/cowartClient.js b/src/cowartClient.js
+index 1c228b2..c8e0da6 100644
+--- a/src/cowartClient.js
++++ b/src/cowartClient.js
+@@ -13,6 +13,7 @@ const TOOL_COPY_IMAGE_TO_CLIPBOARD = 'copy_cowart_image_to_clipboard'
+ const TOOL_INSERT_HTML_DRAFT = 'insert_cowart_html_draft'
+ const TOOL_INSERT_LEARNING_ANNOTATIONS = 'insert_cowart_learning_annotations'
+ const WIDGET_PAYLOAD_TIMEOUT_MS = 5000
++const DOWNLOAD_CHUNK_BASE64_LENGTH = 256 * 1024
+ 
+ globalThis.__COWART_WIDGET_FETCH_GUARD__ = true
+ 
+@@ -214,10 +215,87 @@ export async function acknowledgeCowartLearningAnnotations(operationId, commands
+ 
+ export async function downloadCowartFile(download) {
+   if (!hasCowartWidgetBridge()) {
+-    throw new Error('当前 Cowart 画布没有可用的 Codex MCP 文件下载桥。')
++    return downloadFileInBrowser(download)
+   }
+ 
+-  return callCowartServerTool(TOOL_DOWNLOAD_FILE, download)
++  const payload = downloadBase64Payload(download)
++  if (!payload || payload.base64.length <= DOWNLOAD_CHUNK_BASE64_LENGTH) {
++    return callCowartServerTool(TOOL_DOWNLOAD_FILE, download)
++  }
++
++  let downloadId = null
++  try {
++    const started = await callCowartServerTool(TOOL_DOWNLOAD_FILE, {
++      action: 'begin',
++      fileName: download.fileName,
++      mimeType: download.mimeType || payload.mimeType,
++      directoryName: download.directoryName,
++      subdirectory: download.subdirectory,
++      overwrite: download.overwrite,
++      uniqueDirectory: download.uniqueDirectory,
++      expectedBytes: base64ByteLength(payload.base64)
++    })
++    downloadId = started.downloadId
++    if (!downloadId) throw new Error('Cowart 分块导出未返回 downloadId。')
++    let chunkIndex = 0
++    for (let offset = 0; offset < payload.base64.length; offset += DOWNLOAD_CHUNK_BASE64_LENGTH) {
++      await callCowartServerTool(TOOL_DOWNLOAD_FILE, {
++        action: 'append',
++        downloadId,
++        chunkIndex,
++        chunkBase64: payload.base64.slice(offset, offset + DOWNLOAD_CHUNK_BASE64_LENGTH)
++      })
++      chunkIndex += 1
++    }
++    return callCowartServerTool(TOOL_DOWNLOAD_FILE, { action: 'finish', downloadId })
++  } catch (error) {
++    if (downloadId) {
++      await callCowartServerTool(TOOL_DOWNLOAD_FILE, { action: 'cancel', downloadId }).catch(() => undefined)
++    }
++    throw error
++  }
++}
++
++function downloadBase64Payload(download = {}) {
++  if (typeof download.dataBase64 === 'string' && download.dataBase64) {
++    return { base64: download.dataBase64, mimeType: download.mimeType || 'application/octet-stream' }
++  }
++  if (typeof download.dataUrl !== 'string' || !download.dataUrl) return null
++  const match = /^data:([^;,]+)?((?:;[^,]*)?),(.*)$/s.exec(download.dataUrl)
++  if (!match) throw new Error('导出数据不是有效的 data URL。')
++  const mimeType = download.mimeType || match[1] || 'application/octet-stream'
++  if (/;base64(?:;|$)/i.test(match[2] || '')) return { base64: match[3], mimeType }
++  return { base64: textToBase64(decodeURIComponent(match[3] || '')), mimeType }
++}
++
++function base64ByteLength(base64) {
++  const normalized = String(base64 || '').replace(/\s+/g, '')
++  const padding = normalized.endsWith('==') ? 2 : normalized.endsWith('=') ? 1 : 0
++  return Math.max(0, Math.floor(normalized.length * 3 / 4) - padding)
++}
++
++function textToBase64(value) {
++  const bytes = new TextEncoder().encode(value)
++  let binary = ''
++  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
++    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
++  }
++  return btoa(binary)
++}
++
++function downloadFileInBrowser(download = {}) {
++  const href = download.dataUrl || (download.dataBase64
++    ? `data:${download.mimeType || 'application/octet-stream'};base64,${download.dataBase64}`
++    : download.assetUrl)
++  if (!href) throw new Error('导出缺少 assetUrl、dataUrl 或 dataBase64。')
++  const link = document.createElement('a')
++  link.href = href
++  link.download = download.fileName || `cowart-download-${Date.now()}`
++  link.hidden = true
++  document.body.appendChild(link)
++  link.click()
++  link.remove()
++  return { ok: true, fileName: link.download, browserDownload: true, mimeType: download.mimeType || null }
+ }
+ 
+ export async function copyCowartImageToClipboard(image) {
+@@ -246,7 +324,17 @@ export async function updateCowartHtmlDraft({ draftShapeId, htmlContent }) {
+ 
+ export async function readCowartPageAsset(assetUrl, options = {}) {
+   if (!hasCowartWidgetBridge()) {
+-    throw new Error('当前 Cowart 画布没有可用的 Codex MCP 文件读取桥。')
++    const response = await window.fetch(assetUrl, { signal: options.signal })
++    if (!response.ok) throw new Error(`Cowart 页面资源读取失败：${response.status} ${response.statusText}`)
++    const bytes = new Uint8Array(await response.arrayBuffer())
++    let binary = ''
++    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
++      binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
++    }
++    return {
++      dataBase64: btoa(binary),
++      mimeType: response.headers.get('content-type')?.split(';')[0] || 'application/octet-stream'
++    }
+   }
+ 
+   return callCowartServerTool(TOOL_READ_PAGE_ASSET, { assetUrl }, options)
+diff --git a/src/cowartClient.test.mjs b/src/cowartClient.test.mjs
+new file mode 100644
+index 0000000..19a72f4
+--- /dev/null
++++ b/src/cowartClient.test.mjs
+@@ -0,0 +1,40 @@
++import assert from 'node:assert/strict'
++import test from 'node:test'
++
++import { downloadCowartFile } from './cowartClient.js'
++
++test('large Cowart widget exports use ordered chunked Bridge calls', async () => {
++  const calls = []
++  globalThis.window = {
++    openai: { toolOutput: { projectDir: 'D:\\fixture' } },
++    cowartMcp: {
++      async callServerTool(request) {
++        calls.push(request)
++        const action = request.arguments.action
++        if (action === 'begin') return { structuredContent: { downloadId: '4dd91ef0-144d-4a97-94a8-a0d0afef96ee' } }
++        if (action === 'finish') return { structuredContent: { ok: true, filePath: 'D:\\Downloads\\fixture.png' } }
++        return { structuredContent: { ok: true } }
++      }
++    }
++  }
++
++  try {
++    const dataBase64 = 'QUJD'.repeat(200_000)
++    const result = await downloadCowartFile({
++      dataBase64,
++      fileName: 'fixture.png',
++      mimeType: 'image/png'
++    })
++    assert.equal(result.ok, true)
++    assert.equal(calls[0].arguments.action, 'begin')
++    assert.equal(calls.at(-1).arguments.action, 'finish')
++    const appendCalls = calls.filter((call) => call.arguments.action === 'append')
++    assert.ok(appendCalls.length > 1)
++    assert.deepEqual(appendCalls.map((call) => call.arguments.chunkIndex), appendCalls.map((_call, index) => index))
++    assert.equal(appendCalls.map((call) => call.arguments.chunkBase64).join(''), dataBase64)
++    assert.ok(appendCalls.every((call) => call.arguments.chunkBase64.length <= 256 * 1024))
++  } finally {
++    delete globalThis.window
++  }
++})
++
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index 849cfc0..9b7583c 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -12,6 +12,7 @@ import {
+   Hand,
+   Highlighter,
+   LoaderCircle,
++  Lock,
+   Map as MapIcon,
+   Maximize2,
+   Menu,
+@@ -26,6 +27,7 @@ import {
+   Trash2,
+   Type,
+   Undo2,
++  Unlock,
+   ZoomIn,
+   ZoomOut
+ } from 'lucide-react'
+@@ -66,6 +68,7 @@ import {
+   resizeRectangleShape,
+   screenToPage,
+   selectionState,
++  setImageLockState,
+   shapesForPage,
+   styleLearningShapes,
+   translateShape,
+@@ -655,6 +658,8 @@ export default function HardwareLearningCanvas() {
+       if (!event.ctrlKey && !event.metaKey && (event.key === '+' || event.key === '=')) zoomBy(1.2)
+       if (!event.ctrlKey && !event.metaKey && event.key === '-') zoomBy(1 / 1.2)
+       if (event.key === 'Escape') {
++        event.preventDefault()
++        setTool('select')
+         setGesture(null)
+         setDraftShape(null)
+         setMarqueeBounds(null)
+@@ -740,6 +745,20 @@ export default function HardwareLearningCanvas() {
+     commitSnapshot(result.snapshot, { message: `已删除 ${result.deleted.length} 个标注` })
+   }
+ 
++  function toggleSelectedImageLock() {
++    if (!snapshotRef.current) return
++    const imageIds = selectedIds.filter((id) => snapshotRef.current.store[id]?.type === 'image')
++    if (!imageIds.length) return
++    const shouldLock = imageIds.some((id) => snapshotRef.current.store[id]?.isLocked !== true)
++    const result = setImageLockState(snapshotRef.current, imageIds, shouldLock)
++    if (!result.updated.length) return
++    commitSnapshot(result.snapshot, {
++      message: shouldLock
++        ? `已锁定 ${result.updated.length} 张原理图`
++        : `已解锁 ${result.updated.length} 张原理图，可拖动调整位置`
++    })
++  }
++
+   function applyStyle(stylePatch) {
+     const nextStyle = normalizeLearningStyle({ ...style, ...stylePatch })
+     setStyle(nextStyle)
+@@ -825,7 +844,15 @@ export default function HardwareLearningCanvas() {
+       if (event.shiftKey) return current.includes(shape.id) ? current.filter((id) => id !== shape.id) : [...current, shape.id]
+       return [shape.id]
+     })
+-    if (shape.type !== 'image' && (shape.meta?.cowartHardwareAnnotation || shape.meta?.cowartLearningFrame)) {
++    if (shape.type === 'image') {
++      if (shape.isLocked === true) {
++        setStatus({ kind: 'saved', text: '原理图已锁定；点击上方解锁按钮后可移动' })
++        return
++      }
++      startPointerGesture(event, 'move', { startPage: page, originalShape: shape })
++      return
++    }
++    if (shape.meta?.cowartHardwareAnnotation || shape.meta?.cowartLearningFrame) {
+       startPointerGesture(event, 'move', { startPage: page, originalShape: shape })
+     }
+   }
+@@ -960,7 +987,9 @@ export default function HardwareLearningCanvas() {
+       setSelectedIds([created.id])
+       commitSnapshot(next, { message: created.meta.cowartLearningFrame ? '学习框已保存，可在对话栏提问' : '标注已保存' })
+     } else if ((gesture.type === 'move' || gesture.type === 'resize') && draftShape) {
+-      commitSnapshot(updateShape(next, draftShape), { message: '标注位置已更新' })
++      commitSnapshot(updateShape(next, draftShape), {
++        message: draftShape.type === 'image' ? '原理图位置已更新' : '标注位置已更新'
++      })
+     }
+     setGesture(null)
+     setDraftShape(null)
+@@ -1135,7 +1164,7 @@ export default function HardwareLearningCanvas() {
+               {noteDraft && (
+                 <InlineCanvasTextEditor
+                   draft={noteDraft}
+-                  onCancel={() => setNoteDraft(null)}
++                  onCancel={() => { setNoteDraft(null); setTool('select') }}
+                   onChange={(text) => setNoteDraft((current) => current ? { ...current, text } : current)}
+                   onCommit={saveNote}
+                   shape={noteDraft.shapeId ? snapshot.store[noteDraft.shapeId] : null}
+@@ -1207,12 +1236,23 @@ export default function HardwareLearningCanvas() {
+         <MenuButton disabled={!redoRef.current.length} Icon={Redo2} label="重做" onClick={redo} testId="learning-redo" />
+         <MenuButton disabled={!selectedIds.some((id) => snapshot?.store?.[id]?.type !== 'image')} Icon={Trash2} label="删除" onClick={deleteSelected} testId="learning-delete" />
+         <MenuButton disabled={!selectedIds.some((id) => snapshot?.store?.[id]?.type !== 'image')} Icon={Copy} label="复制" onClick={duplicateSelected} testId="learning-duplicate" />
++        {selectedIds.some((id) => snapshot?.store?.[id]?.type === 'image') && (
++          <MenuButton
++            Icon={selectedIds.some((id) => snapshot?.store?.[id]?.type === 'image' && snapshot.store[id]?.isLocked !== true) ? Lock : Unlock}
++            label={selectedIds.some((id) => snapshot?.store?.[id]?.type === 'image' && snapshot.store[id]?.isLocked !== true) ? '锁定原理图' : '解锁原理图'}
++            onClick={toggleSelectedImageLock}
++            testId="learning-image-lock"
++          />
++        )}
+ 
+         <div className="cowart-popover-anchor">
+           <MenuButton active={openMenu === 'actions'} Icon={Shapes} label="操作" onClick={() => setOpenMenu(openMenu === 'actions' ? null : 'actions')} testId="learning-actions"><ChevronDown size={12} /></MenuButton>
+           {openMenu === 'actions' && (
+             <div className="cowart-menu" role="menu">
+               <button disabled={!selectedIds.length} onClick={() => { fitContent(selectedIds); setOpenMenu(null) }} role="menuitem" type="button">缩放至选区</button>
++              <button disabled={!selectedIds.some((id) => snapshot?.store?.[id]?.type === 'image')} onClick={() => { toggleSelectedImageLock(); setOpenMenu(null) }} role="menuitem" type="button">
++                {selectedIds.some((id) => snapshot?.store?.[id]?.type === 'image' && snapshot.store[id]?.isLocked !== true) ? '锁定原理图' : '解锁原理图'}
++              </button>
+               <button disabled={!selectedIds.length} onClick={() => { duplicateSelected(); setOpenMenu(null) }} role="menuitem" type="button">复制标注 <kbd>Ctrl D</kbd></button>
+               <button disabled={!selectedIds.length} onClick={() => { deleteSelected(); setOpenMenu(null) }} role="menuitem" type="button">删除标注 <kbd>Del</kbd></button>
+             </div>
+diff --git a/src/learning-canvas/export.js b/src/learning-canvas/export.js
+index e6ca2fe..2b88910 100644
+--- a/src/learning-canvas/export.js
++++ b/src/learning-canvas/export.js
+@@ -172,7 +172,7 @@ export function svgDataUrl(svg) {
+   return `data:image/svg+xml;base64,${textToBase64(svg)}`
+ }
+ 
+-export async function svgToPngDataUrl(svg, bounds, { maxPixels = 16_000_000, maxDimension = 8192 } = {}) {
++export async function svgToPngDataUrl(svg, bounds, { maxPixels = 8_000_000, maxDimension = 4096 } = {}) {
+   const scale = Math.min(
+     2,
+     maxDimension / Math.max(bounds.w, bounds.h, 1),
+diff --git a/src/learning-canvas/model.js b/src/learning-canvas/model.js
+index afae21a..50ef5b3 100644
+--- a/src/learning-canvas/model.js
++++ b/src/learning-canvas/model.js
+@@ -705,6 +705,19 @@ export function deleteLearningShapes(snapshot, shapeIds) {
+   return { snapshot: deleted.length ? next : snapshot, deleted }
+ }
+ 
++export function setImageLockState(snapshot, shapeIds, isLocked) {
++  const requested = new Set(shapeIds)
++  const updated = Object.values(snapshot?.store ?? {})
++    .filter((shape) => requested.has(shape?.id) && shape.typeName === 'shape' && shape.type === 'image')
++    .filter((shape) => shape.isLocked !== isLocked)
++    .map((shape) => ({ ...shape, isLocked }))
++  return {
++    snapshot: updated.length ? updateShapes(snapshot, updated) : snapshot,
++    updated: updated.map((shape) => shape.id),
++    isLocked
++  }
++}
++
+ export function translateShape(shape, delta) {
+   return {
+     ...shape,
+diff --git a/src/learning-canvas/model.test.mjs b/src/learning-canvas/model.test.mjs
+index 6d5e899..63628fd 100644
+--- a/src/learning-canvas/model.test.mjs
++++ b/src/learning-canvas/model.test.mjs
+@@ -17,6 +17,7 @@ import {
+   migrateLegacyLearningFrames,
+   pageBoundsForShape,
+   selectionState,
++  setImageLockState,
+   shapeRole,
+   styleLearningShapes
+ } from './model.js'
+@@ -164,6 +165,25 @@ test('original Cowart geometry tools keep explicit learning semantics and styles
+   assert.equal(styledNote.snapshot.store['shape:note'].props.fill, 'semi')
+ })
+ 
++test('schematic evidence lock state is explicit and does not affect annotations', () => {
++  const initial = fixtureSnapshot()
++  const frame = createFrameShape({
++    snapshot: initial,
++    pageId: 'page:page',
++    bounds: { x: 120, y: 100, w: 200, h: 140 },
++    id: 'shape:frame'
++  })
++  const snapshot = addShape(initial, frame)
++  const locked = setImageLockState(snapshot, ['shape:source', 'shape:frame'], true)
++  assert.deepEqual(locked.updated, ['shape:source'])
++  assert.equal(locked.snapshot.store['shape:source'].isLocked, true)
++  assert.equal(locked.snapshot.store['shape:frame'].isLocked, false)
++
++  const unlocked = setImageLockState(locked.snapshot, ['shape:source'], false)
++  assert.deepEqual(unlocked.updated, ['shape:source'])
++  assert.equal(unlocked.snapshot.store['shape:source'].isLocked, false)
++})
++
+ test('queued teaching annotations apply idempotently with stable IDs', () => {
+   const snapshot = fixtureSnapshot()
+   const operation = {
+-- 
+2.55.0.windows.3
+

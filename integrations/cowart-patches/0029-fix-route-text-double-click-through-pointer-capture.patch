@@ -1,0 +1,362 @@
+From 16d6af24a47a476abf7bf2b4255175b365268400 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Wed, 26 Aug 2026 12:13:10 +0800
+Subject: [PATCH] fix: route text double click through pointer capture
+
+---
+ scripts/probe-hardware-learning.mjs           |  6 +-
+ .../HardwareLearningCanvas.jsx                | 86 ++++++++++++++++---
+ src/learning-canvas/LearningShape.jsx         |  3 +-
+ src/learning-canvas/interaction.js            | 30 +++++++
+ src/learning-canvas/interaction.test.mjs      | 49 ++++++++++-
+ 5 files changed, 156 insertions(+), 18 deletions(-)
+
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index e7d04f3..db83d25 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -68,8 +68,10 @@ assert.match(learningCanvasSource, /cameraAfterWheel/);
+ assert.match(learningCanvasSource, /className="learning-canvas-grid"/);
+ assert.match(learningCanvasSource, /normalizeCamera\(loaded\.viewState\?\.camera/);
+ assert.doesNotMatch(learningCanvasSource, /height=\{100000\}|width=\{100000\}|x=\{-50000\}|y=\{-50000\}/);
+-assert.match(learningCanvasSource, /onClick=\{handleShapeClick\}/);
+-assert.match(learningCanvasSource, /shouldBeginTextEditFromActivation/);
++assert.match(learningCanvasSource, /shouldBeginTextEditFromPointerDown/);
++assert.match(learningCanvasSource, /completeTextEditPointerActivation/);
++assert.match(learningCanvasSource, /textEditActivationCandidate/);
++assert.match(learningCanvasSource, /\['move', 'resize'\]\.includes\(gesture\.type\)/);
+ assert.match(learningCanvasSource, /selectionForShapePointerDown/);
+ assert.match(learningCanvasSource, /translateCanvasSelection/);
+ assert.match(learningCanvasSource, /onPointerCancel=\{handlePointerCancel\}/);
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index 9fd892a..fbe23b4 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -88,6 +88,7 @@ import LearningShape from './LearningShape.jsx'
+ import {
+   cameraAfterWheel,
+   canMoveCanvasShape,
++  completeTextEditPointerActivation,
+   escapeAction,
+   isSpaceKey,
+   isTextEditingTarget,
+@@ -97,6 +98,7 @@ import {
+   nudgeDeltaForKey,
+   selectionForShapePointerDown,
+   shouldBeginTextEditFromActivation,
++  shouldBeginTextEditFromPointerDown,
+   translateCanvasSelection
+ } from './interaction.js'
+ import {
+@@ -217,6 +219,7 @@ export default function HardwareLearningCanvas() {
+   const historyRef = useRef(createHistoryManager({ limit: 100 }))
+   const annotationPollingRef = useRef(false)
+   const spacePressedRef = useRef(false)
++  const lastTextEditPointerActivationRef = useRef(null)
+   const [snapshot, setSnapshot] = useState(null)
+   const [view, setView] = useState(EMPTY_VIEW_STATE)
+   const [selectedIds, setSelectedIds] = useState([])
+@@ -675,6 +678,7 @@ export default function HardwareLearningCanvas() {
+   }
+ 
+   function chooseTool(nextTool) {
++    lastTextEditPointerActivationRef.current = null
+     setTool(nextTool)
+     setGesture(null)
+     setDraftShape(null)
+@@ -701,6 +705,7 @@ export default function HardwareLearningCanvas() {
+   function handleCanvasPointerDown(event) {
+     if (!rootRef.current || !snapshot || !pageId) return
+     if (noteDraft) return
++    lastTextEditPointerActivationRef.current = null
+     const screen = pointerPosition(event, rootRef.current)
+     const page = screenToPage(screen, camera)
+     if (event.button === 1 || event.button === 2 || tool === 'hand' || spacePressedRef.current || event.altKey) {
+@@ -766,6 +771,22 @@ export default function HardwareLearningCanvas() {
+     if (tool !== 'select') return
+     event.stopPropagation()
+     const screen = pointerPosition(event, rootRef.current)
++    const previousActivation = lastTextEditPointerActivationRef.current
++    lastTextEditPointerActivationRef.current = null
++    if (shouldBeginTextEditFromPointerDown(shape, previousActivation, {
++      altKey: event.altKey,
++      button: event.button,
++      ctrlKey: event.ctrlKey,
++      metaKey: event.metaKey,
++      point: screen,
++      pointerType: event.pointerType,
++      shiftKey: event.shiftKey,
++      timeStamp: event.timeStamp
++    })) {
++      event.preventDefault()
++      beginShapeTextEdit(shape)
++      return
++    }
+     const page = screenToPage(screen, camera)
+     const nextSelection = selectionForShapePointerDown(selectedIds, shape.id, { shiftKey: event.shiftKey })
+     setSelectedIds(nextSelection)
+@@ -778,7 +799,18 @@ export default function HardwareLearningCanvas() {
+       const dragIds = movableShapeIds(snapshotRef.current, nextSelection)
+       const originalShapes = dragIds.map((id) => snapshotRef.current.store[id]).filter(Boolean)
+       if (originalShapes.length) {
+-        startPointerGesture(event, 'move', { startPage: page, originalShapes })
++        startPointerGesture(event, 'move', {
++          startPage: page,
++          originalShapes,
++          textEditActivationCandidate: textKind
++            ? {
++                shapeId: shape.id,
++                point: screen,
++                pointerType: event.pointerType,
++                timeStamp: event.timeStamp
++              }
++            : null
++        })
+       }
+     }
+   }
+@@ -786,6 +818,7 @@ export default function HardwareLearningCanvas() {
+   function beginShapeTextEdit(shape) {
+     const editState = learningTextEditState(shape)
+     if (!editState) return false
++    lastTextEditPointerActivationRef.current = null
+     setGesture(null)
+     setDraftShape(null)
+     setDraftShapes([])
+@@ -808,13 +841,6 @@ export default function HardwareLearningCanvas() {
+     return true
+   }
+ 
+-  function handleShapeClick(event, shape) {
+-    if (!shouldBeginTextEditFromActivation(shape, { eventType: 'click', detail: event.detail })) return
+-    event.preventDefault()
+-    event.stopPropagation()
+-    if (noteDraft?.shapeId !== shape.id) beginShapeTextEdit(shape)
+-  }
+-
+   function handleShapeDoubleClick(event, shape) {
+     if (!shouldBeginTextEditFromActivation(shape, { eventType: 'dblclick', detail: event.detail })) return
+     event.preventDefault()
+@@ -888,6 +914,16 @@ export default function HardwareLearningCanvas() {
+   function finishGesture(event) {
+     if (!gesture || gesture.pointerId !== event.pointerId || !snapshotRef.current) return
+     rootRef.current?.releasePointerCapture?.(event.pointerId)
++    if (['move', 'resize'].includes(gesture.type) && gesture.textEditActivationCandidate && rootRef.current) {
++      lastTextEditPointerActivationRef.current = completeTextEditPointerActivation(
++        gesture.textEditActivationCandidate,
++        {
++          point: pointerPosition(event, rootRef.current),
++          pointerType: event.pointerType,
++          timeStamp: event.timeStamp
++        }
++      )
++    }
+     let created = null
+     let next = snapshotRef.current
+     if (gesture.type === 'marquee') {
+@@ -970,6 +1006,7 @@ export default function HardwareLearningCanvas() {
+ 
+   function handlePointerCancel(event) {
+     if (!gesture || gesture.pointerId !== event.pointerId) return
++    lastTextEditPointerActivationRef.current = null
+     cancelActiveGesture()
+     setTool('select')
+     setStatus({ kind: 'saved', text: '已取消未完成的操作' })
+@@ -978,8 +1015,38 @@ export default function HardwareLearningCanvas() {
+   function handleResizePointerDown(event, shape, handle) {
+     event.stopPropagation()
+     if (!rootRef.current) return
++    const screen = pointerPosition(event, rootRef.current)
++    const previousActivation = lastTextEditPointerActivationRef.current
++    lastTextEditPointerActivationRef.current = null
++    if (shouldBeginTextEditFromPointerDown(shape, previousActivation, {
++      altKey: event.altKey,
++      button: event.button,
++      ctrlKey: event.ctrlKey,
++      metaKey: event.metaKey,
++      point: screen,
++      pointerType: event.pointerType,
++      shiftKey: event.shiftKey,
++      timeStamp: event.timeStamp
++    })) {
++      event.preventDefault()
++      beginShapeTextEdit(shape)
++      return
++    }
+     const bounds = pageBoundsForShape(snapshot.store, shape)
+-    startPointerGesture(event, 'resize', { originalShape: shape, startBounds: bounds, handle })
++    const textKind = learningTextEditMode(shape)
++    startPointerGesture(event, 'resize', {
++      originalShape: shape,
++      startBounds: bounds,
++      handle,
++      textEditActivationCandidate: textKind
++        ? {
++            shapeId: shape.id,
++            point: screen,
++            pointerType: event.pointerType,
++            timeStamp: event.timeStamp
++          }
++        : null
++    })
+   }
+ 
+   function cancelTextEdit() {
+@@ -1203,7 +1270,6 @@ export default function HardwareLearningCanvas() {
+                   cameraZoom={camera.z}
+                   editing={noteDraft?.shapeId === shape.id}
+                   key={shape.id}
+-                  onClick={handleShapeClick}
+                   onDoubleClick={handleShapeDoubleClick}
+                   onPointerDown={handleShapePointerDown}
+                   selected={selectedIds.includes(shape.id)}
+diff --git a/src/learning-canvas/LearningShape.jsx b/src/learning-canvas/LearningShape.jsx
+index 66c014b..191ad56 100644
+--- a/src/learning-canvas/LearningShape.jsx
++++ b/src/learning-canvas/LearningShape.jsx
+@@ -1,10 +1,9 @@
+ import { layoutLearningText } from './model.js'
+ import { colorValue, dashArrayForStyle, strokeWidthForSize } from './export.js'
+ 
+-export default function LearningShape({ shape, snapshot, assetSources, cameraZoom = 1, editing, selected, onPointerDown, onClick, onDoubleClick }) {
++export default function LearningShape({ shape, snapshot, assetSources, cameraZoom = 1, editing, selected, onPointerDown, onDoubleClick }) {
+   const common = {
+     'data-shape-id': shape.id,
+-    onClick: (event) => onClick(event, shape),
+     onDoubleClick: (event) => onDoubleClick(event, shape),
+     onPointerDown: (event) => onPointerDown(event, shape),
+     style: { cursor: 'inherit' },
+diff --git a/src/learning-canvas/interaction.js b/src/learning-canvas/interaction.js
+index 15777fa..23bde35 100644
+--- a/src/learning-canvas/interaction.js
++++ b/src/learning-canvas/interaction.js
+@@ -2,6 +2,9 @@ import { translateShape, updateShapes, zoomCameraAt } from './model.js'
+ 
+ const LINE_DELTA_PIXELS = 16
+ const MAX_WHEEL_ZOOM_DELTA = 160
++const TEXT_EDIT_DOUBLE_ACTIVATION_MS = 500
++const TEXT_EDIT_POINTER_HOLD_MS = 700
++const TEXT_EDIT_POINTER_TOLERANCE_PX = 8
+ 
+ export function isTextEditingTarget(target) {
+   const tagName = String(target?.tagName || '').toUpperCase()
+@@ -34,6 +37,33 @@ export function shouldBeginTextEditFromActivation(shape, { eventType = 'click',
+   return eventType === 'click' && Number(detail) >= 2
+ }
+ 
++function pointerDistance(first, second) {
++  if (!first || !second) return Number.POSITIVE_INFINITY
++  return Math.hypot(Number(second.x) - Number(first.x), Number(second.y) - Number(first.y))
++}
++
++export function completeTextEditPointerActivation(candidate, release = {}) {
++  if (!candidate?.shapeId || !candidate.point || !release.point) return null
++  const elapsed = Number(release.timeStamp) - Number(candidate.timeStamp)
++  if (!Number.isFinite(elapsed) || elapsed < 0 || elapsed > TEXT_EDIT_POINTER_HOLD_MS) return null
++  if (pointerDistance(candidate.point, release.point) > TEXT_EDIT_POINTER_TOLERANCE_PX) return null
++  return {
++    shapeId: candidate.shapeId,
++    point: { x: Number(release.point.x), y: Number(release.point.y) },
++    pointerType: String(release.pointerType || candidate.pointerType || 'mouse'),
++    timeStamp: Number(release.timeStamp)
++  }
++}
++
++export function shouldBeginTextEditFromPointerDown(shape, previous, current = {}) {
++  if (!learningTextEditMode(shape) || !previous || previous.shapeId !== shape?.id) return false
++  if (Number(current.button ?? 0) !== 0 || current.shiftKey || current.ctrlKey || current.metaKey || current.altKey) return false
++  if (String(previous.pointerType || 'mouse') !== String(current.pointerType || 'mouse')) return false
++  const elapsed = Number(current.timeStamp) - Number(previous.timeStamp)
++  if (!Number.isFinite(elapsed) || elapsed < 0 || elapsed > TEXT_EDIT_DOUBLE_ACTIVATION_MS) return false
++  return pointerDistance(previous.point, current.point) <= TEXT_EDIT_POINTER_TOLERANCE_PX
++}
++
+ export function selectionForShapePointerDown(selectedIds, shapeId, { shiftKey = false } = {}) {
+   const current = Array.isArray(selectedIds) ? selectedIds : []
+   if (shiftKey) {
+diff --git a/src/learning-canvas/interaction.test.mjs b/src/learning-canvas/interaction.test.mjs
+index 9d56081..6ffbb07 100644
+--- a/src/learning-canvas/interaction.test.mjs
++++ b/src/learning-canvas/interaction.test.mjs
+@@ -4,12 +4,14 @@ import test from 'node:test'
+ import {
+   cameraAfterWheel,
+   canMoveCanvasShape,
++  completeTextEditPointerActivation,
+   escapeAction,
+   learningTextEditMode,
+   learningTextEditState,
+   nudgeDeltaForKey,
+   selectionForShapePointerDown,
+   shouldBeginTextEditFromActivation,
++  shouldBeginTextEditFromPointerDown,
+   translateCanvasSelection
+ } from './interaction.js'
+ 
+@@ -39,20 +41,59 @@ test('shape pointer selection retains an existing multi-selection for dragging',
+ })
+ 
+ test('text and sticky notes enter editing on a double activation only', () => {
+-  const text = { type: 'geo', meta: { cowartLearningKind: 'text', cowartLearningText: '测试1' } }
+-  const note = { type: 'geo', meta: { cowartLearningKind: 'note', cowartLearningText: '便签1' } }
+-  const frame = { type: 'geo', meta: { cowartLearningFrame: true, cowartLearningKind: 'frame' } }
++  const text = { id: 'shape:text', type: 'geo', meta: { cowartLearningKind: 'text', cowartLearningText: '测试1' } }
++  const note = { id: 'shape:note', type: 'geo', meta: { cowartLearningKind: 'note', cowartLearningText: '便签1' } }
++  const frame = { id: 'shape:frame', type: 'geo', meta: { cowartLearningFrame: true, cowartLearningKind: 'frame' } }
+ 
+   assert.equal(learningTextEditMode(text), 'text')
+   assert.equal(learningTextEditMode(note), 'note')
+   assert.deepEqual(
+-    learningTextEditState({ id: 'shape:text', x: 12, y: 34, ...text }),
++    learningTextEditState({ x: 12, y: 34, ...text }),
+     { point: { x: 12, y: 34 }, text: '测试1', shapeId: 'shape:text', mode: 'text' }
+   )
+   assert.equal(shouldBeginTextEditFromActivation(text, { eventType: 'click', detail: 1 }), false)
+   assert.equal(shouldBeginTextEditFromActivation(text, { eventType: 'click', detail: 2 }), true)
+   assert.equal(shouldBeginTextEditFromActivation(note, { eventType: 'dblclick', detail: 0 }), true)
+   assert.equal(shouldBeginTextEditFromActivation(frame, { eventType: 'click', detail: 2 }), false)
++
++  const completed = completeTextEditPointerActivation(
++    { shapeId: text.id, point: { x: 80, y: 90 }, pointerType: 'mouse', timeStamp: 100 },
++    { point: { x: 82, y: 93 }, pointerType: 'mouse', timeStamp: 140 }
++  )
++  assert.deepEqual(completed, {
++    shapeId: text.id,
++    point: { x: 82, y: 93 },
++    pointerType: 'mouse',
++    timeStamp: 140
++  })
++  assert.equal(shouldBeginTextEditFromPointerDown(text, completed, {
++    button: 0,
++    point: { x: 84, y: 95 },
++    pointerType: 'mouse',
++    timeStamp: 260
++  }), true)
++  assert.equal(shouldBeginTextEditFromPointerDown(note, completed, {
++    button: 0,
++    point: { x: 84, y: 95 },
++    pointerType: 'mouse',
++    timeStamp: 260
++  }), false)
++  assert.equal(shouldBeginTextEditFromPointerDown(frame, completed, {
++    button: 0,
++    point: { x: 84, y: 95 },
++    pointerType: 'mouse',
++    timeStamp: 260
++  }), false)
++  assert.equal(shouldBeginTextEditFromPointerDown(text, completed, {
++    button: 0,
++    point: { x: 84, y: 95 },
++    pointerType: 'mouse',
++    timeStamp: 700
++  }), false)
++  assert.equal(completeTextEditPointerActivation(
++    { shapeId: text.id, point: { x: 80, y: 90 }, pointerType: 'mouse', timeStamp: 100 },
++    { point: { x: 100, y: 110 }, pointerType: 'mouse', timeStamp: 140 }
++  ), null)
+ })
+ 
+ test('multi-selection movement preserves locked schematic evidence', () => {
+-- 
+2.55.0.windows.3
+

@@ -1,0 +1,199 @@
+From 134a8da6281c503b194e5cd41af92356092121aa Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Wed, 26 Aug 2026 10:54:07 +0800
+Subject: [PATCH] fix: make text double-click editing reliable
+
+---
+ scripts/probe-hardware-learning.mjs           |  2 ++
+ .../HardwareLearningCanvas.jsx                | 29 ++++++++++++-------
+ src/learning-canvas/LearningShape.jsx         |  3 +-
+ src/learning-canvas/interaction.js            | 22 ++++++++++++++
+ src/learning-canvas/interaction.test.mjs      | 20 +++++++++++++
+ 5 files changed, 65 insertions(+), 11 deletions(-)
+
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index 0417f3a..e7d04f3 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -68,6 +68,8 @@ assert.match(learningCanvasSource, /cameraAfterWheel/);
+ assert.match(learningCanvasSource, /className="learning-canvas-grid"/);
+ assert.match(learningCanvasSource, /normalizeCamera\(loaded\.viewState\?\.camera/);
+ assert.doesNotMatch(learningCanvasSource, /height=\{100000\}|width=\{100000\}|x=\{-50000\}|y=\{-50000\}/);
++assert.match(learningCanvasSource, /onClick=\{handleShapeClick\}/);
++assert.match(learningCanvasSource, /shouldBeginTextEditFromActivation/);
+ assert.match(learningCanvasSource, /selectionForShapePointerDown/);
+ assert.match(learningCanvasSource, /translateCanvasSelection/);
+ assert.match(learningCanvasSource, /onPointerCancel=\{handlePointerCancel\}/);
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index 9a18467..9fd892a 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -91,9 +91,12 @@ import {
+   escapeAction,
+   isSpaceKey,
+   isTextEditingTarget,
++  learningTextEditMode,
++  learningTextEditState,
+   movableShapeIds,
+   nudgeDeltaForKey,
+   selectionForShapePointerDown,
++  shouldBeginTextEditFromActivation,
+   translateCanvasSelection
+ } from './interaction.js'
+ import {
+@@ -753,7 +756,7 @@ export default function HardwareLearningCanvas() {
+       }
+       return
+     }
+-    const textKind = shape.meta?.cowartLearningKind
++    const textKind = learningTextEditMode(shape)
+     if ((tool === 'text' && textKind === 'text') || (tool === 'note' && textKind === 'note')) {
+       event.preventDefault()
+       event.stopPropagation()
+@@ -781,8 +784,8 @@ export default function HardwareLearningCanvas() {
+   }
+ 
+   function beginShapeTextEdit(shape) {
+-    const mode = shape?.meta?.cowartLearningKind
+-    if (!['note', 'text'].includes(mode)) return false
++    const editState = learningTextEditState(shape)
++    if (!editState) return false
+     setGesture(null)
+     setDraftShape(null)
+     setDraftShapes([])
+@@ -790,12 +793,9 @@ export default function HardwareLearningCanvas() {
+     setOpenMenu(null)
+     flushSync(() => {
+       setSelectedIds([shape.id])
+-      setTool(toolAfterInlineTextEdit(mode))
++      setTool(toolAfterInlineTextEdit(editState.mode))
+       setNoteDraft({
+-        point: { x: shape.x, y: shape.y },
+-        text: shape.meta?.cowartLearningText || '',
+-        shapeId: shape.id,
+-        mode,
++        ...editState,
+         style: normalizeLearningStyle({
+           color: shape.props?.color,
+           fill: shape.props?.fill,
+@@ -808,10 +808,18 @@ export default function HardwareLearningCanvas() {
+     return true
+   }
+ 
++  function handleShapeClick(event, shape) {
++    if (!shouldBeginTextEditFromActivation(shape, { eventType: 'click', detail: event.detail })) return
++    event.preventDefault()
++    event.stopPropagation()
++    if (noteDraft?.shapeId !== shape.id) beginShapeTextEdit(shape)
++  }
++
+   function handleShapeDoubleClick(event, shape) {
+-    if (!['note', 'text'].includes(shape.meta?.cowartLearningKind)) return
++    if (!shouldBeginTextEditFromActivation(shape, { eventType: 'dblclick', detail: event.detail })) return
++    event.preventDefault()
+     event.stopPropagation()
+-    beginShapeTextEdit(shape)
++    if (noteDraft?.shapeId !== shape.id) beginShapeTextEdit(shape)
+   }
+ 
+   function handlePointerMove(event) {
+@@ -1195,6 +1203,7 @@ export default function HardwareLearningCanvas() {
+                   cameraZoom={camera.z}
+                   editing={noteDraft?.shapeId === shape.id}
+                   key={shape.id}
++                  onClick={handleShapeClick}
+                   onDoubleClick={handleShapeDoubleClick}
+                   onPointerDown={handleShapePointerDown}
+                   selected={selectedIds.includes(shape.id)}
+diff --git a/src/learning-canvas/LearningShape.jsx b/src/learning-canvas/LearningShape.jsx
+index 191ad56..66c014b 100644
+--- a/src/learning-canvas/LearningShape.jsx
++++ b/src/learning-canvas/LearningShape.jsx
+@@ -1,9 +1,10 @@
+ import { layoutLearningText } from './model.js'
+ import { colorValue, dashArrayForStyle, strokeWidthForSize } from './export.js'
+ 
+-export default function LearningShape({ shape, snapshot, assetSources, cameraZoom = 1, editing, selected, onPointerDown, onDoubleClick }) {
++export default function LearningShape({ shape, snapshot, assetSources, cameraZoom = 1, editing, selected, onPointerDown, onClick, onDoubleClick }) {
+   const common = {
+     'data-shape-id': shape.id,
++    onClick: (event) => onClick(event, shape),
+     onDoubleClick: (event) => onDoubleClick(event, shape),
+     onPointerDown: (event) => onPointerDown(event, shape),
+     style: { cursor: 'inherit' },
+diff --git a/src/learning-canvas/interaction.js b/src/learning-canvas/interaction.js
+index e642e89..15777fa 100644
+--- a/src/learning-canvas/interaction.js
++++ b/src/learning-canvas/interaction.js
+@@ -12,6 +12,28 @@ export function isSpaceKey(event) {
+   return event?.code === 'Space' || event?.key === ' ' || event?.key === 'Spacebar'
+ }
+ 
++export function learningTextEditMode(shape) {
++  const mode = shape?.meta?.cowartLearningKind
++  return ['text', 'note'].includes(mode) ? mode : null
++}
++
++export function learningTextEditState(shape) {
++  const mode = learningTextEditMode(shape)
++  if (!mode || typeof shape?.id !== 'string') return null
++  return {
++    point: { x: Number(shape.x) || 0, y: Number(shape.y) || 0 },
++    text: String(shape.meta?.cowartLearningText || ''),
++    shapeId: shape.id,
++    mode
++  }
++}
++
++export function shouldBeginTextEditFromActivation(shape, { eventType = 'click', detail = 0 } = {}) {
++  if (!learningTextEditMode(shape)) return false
++  if (eventType === 'dblclick') return true
++  return eventType === 'click' && Number(detail) >= 2
++}
++
+ export function selectionForShapePointerDown(selectedIds, shapeId, { shiftKey = false } = {}) {
+   const current = Array.isArray(selectedIds) ? selectedIds : []
+   if (shiftKey) {
+diff --git a/src/learning-canvas/interaction.test.mjs b/src/learning-canvas/interaction.test.mjs
+index 7c69a13..9d56081 100644
+--- a/src/learning-canvas/interaction.test.mjs
++++ b/src/learning-canvas/interaction.test.mjs
+@@ -5,8 +5,11 @@ import {
+   cameraAfterWheel,
+   canMoveCanvasShape,
+   escapeAction,
++  learningTextEditMode,
++  learningTextEditState,
+   nudgeDeltaForKey,
+   selectionForShapePointerDown,
++  shouldBeginTextEditFromActivation,
+   translateCanvasSelection
+ } from './interaction.js'
+ 
+@@ -35,6 +38,23 @@ test('shape pointer selection retains an existing multi-selection for dragging',
+   assert.deepEqual(selectionForShapePointerDown(['shape:a'], 'shape:a', { shiftKey: true }), [])
+ })
+ 
++test('text and sticky notes enter editing on a double activation only', () => {
++  const text = { type: 'geo', meta: { cowartLearningKind: 'text', cowartLearningText: '测试1' } }
++  const note = { type: 'geo', meta: { cowartLearningKind: 'note', cowartLearningText: '便签1' } }
++  const frame = { type: 'geo', meta: { cowartLearningFrame: true, cowartLearningKind: 'frame' } }
++
++  assert.equal(learningTextEditMode(text), 'text')
++  assert.equal(learningTextEditMode(note), 'note')
++  assert.deepEqual(
++    learningTextEditState({ id: 'shape:text', x: 12, y: 34, ...text }),
++    { point: { x: 12, y: 34 }, text: '测试1', shapeId: 'shape:text', mode: 'text' }
++  )
++  assert.equal(shouldBeginTextEditFromActivation(text, { eventType: 'click', detail: 1 }), false)
++  assert.equal(shouldBeginTextEditFromActivation(text, { eventType: 'click', detail: 2 }), true)
++  assert.equal(shouldBeginTextEditFromActivation(note, { eventType: 'dblclick', detail: 0 }), true)
++  assert.equal(shouldBeginTextEditFromActivation(frame, { eventType: 'click', detail: 2 }), false)
++})
++
+ test('multi-selection movement preserves locked schematic evidence', () => {
+   const initial = snapshot()
+   assert.equal(canMoveCanvasShape(initial.store['shape:image-unlocked']), true)
+-- 
+2.55.0.windows.3
+

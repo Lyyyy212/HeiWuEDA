@@ -1,0 +1,498 @@
+From a223d6da0503430d3031362f8c520f90dae86440 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Wed, 26 Aug 2026 15:02:29 +0800
+Subject: [PATCH] feat: confirm schematic evidence deletion
+
+---
+ scripts/probe-hardware-learning.mjs           |   5 +
+ .../HardwareLearningCanvas.jsx                | 107 ++++++++++++++++--
+ src/learning-canvas/history.js                |   9 +-
+ src/learning-canvas/history.test.mjs          |  24 ++++
+ src/learning-canvas/model.js                  |  32 ++++++
+ src/learning-canvas/model.test.mjs            |  37 ++++++
+ src/learning-canvas/styles.css                |  52 +++++++++
+ 7 files changed, 254 insertions(+), 12 deletions(-)
+
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index d46daaf..a36c304 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -79,6 +79,10 @@ assert.match(learningCanvasSource, /textEditActivationCandidate/);
+ assert.match(learningCanvasSource, /\['move', 'resize'\]\.includes\(gesture\.type\)/);
+ assert.match(learningCanvasSource, /shouldBeginCanvasTextFromDoubleClick/);
+ assert.match(learningCanvasSource, /rightClickCanvasAction/);
++assert.match(learningCanvasSource, /deleteImportedImages/);
++assert.match(learningCanvasSource, /acknowledgedImageShapeDeletes: result\.deleted/);
++assert.match(learningCanvasSource, /data-testid="learning-delete-image-dialog"/);
++assert.match(learningCanvasSource, /不会修改嘉立创 EDA 工程/);
+ assert.match(learningCanvasSource, /onDoubleClick=\{handleCanvasDoubleClick\}/);
+ assert.match(learningCanvasSource, /onContextMenu=\{handleCanvasContextMenu\}/);
+ assert.match(learningCanvasSource, /selectionForShapePointerDown/);
+@@ -122,6 +126,7 @@ const historySource = await readFile(
+   "utf8",
+ );
+ assert.match(historySource, /createSnapshotDelta/);
++assert.match(historySource, /metadata: cloneValue\(delta\.metadata\)/);
+ assert.match(historySource, /redoStack\.length = 0/);
+ 
+ const interactionSource = await readFile(
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index daab6ba..67921f7 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -60,6 +60,7 @@ import {
+   createStrokeShape,
+   createTextShape,
+   DEFAULT_LEARNING_STYLE,
++  deleteImportedImages,
+   deleteLearningShapes,
+   duplicateLearningShapes,
+   fitCamera,
+@@ -178,12 +179,13 @@ function ToolbarButton({ active = false, disabled = false, label, Icon, onClick,
+   )
+ }
+ 
+-function MenuButton({ active = false, disabled = false, label, Icon, onClick, testId, children }) {
++function MenuButton({ active = false, danger = false, disabled = false, label, Icon, onClick, testId, children }) {
+   return (
+     <button
+       aria-label={label}
+       className="cowart-icon-button"
+       data-active={active ? 'true' : 'false'}
++      data-danger={danger ? 'true' : 'false'}
+       data-testid={testId}
+       disabled={disabled}
+       onClick={onClick}
+@@ -248,6 +250,7 @@ export default function HardwareLearningCanvas() {
+   const [minimapOpen, setMinimapOpen] = useState(false)
+   const [spacePanActive, setSpacePanActive] = useState(false)
+   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 })
++  const [pendingImageDeleteIds, setPendingImageDeleteIds] = useState([])
+ 
+   const pages = useMemo(() => pageRecords(snapshot), [snapshot])
+   const pageId = view.currentPageId || pages[0]?.id || null
+@@ -256,6 +259,10 @@ export default function HardwareLearningCanvas() {
+     () => pageId && snapshot ? shapesForPage(snapshot, pageId) : [],
+     [snapshot, pageId]
+   )
++  const selectedImageIds = useMemo(
++    () => selectedIds.filter((id) => snapshot?.store?.[id]?.type === 'image'),
++    [selectedIds, snapshot]
++  )
+   const viewportBounds = useMemo(() => {
+     if (viewportSize.width <= 0 || viewportSize.height <= 0) return null
+     return {
+@@ -306,7 +313,7 @@ export default function HardwareLearningCanvas() {
+     }))
+   }, [selectedIds, snapshot])
+ 
+-  const persistSnapshot = useCallback((next, message = '已保存') => {
++  const persistSnapshot = useCallback((next, message = '已保存', saveMetadata = null) => {
+     snapshotRef.current = next
+     remoteSignatureRef.current = snapshotSignature(next)
+     localMutationRef.current = Date.now()
+@@ -314,7 +321,14 @@ export default function HardwareLearningCanvas() {
+     setStatus({ kind: 'saving', text: '正在保存…' })
+     const operation = saveQueueRef.current
+       .catch(() => undefined)
+-      .then(() => saveCowartCanvasSnapshot(next, { protectImageRecords: true }))
++      .then(async () => {
++        const result = await saveCowartCanvasSnapshot(next, {
++          protectImageRecords: true,
++          acknowledgedImageShapeDeletes: saveMetadata?.acknowledgedImageShapeDeletes
++        })
++        if (result?.ok === false) throw new Error(result.message || '学习画布保存被拒绝。')
++        return result
++      })
+     saveQueueRef.current = operation
+     operation
+       .then(() => {
+@@ -330,12 +344,15 @@ export default function HardwareLearningCanvas() {
+   const commitSnapshot = useCallback((next, options = {}) => {
+     const current = snapshotRef.current
+     if (!current || next === current) return Promise.resolve()
++    const saveMetadata = options.acknowledgedImageShapeDeletes?.length
++      ? { acknowledgedImageShapeDeletes: [...new Set(options.acknowledgedImageShapeDeletes)] }
++      : null
+     if (options.history !== false) {
+-      if (historyRef.current.record(current, next, options.message)) {
++      if (historyRef.current.record(current, next, options.message, saveMetadata)) {
+         setHistoryVersion((value) => value + 1)
+       }
+     }
+-    return persistSnapshot(next, options.message)
++    return persistSnapshot(next, options.message, saveMetadata)
+   }, [persistSnapshot])
+ 
+   const setViewState = useCallback((updater) => {
+@@ -503,6 +520,14 @@ export default function HardwareLearningCanvas() {
+   useEffect(() => {
+     function keyDown(event) {
+       if (isTextEditingTarget(event.target)) return
++      if (pendingImageDeleteIds.length) {
++        if (event.key === 'Escape') {
++          event.preventDefault()
++          setPendingImageDeleteIds([])
++          setStatus({ kind: 'saved', text: '已取消删除原理图' })
++        }
++        return
++      }
+       if (isSpaceKey(event)) {
+         event.preventDefault()
+         if (!spacePressedRef.current) {
+@@ -634,7 +659,7 @@ export default function HardwareLearningCanvas() {
+     if (!result) return
+     setHistoryVersion((value) => value + 1)
+     setSelectedIds([])
+-    persistSnapshot(result.snapshot, `已重做：${result.label}`)
++    persistSnapshot(result.snapshot, `已重做：${result.label}`, result.metadata)
+   }, [persistSnapshot])
+ 
+   const fitContent = useCallback((ids = [], targetPageId = pageId) => {
+@@ -687,6 +712,32 @@ export default function HardwareLearningCanvas() {
+     commitSnapshot(result.snapshot, { message: `已删除 ${result.deleted.length} 个标注` })
+   }
+ 
++  function requestImportedImageDeletion() {
++    if (!selectedImageIds.length) return
++    setOpenMenu(null)
++    setPendingImageDeleteIds(selectedImageIds)
++  }
++
++  function cancelImportedImageDeletion() {
++    setPendingImageDeleteIds([])
++    setStatus({ kind: 'saved', text: '已取消删除原理图' })
++  }
++
++  function confirmImportedImageDeletion() {
++    if (!snapshotRef.current || !pendingImageDeleteIds.length) return
++    const result = deleteImportedImages(snapshotRef.current, pendingImageDeleteIds)
++    setPendingImageDeleteIds([])
++    if (!result.deleted.length) {
++      setStatus({ kind: 'saved', text: '选中的原理图已不存在，无需删除' })
++      return
++    }
++    setSelectedIds((current) => current.filter((id) => !result.deleted.includes(id)))
++    commitSnapshot(result.snapshot, {
++      message: `已删除 ${result.deleted.length} 张原理图；可撤销恢复`,
++      acknowledgedImageShapeDeletes: result.deleted
++    })
++  }
++
+   function toggleSelectedImageLock() {
+     if (!snapshotRef.current) return
+     const imageIds = selectedIds.filter((id) => snapshotRef.current.store[id]?.type === 'image')
+@@ -1472,14 +1523,23 @@ export default function HardwareLearningCanvas() {
+         <MenuButton disabled={!canRedo} Icon={Redo2} label="重做" onClick={redo} testId="learning-redo" />
+         <MenuButton disabled={!selectedIds.some((id) => snapshot?.store?.[id]?.type !== 'image')} Icon={Trash2} label="删除" onClick={deleteSelected} testId="learning-delete" />
+         <MenuButton disabled={!selectedIds.some((id) => snapshot?.store?.[id]?.type !== 'image')} Icon={Copy} label="复制" onClick={duplicateSelected} testId="learning-duplicate" />
+-        {selectedIds.some((id) => snapshot?.store?.[id]?.type === 'image') && (
++        {selectedImageIds.length > 0 && (
+           <MenuButton
+-            Icon={selectedIds.some((id) => snapshot?.store?.[id]?.type === 'image' && snapshot.store[id]?.isLocked !== true) ? Lock : Unlock}
+-            label={selectedIds.some((id) => snapshot?.store?.[id]?.type === 'image' && snapshot.store[id]?.isLocked !== true) ? '锁定原理图' : '解锁原理图'}
++            Icon={selectedImageIds.some((id) => snapshot.store[id]?.isLocked !== true) ? Lock : Unlock}
++            label={selectedImageIds.some((id) => snapshot.store[id]?.isLocked !== true) ? '锁定原理图' : '解锁原理图'}
+             onClick={toggleSelectedImageLock}
+             testId="learning-image-lock"
+           />
+         )}
++        {selectedImageIds.length > 0 && (
++          <MenuButton
++            danger
++            Icon={Trash2}
++            label="删除原理图"
++            onClick={requestImportedImageDeletion}
++            testId="learning-delete-image"
++          />
++        )}
+ 
+         <div className="cowart-popover-anchor">
+           <MenuButton active={openMenu === 'actions'} Icon={Shapes} label="操作" onClick={() => setOpenMenu(openMenu === 'actions' ? null : 'actions')} testId="learning-actions"><ChevronDown size={12} /></MenuButton>
+@@ -1489,6 +1549,7 @@ export default function HardwareLearningCanvas() {
+               <button disabled={!selectedIds.some((id) => snapshot?.store?.[id]?.type === 'image')} onClick={() => { toggleSelectedImageLock(); setOpenMenu(null) }} role="menuitem" type="button">
+                 {selectedIds.some((id) => snapshot?.store?.[id]?.type === 'image' && snapshot.store[id]?.isLocked !== true) ? '锁定原理图' : '解锁原理图'}
+               </button>
++              <button className="cowart-danger-menu-item" disabled={!selectedImageIds.length} onClick={requestImportedImageDeletion} role="menuitem" type="button">删除原理图…</button>
+               <button disabled={!selectedIds.length} onClick={() => { duplicateSelected(); setOpenMenu(null) }} role="menuitem" type="button">复制标注 <kbd>Ctrl D</kbd></button>
+               <button disabled={!selectedIds.length} onClick={() => { deleteSelected(); setOpenMenu(null) }} role="menuitem" type="button">删除标注 <kbd>Del</kbd></button>
+             </div>
+@@ -1606,6 +1667,34 @@ export default function HardwareLearningCanvas() {
+         </div>
+       )}
+ 
++      {pendingImageDeleteIds.length > 0 && (
++        <div
++          className="learning-confirm-backdrop"
++          data-testid="learning-delete-image-dialog-backdrop"
++          onPointerDown={(event) => {
++            if (event.target === event.currentTarget) cancelImportedImageDeletion()
++          }}
++        >
++          <section
++            aria-describedby="learning-delete-image-description"
++            aria-labelledby="learning-delete-image-title"
++            aria-modal="true"
++            className="learning-confirm-dialog"
++            data-testid="learning-delete-image-dialog"
++            role="alertdialog"
++          >
++            <h2 id="learning-delete-image-title">删除选中的原理图？</h2>
++            <p id="learning-delete-image-description">
++              将从当前画板图页删除 {pendingImageDeleteIds.length} 张原理图。不会修改嘉立创 EDA 工程，删除后仍可使用“撤销”恢复。
++            </p>
++            <div className="learning-confirm-actions">
++              <button autoFocus data-testid="learning-delete-image-cancel" onClick={cancelImportedImageDeletion} type="button">取消</button>
++              <button className="is-danger" data-testid="learning-delete-image-confirm" onClick={confirmImportedImageDeletion} type="button">删除原理图</button>
++            </div>
++          </section>
++        </div>
++      )}
++
+       <aside className="learning-status" data-kind={status.kind}>
+         {status.kind === 'saving' ? <LoaderCircle className="is-spinning" size={15} /> : <Check size={15} />}
+         <span>{status.text}</span>
+diff --git a/src/learning-canvas/history.js b/src/learning-canvas/history.js
+index 2a53a50..60d7cb4 100644
+--- a/src/learning-canvas/history.js
++++ b/src/learning-canvas/history.js
+@@ -14,7 +14,7 @@ function snapshotRoot(snapshot) {
+   return root
+ }
+ 
+-export function createSnapshotDelta(before, after, label = '画布更新') {
++export function createSnapshotDelta(before, after, label = '画布更新', metadata = null) {
+   if (!before?.store || !after?.store) return null
+   const records = {}
+   const ids = new Set([...Object.keys(before.store), ...Object.keys(after.store)])
+@@ -35,6 +35,7 @@ export function createSnapshotDelta(before, after, label = '画布更新') {
+ 
+   return {
+     label,
++    metadata: cloneValue(metadata),
+     records,
+     root: rootChanged
+       ? { before: cloneValue(beforeRoot), after: cloneValue(afterRoot) }
+@@ -80,8 +81,8 @@ export function createHistoryManager({ limit = 100 } = {}) {
+       undoStack.length = 0
+       redoStack.length = 0
+     },
+-    record(before, after, label) {
+-      const delta = createSnapshotDelta(before, after, label)
++    record(before, after, label, metadata = null) {
++      const delta = createSnapshotDelta(before, after, label, metadata)
+       if (!delta) return false
+       undoStack.push(delta)
+       if (undoStack.length > limit) undoStack.shift()
+@@ -94,6 +95,7 @@ export function createHistoryManager({ limit = 100 } = {}) {
+       redoStack.push(delta)
+       return {
+         label: delta.label,
++        metadata: cloneValue(delta.metadata),
+         snapshot: applySnapshotDelta(snapshot, delta, 'before')
+       }
+     },
+@@ -103,6 +105,7 @@ export function createHistoryManager({ limit = 100 } = {}) {
+       undoStack.push(delta)
+       return {
+         label: delta.label,
++        metadata: cloneValue(delta.metadata),
+         snapshot: applySnapshotDelta(snapshot, delta, 'after')
+       }
+     }
+diff --git a/src/learning-canvas/history.test.mjs b/src/learning-canvas/history.test.mjs
+index 7e93d3f..83db4b3 100644
+--- a/src/learning-canvas/history.test.mjs
++++ b/src/learning-canvas/history.test.mjs
+@@ -57,3 +57,27 @@ test('history limit evicts the oldest scene delta', () => {
+   assert.equal(current.store['shape:a'].x, 11)
+   assert.equal(history.undo(current), null)
+ })
++
++test('history preserves explicit image-delete authorization for redo', () => {
++  const history = createHistoryManager()
++  const before = snapshot()
++  before.store['shape:image'] = {
++    id: 'shape:image',
++    typeName: 'shape',
++    type: 'image',
++    parentId: 'page:page',
++    props: { assetId: 'asset:image', w: 100, h: 80 }
++  }
++  const after = structuredClone(before)
++  delete after.store['shape:image']
++  delete after.store['asset:image']
++  const metadata = { acknowledgedImageShapeDeletes: ['shape:image'] }
++
++  assert.equal(history.record(before, after, '删除原理图', metadata), true)
++  const undone = history.undo(after)
++  assert.deepEqual(undone.snapshot, before)
++  assert.deepEqual(undone.metadata, metadata)
++  const redone = history.redo(before)
++  assert.deepEqual(redone.snapshot, after)
++  assert.deepEqual(redone.metadata, metadata)
++})
+diff --git a/src/learning-canvas/model.js b/src/learning-canvas/model.js
+index 19357c9..48d5ead 100644
+--- a/src/learning-canvas/model.js
++++ b/src/learning-canvas/model.js
+@@ -1008,6 +1008,38 @@ export function deleteLearningShapes(snapshot, shapeIds) {
+   return { snapshot: deleted.length ? next : snapshot, deleted }
+ }
+ 
++export function deleteImportedImages(snapshot, shapeIds) {
++  const next = cloneSnapshot(snapshot)
++  const deleted = []
++  const candidateAssetIds = new Set()
++  for (const id of new Set(shapeIds)) {
++    const shape = next.store[id]
++    if (shape?.typeName !== 'shape' || shape.type !== 'image') continue
++    if (typeof shape.props?.assetId === 'string') candidateAssetIds.add(shape.props.assetId)
++    delete next.store[id]
++    deleted.push(id)
++  }
++
++  if (!deleted.length) return { snapshot, deleted, removedAssets: [] }
++
++  const referencedAssetIds = new Set(
++    Object.values(next.store)
++      .filter((record) => record?.typeName === 'shape' && record.type === 'image')
++      .map((shape) => shape.props?.assetId)
++      .filter((assetId) => typeof assetId === 'string')
++  )
++  const removedAssets = []
++  for (const assetId of candidateAssetIds) {
++    if (referencedAssetIds.has(assetId)) continue
++    const asset = next.store[assetId]
++    if (asset?.typeName !== 'asset' || asset.type !== 'image') continue
++    delete next.store[assetId]
++    removedAssets.push(assetId)
++  }
++
++  return { snapshot: next, deleted, removedAssets }
++}
++
+ export function setImageLockState(snapshot, shapeIds, isLocked) {
+   const requested = new Set(shapeIds)
+   const updated = Object.values(snapshot?.store ?? {})
+diff --git a/src/learning-canvas/model.test.mjs b/src/learning-canvas/model.test.mjs
+index 2c50bcf..19fee58 100644
+--- a/src/learning-canvas/model.test.mjs
++++ b/src/learning-canvas/model.test.mjs
+@@ -13,6 +13,7 @@ import {
+   createRectangleShape,
+   createStrokeShape,
+   createTextShape,
++  deleteImportedImages,
+   deleteLearningShapes,
+   duplicateLearningShapes,
+   layoutLearningText,
+@@ -100,6 +101,42 @@ test('viewport intersection culls distant high-resolution evidence without chang
+   assert.equal(snapshot.store['shape:source'].x, 100)
+ })
+ 
++test('confirmed imported-image deletion removes only images and orphaned asset records', () => {
++  const initial = fixtureSnapshot()
++  const annotation = createRectangleShape({
++    snapshot: initial,
++    pageId: 'page:page',
++    bounds: { x: 120, y: 100, w: 160, h: 90 },
++    id: 'shape:annotation'
++  })
++  const snapshot = addShape(initial, annotation)
++  const result = deleteImportedImages(snapshot, ['shape:source', annotation.id, 'shape:missing'])
++
++  assert.deepEqual(result.deleted, ['shape:source'])
++  assert.deepEqual(result.removedAssets, ['asset:source'])
++  assert.equal(result.snapshot.store['shape:source'], undefined)
++  assert.equal(result.snapshot.store['asset:source'], undefined)
++  assert.ok(result.snapshot.store[annotation.id])
++  assert.ok(snapshot.store['shape:source'])
++  assert.ok(snapshot.store['asset:source'])
++})
++
++test('confirmed imported-image deletion keeps an asset that another image still references', () => {
++  const snapshot = fixtureSnapshot()
++  snapshot.store['shape:shared-source'] = {
++    ...structuredClone(snapshot.store['shape:source']),
++    id: 'shape:shared-source',
++    index: 'a2',
++    x: 760
++  }
++  const result = deleteImportedImages(snapshot, ['shape:source'])
++
++  assert.deepEqual(result.deleted, ['shape:source'])
++  assert.deepEqual(result.removedAssets, [])
++  assert.ok(result.snapshot.store['shape:shared-source'])
++  assert.ok(result.snapshot.store['asset:source'])
++})
++
+ test('learning frame has explicit semantics and selection revision', () => {
+   const initial = fixtureSnapshot()
+   const frame = createFrameShape({
+diff --git a/src/learning-canvas/styles.css b/src/learning-canvas/styles.css
+index 6929443..bfcbdef 100644
+--- a/src/learning-canvas/styles.css
++++ b/src/learning-canvas/styles.css
+@@ -219,6 +219,58 @@ textarea:focus-visible {
+   background: #eef0f3;
+ }
+ 
++.cowart-icon-button[data-danger="true"] { color: #b91c1c; }
++.cowart-icon-button[data-danger="true"]:hover:not(:disabled) { color: #991b1b; background: #fee2e2; }
++.cowart-danger-menu-item { color: #b91c1c; }
++.cowart-danger-menu-item:hover:not(:disabled) { background: #fef2f2; }
++
++.learning-confirm-backdrop {
++  position: fixed;
++  z-index: 80;
++  inset: 0;
++  display: grid;
++  padding: 24px;
++  place-items: center;
++  background: rgb(15 23 42 / 32%);
++  backdrop-filter: blur(2px);
++}
++
++.learning-confirm-dialog {
++  width: min(420px, calc(100vw - 48px));
++  padding: 20px;
++  color: #1f2937;
++  background: #fff;
++  border: 1px solid #fecaca;
++  border-radius: 12px;
++  box-shadow: 0 18px 55px rgb(15 23 42 / 28%);
++  user-select: text;
++}
++
++.learning-confirm-dialog h2 { margin: 0 0 10px; font-size: 18px; }
++.learning-confirm-dialog p { margin: 0; color: #4b5563; font-size: 13px; line-height: 1.65; }
++
++.learning-confirm-actions {
++  display: flex;
++  margin-top: 18px;
++  gap: 8px;
++  justify-content: flex-end;
++}
++
++.learning-confirm-actions button {
++  min-width: 76px;
++  height: 34px;
++  padding: 0 14px;
++  color: #374151;
++  background: #fff;
++  border: 1px solid #d1d5db;
++  border-radius: 7px;
++  cursor: pointer;
++}
++
++.learning-confirm-actions button:hover { background: #f3f4f6; }
++.learning-confirm-actions button.is-danger { color: #fff; background: #dc2626; border-color: #dc2626; }
++.learning-confirm-actions button.is-danger:hover { background: #b91c1c; }
++
+ .cowart-icon-button:disabled,
+ .learning-toolbar-button:disabled,
+ .cowart-export-button:disabled,
+-- 
+2.55.0.windows.3
+

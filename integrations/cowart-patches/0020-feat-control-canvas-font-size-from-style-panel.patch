@@ -1,0 +1,293 @@
+From dab14dd6dd8ebb3d172aaf54b05c0183249c0c6b Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Tue, 25 Aug 2026 16:27:56 +0800
+Subject: [PATCH 20/20] feat: control canvas font size from style panel
+
+---
+ .../HardwareLearningCanvas.jsx                | 29 ++++---
+ src/learning-canvas/export.js                 | 24 ++----
+ src/learning-canvas/model.js                  | 76 ++++++++++++++++++-
+ src/learning-canvas/model.test.mjs            | 19 +++++
+ src/learning-canvas/styles.css                |  1 -
+ 5 files changed, 115 insertions(+), 34 deletions(-)
+
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index 047b604..5ce89d6 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -63,6 +63,8 @@ import {
+   deleteLearningShapes,
+   duplicateLearningShapes,
+   fitCamera,
++  layoutLearningText,
++  learningTextMetricsForSize,
+   migrateLegacyLearningFrames,
+   normalizeBounds,
+   normalizeLearningStyle,
+@@ -137,15 +139,6 @@ function pointerPosition(event, root) {
+   return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+ }
+ 
+-function noteTextLines(text) {
+-  const lines = []
+-  for (const source of String(text || '').split(/\r?\n/)) {
+-    if (!source) lines.push('')
+-    for (let index = 0; index < source.length; index += 26) lines.push(source.slice(index, index + 26))
+-  }
+-  return lines.slice(0, 10)
+-}
+-
+ function LearningShape({ shape, snapshot, assetSources, cameraZoom = 1, editing, selected, onPointerDown, onDoubleClick }) {
+   const common = {
+     'data-shape-id': shape.id,
+@@ -230,6 +223,13 @@ function LearningShape({ shape, snapshot, assetSources, cameraZoom = 1, editing,
+       : null
+     const badgeWidth = frameNumber === null ? 0 : Math.max(30, String(frameNumber).length * 9 + 18)
+     const badgeScale = 1 / Math.max(0.05, Number(cameraZoom) || 1)
++    const textLayout = (note || textOnly)
++      ? layoutLearningText(text, {
++          width: shape.props?.w || (note ? 260 : 120),
++          height: shape.props?.h || (note ? 120 : 54),
++          size: shape.props?.size
++        })
++      : null
+     return (
+       <g {...common} className={selected ? 'is-selected' : ''}>
+         {textOnly && (
+@@ -285,9 +285,9 @@ function LearningShape({ shape, snapshot, assetSources, cameraZoom = 1, editing,
+           </g>
+         )}
+         {!editing && (note || textOnly) && (
+-          <text className="learning-note-text" fill={textOnly ? stroke : undefined} x="14" y="8">
+-            {noteTextLines(text).map((line, index) => (
+-              <tspan key={`${shape.id}-${index}`} x="14" dy={index === 0 ? 24 : 20}>{line}</tspan>
++          <text className="learning-note-text" fill={textOnly ? stroke : undefined} fontSize={textLayout.fontSize} x="14" y="8">
++            {textLayout.lines.map((line, index) => (
++              <tspan key={`${shape.id}-${index}`} x="14" dy={index === 0 ? textLayout.firstBaseline : textLayout.lineHeight}>{line}</tspan>
+             ))}
+           </text>
+         )}
+@@ -307,6 +307,7 @@ function InlineCanvasTextEditor({ camera, draft, shape, style, onCancel, onChang
+   const screenWidth = Math.max(draft.mode === 'note' ? 210 : 240, width * camera.z)
+   const screenHeight = Math.max(draft.mode === 'note' ? 104 : 74, height * camera.z)
+   const color = colorValue(editingStyle.color, draft.mode === 'note' ? '#eab308' : '#1f2937')
++  const textMetrics = learningTextMetricsForSize(editingStyle.size)
+   const fillOpacity = editingStyle.fill === 'solid' ? (draft.mode === 'note' ? 0.34 : 0.92) : editingStyle.fill === 'semi' ? 0.18 : 0
+   const background = fillOpacity > 0 ? `${color}${Math.round(fillOpacity * 255).toString(16).padStart(2, '0')}` : 'transparent'
+ 
+@@ -370,6 +371,10 @@ function InlineCanvasTextEditor({ camera, draft, shape, style, onCancel, onChang
+           placeholder={draft.mode === 'note' ? '输入便签…' : '输入文字…'}
+           ref={inputRef}
+           spellCheck="false"
++          style={{
++            fontSize: `${textMetrics.fontSize * camera.z}px`,
++            lineHeight: `${textMetrics.lineHeight * camera.z}px`
++          }}
+           value={draft.text}
+         />
+       </div>
+diff --git a/src/learning-canvas/export.js b/src/learning-canvas/export.js
+index 34d48aa..b341dc5 100644
+--- a/src/learning-canvas/export.js
++++ b/src/learning-canvas/export.js
+@@ -1,4 +1,4 @@
+-import { localBoundsForShape, pageBoundsForShape, shapesForPage, unionBounds } from './model.js'
++import { layoutLearningText, localBoundsForShape, pageBoundsForShape, shapesForPage, unionBounds } from './model.js'
+ 
+ const COLOR_MAP = {
+   black: '#1f2937',
+@@ -47,21 +47,6 @@ function polylinePoints(shape) {
+     .join(' ')
+ }
+ 
+-function noteLines(text, maxLength = 28) {
+-  const rawLines = String(text || '').split(/\r?\n/)
+-  const lines = []
+-  for (const raw of rawLines) {
+-    if (!raw) {
+-      lines.push('')
+-      continue
+-    }
+-    for (let index = 0; index < raw.length; index += maxLength) {
+-      lines.push(raw.slice(index, index + maxLength))
+-    }
+-  }
+-  return lines.slice(0, 12)
+-}
+-
+ function shapeSvg(shape, snapshot, assetSources) {
+   const transform = `translate(${shape.x || 0} ${shape.y || 0}) rotate(${((shape.rotation || 0) * 180) / Math.PI})`
+   const opacity = Math.min(1, Math.max(0.1, Number(shape.opacity) || 1))
+@@ -113,15 +98,16 @@ function shapeSvg(shape, snapshot, assetSources) {
+     const frameBadge = frameNumber === null
+       ? ''
+       : `<g class="learning-frame-number"><rect x="7" y="7" width="${badgeWidth}" height="28" rx="14" fill="${stroke}" stroke="#ffffff" stroke-width="2"/><text x="${7 + badgeWidth / 2}" y="21" dominant-baseline="middle" text-anchor="middle" font-family="system-ui,sans-serif" font-size="15" font-weight="700" fill="#ffffff">${frameNumber}</text></g>`
+-    const textSvg = noteLines(text).map((line, index) =>
+-      `<tspan x="14" dy="${index === 0 ? 24 : 20}">${escapeXml(line)}</tspan>`
++    const textLayout = layoutLearningText(text, { width, height, size: shape.props?.size })
++    const textSvg = textLayout.lines.map((line, index) =>
++      `<tspan x="14" dy="${index === 0 ? textLayout.firstBaseline : textLayout.lineHeight}">${escapeXml(line)}</tspan>`
+     ).join('')
+     const geometry = shape.props?.geo === 'ellipse'
+       ? `<ellipse cx="${width / 2}" cy="${height / 2}" rx="${width / 2}" ry="${height / 2}" fill="${fill}" fill-opacity="${fillOpacity}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dash}"/>`
+       : textOnly
+         ? ''
+         : `<rect width="${width}" height="${height}" rx="${note ? 10 : 3}" fill="${fill}" fill-opacity="${fillOpacity}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dash}"/>`
+-    return `<g data-shape-id="${escapeXml(shape.id)}" transform="${transform}" opacity="${opacity}">${geometry}${frameBadge}<text font-family="system-ui,sans-serif" font-size="15" fill="${textOnly ? stroke : '#1f2937'}">${textSvg}</text></g>`
++    return `<g data-shape-id="${escapeXml(shape.id)}" transform="${transform}" opacity="${opacity}">${geometry}${frameBadge}<text font-family="system-ui,sans-serif" font-size="${textLayout.fontSize}" fill="${textOnly ? stroke : '#1f2937'}">${textSvg}</text></g>`
+   }
+   const bounds = localBoundsForShape(shape)
+   return `<rect data-shape-id="${escapeXml(shape.id)}" x="${bounds.x}" y="${bounds.y}" width="${bounds.w}" height="${bounds.h}" transform="${transform}" fill="none" stroke="#94a3b8" stroke-width="2"/>`
+diff --git a/src/learning-canvas/model.js b/src/learning-canvas/model.js
+index 0e54c1f..48e8b63 100644
+--- a/src/learning-canvas/model.js
++++ b/src/learning-canvas/model.js
+@@ -23,6 +23,12 @@ const LEARNING_FILLS = new Set(['none', 'semi', 'solid'])
+ const LEARNING_DASHES = new Set(['draw', 'dashed', 'dotted', 'solid'])
+ const LEARNING_SIZES = new Set(['s', 'm', 'l', 'xl'])
+ const NEXT_FRAME_NUMBER_META = 'cowartLearningNextFrameNumber'
++const LEARNING_TEXT_METRICS = Object.freeze({
++  s: Object.freeze({ fontSize: 13, lineHeight: 18 }),
++  m: Object.freeze({ fontSize: 15, lineHeight: 20 }),
++  l: Object.freeze({ fontSize: 20, lineHeight: 27 }),
++  xl: Object.freeze({ fontSize: 28, lineHeight: 36 })
++})
+ 
+ export function normalizeLearningStyle(style = {}) {
+   return {
+@@ -34,6 +40,64 @@ export function normalizeLearningStyle(style = {}) {
+   }
+ }
+ 
++export function learningTextMetricsForSize(size) {
++  return LEARNING_TEXT_METRICS[size] ?? LEARNING_TEXT_METRICS[DEFAULT_LEARNING_STYLE.size]
++}
++
++function estimatedGlyphWidth(character, fontSize) {
++  if (/\s/u.test(character)) return fontSize * 0.36
++  if (/[\u1100-\u11ff\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\uff01-\uff60\uffe0-\uffe6]/u.test(character)) {
++    return fontSize
++  }
++  return fontSize * 0.62
++}
++
++export function layoutLearningText(text, {
++  width = 260,
++  height = 120,
++  size = DEFAULT_LEARNING_STYLE.size,
++  paddingX = 14,
++  paddingTop = 8,
++  maxLines = 12
++} = {}) {
++  const metrics = learningTextMetricsForSize(size)
++  const firstBaseline = metrics.fontSize + 9
++  const lineLimit = Math.max(1, Math.min(
++    maxLines,
++    1 + Math.floor(Math.max(0, height - paddingTop - firstBaseline) / metrics.lineHeight)
++  ))
++  const availableWidth = Math.max(metrics.fontSize, width - paddingX * 2)
++  const lines = []
++  for (const source of String(text || '').split(/\r?\n/u)) {
++    if (!source) {
++      lines.push('')
++      if (lines.length >= lineLimit) break
++      continue
++    }
++    let current = ''
++    let currentWidth = 0
++    for (const character of Array.from(source)) {
++      const characterWidth = estimatedGlyphWidth(character, metrics.fontSize)
++      if (current && currentWidth + characterWidth > availableWidth) {
++        lines.push(current)
++        if (lines.length >= lineLimit) break
++        current = ''
++        currentWidth = 0
++      }
++      current += character
++      currentWidth += characterWidth
++    }
++    if (lines.length >= lineLimit) break
++    lines.push(current)
++    if (lines.length >= lineLimit) break
++  }
++  return {
++    ...metrics,
++    firstBaseline,
++    lines: lines.slice(0, lineLimit)
++  }
++}
++
+ const EMPTY_RICH_TEXT = Object.freeze({
+   type: 'doc',
+   content: [{ type: 'paragraph' }]
+@@ -286,8 +350,9 @@ export function createTextShape({ snapshot, pageId, point, text, style, id, inde
+   const normalizedStyle = normalizeLearningStyle(style)
+   const textLines = String(text || '').split(/\r?\n/)
+   const longestLine = textLines.reduce((length, line) => Math.max(length, line.length), 0)
+-  const width = Math.max(120, Math.min(520, longestLine * 16 + 28))
+-  const height = Math.max(54, Math.min(360, textLines.length * 22 + 28))
++  const metrics = learningTextMetricsForSize(normalizedStyle.size)
++  const width = Math.max(120, Math.min(720, longestLine * metrics.fontSize + 28))
++  const height = Math.max(54, Math.min(480, textLines.length * metrics.lineHeight + 28))
+   return createGeoShape({
+     snapshot,
+     pageId,
+@@ -744,6 +809,13 @@ export function styleLearningShapes(snapshot, shapeIds, stylePatch) {
+       dash: style.dash,
+       size: style.size
+     }
++    if (shape.meta?.cowartLearningKind === 'text' && Object.hasOwn(stylePatch, 'size')) {
++      const textLines = String(shape.meta?.cowartLearningText || '').split(/\r?\n/u)
++      const longestLine = textLines.reduce((length, line) => Math.max(length, line.length), 0)
++      const metrics = learningTextMetricsForSize(style.size)
++      shape.props.w = Math.max(120, Math.min(720, longestLine * metrics.fontSize + 28))
++      shape.props.h = Math.max(54, Math.min(480, textLines.length * metrics.lineHeight + 28))
++    }
+     updated.push(id)
+   }
+   return { snapshot: updated.length ? next : snapshot, updated }
+diff --git a/src/learning-canvas/model.test.mjs b/src/learning-canvas/model.test.mjs
+index 9ecc045..e5ec0b8 100644
+--- a/src/learning-canvas/model.test.mjs
++++ b/src/learning-canvas/model.test.mjs
+@@ -207,6 +207,25 @@ test('original Cowart geometry tools keep explicit learning semantics and styles
+   const styledNote = styleLearningShapes(snapshot, ['shape:note'], { color: 'red', fill: 'semi' })
+   assert.equal(styledNote.snapshot.store['shape:note'].props.color, 'red')
+   assert.equal(styledNote.snapshot.store['shape:note'].props.fill, 'semi')
++
++  const styledText = styleLearningShapes(snapshot, ['shape:text'], { size: 'xl' })
++  assert.equal(styledText.snapshot.store['shape:text'].props.size, 'xl')
++})
++
++test('text size is preserved in the standalone SVG export', () => {
++  let snapshot = fixtureSnapshot()
++  const text = createTextShape({
++    snapshot,
++    pageId: 'page:page',
++    point: { x: 20, y: 30 },
++    text: '可调字号',
++    style: { size: 'xl' },
++    id: 'shape:large-text'
++  })
++  snapshot = addShape(snapshot, text)
++  const result = buildLearningCanvasSvg({ snapshot, pageId: 'page:page' })
++  assert.match(result.svg, /font-size="28"/u)
++  assert.match(result.svg, /dy="37">可调字号<\/tspan>/u)
+ })
+ 
+ test('schematic evidence lock state is explicit and does not affect annotations', () => {
+diff --git a/src/learning-canvas/styles.css b/src/learning-canvas/styles.css
+index 7bd965e..c4d1ad0 100644
+--- a/src/learning-canvas/styles.css
++++ b/src/learning-canvas/styles.css
+@@ -69,7 +69,6 @@ textarea:focus-visible {
+ .learning-note-text {
+   fill: #1f2937;
+   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+-  font-size: 15px;
+   pointer-events: none;
+   user-select: none;
+ }
+-- 
+2.55.0.windows.3
+

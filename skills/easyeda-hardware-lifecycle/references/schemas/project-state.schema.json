@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "easyeda.hardware-lifecycle.project-state.v1",
+  "title": "EasyEDA hardware lifecycle project state",
+  "type": "object",
+  "required": ["schemaVersion", "revision", "project", "currentStage", "stages", "history"],
+  "properties": {
+    "schemaVersion": { "const": "easyeda.hardware-lifecycle.project-state.v1" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "project": {
+      "type": "object",
+      "required": ["projectId", "name", "createdAt", "updatedAt"],
+      "properties": {
+        "projectId": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "currentStage": {
+      "enum": ["concept", "module_design", "schematic_review", "bom_selection", "bom_writeback"]
+    },
+    "stages": { "type": "object" },
+    "history": { "type": "array" }
+  }
+}

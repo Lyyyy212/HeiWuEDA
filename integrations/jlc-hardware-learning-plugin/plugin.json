@@ -1,0 +1,17 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "jlc-hardware-learning",
+  "version": "0.1.3",
+  "description": "Persistent JLC Hardware Learning canvas for EasyEDA schematic evidence, selection-scoped questions, teaching annotations, and local exports.",
+  "author": {
+    "name": "EasyEDA Hardware Workbench"
+  },
+  "license": "MIT",
+  "keywords": [
+    "jlc",
+    "hardware-learning",
+    "easyeda",
+    "schematic",
+    "canvas"
+  ]
+}

@@ -1,0 +1,238 @@
+{
+  "schemaVersion": "jlc.hardware-learning-api-map.v1",
+  "apiManifest": {
+    "path": "manifests/api-manifest.json",
+    "package": "@jlceda/pro-api-types",
+    "version": "0.4.15",
+    "declarationSha256": "088146a3e913a7e08c164a4c7c60aae41c0cfecafe18697c68d6aa470ffa4254"
+  },
+  "globalPolicy": {
+    "access": "read-only",
+    "allowInternal": false,
+    "allowUnknownMethods": false,
+    "allowDocumentSwitch": false,
+    "allowCrossPageMerge": false,
+    "identityCheckBeforeAndAfterEvidenceCapture": true
+  },
+  "methods": {
+    "current-project": {
+      "runtimeModule": "dmt_Project",
+      "class": "DMT_Project",
+      "method": "getCurrentProjectInfo",
+      "access": "read",
+      "releaseTag": "public",
+      "purpose": "Freeze the current project UUID and project metadata."
+    },
+    "current-document": {
+      "runtimeModule": "dmt_SelectControl",
+      "class": "DMT_SelectControl",
+      "method": "getCurrentDocumentInfo",
+      "access": "read",
+      "releaseTag": "beta",
+      "purpose": "Freeze document UUID, document type and active tab identity."
+    },
+    "current-schematic-page": {
+      "runtimeModule": "dmt_Schematic",
+      "class": "DMT_Schematic",
+      "method": "getCurrentSchematicPageInfo",
+      "access": "read",
+      "releaseTag": "beta",
+      "purpose": "Confirm active schematic page identity."
+    },
+    "components-current-page": {
+      "runtimeModule": "sch_PrimitiveComponent",
+      "class": "SCH_PrimitiveComponent",
+      "method": "getAll",
+      "access": "read",
+      "releaseTag": "beta",
+      "argumentPolicy": [
+        "componentType omitted unless the intent requires a specific enum member",
+        "allSchematicPages must be false"
+      ],
+      "purpose": "Read components from the active schematic page only."
+    },
+    "component-by-id": {
+      "runtimeModule": "sch_PrimitiveComponent",
+      "class": "SCH_PrimitiveComponent",
+      "method": "get",
+      "access": "read",
+      "releaseTag": "beta",
+      "purpose": "Read one or more identified schematic components."
+    },
+    "component-pins": {
+      "runtimeModule": "sch_PrimitiveComponent",
+      "class": "SCH_PrimitiveComponent",
+      "method": "getAllPinsByPrimitiveId",
+      "access": "read",
+      "releaseTag": "beta",
+      "purpose": "Read component pin definitions and connections."
+    },
+    "attributes-by-parent": {
+      "runtimeModule": "sch_PrimitiveAttribute",
+      "class": "SCH_PrimitiveAttribute",
+      "method": "getAll",
+      "access": "read",
+      "releaseTag": "beta",
+      "purpose": "Read visible and hidden attributes for an identified parent primitive."
+    },
+    "wires-current-page": {
+      "runtimeModule": "sch_PrimitiveWire",
+      "class": "SCH_PrimitiveWire",
+      "method": "getAll",
+      "access": "read",
+      "releaseTag": "beta",
+      "purpose": "Read wires from the active schematic page."
+    },
+    "nets-current-page": {
+      "runtimeModule": "sch_Net",
+      "class": "SCH_Net",
+      "method": "getAllNets",
+      "access": "read",
+      "releaseTag": "beta",
+      "purpose": "Read normalized net information for the active schematic context."
+    },
+    "net-by-name": {
+      "runtimeModule": "sch_Net",
+      "class": "SCH_Net",
+      "method": "getNet",
+      "access": "read",
+      "releaseTag": "beta",
+      "purpose": "Read one explicitly identified net."
+    },
+    "primitives-in-region": {
+      "runtimeModule": "sch_Document",
+      "class": "SCH_Document",
+      "method": "getPrimitivesInRegion",
+      "access": "read",
+      "releaseTag": "beta",
+      "preconditions": [
+        "JLC Hardware Learning image-to-EasyEDA coordinate transform is calibrated",
+        "the referenced image and live document UUID identify the same page snapshot"
+      ],
+      "purpose": "Narrow live primitive evidence to a calibrated schematic region."
+    },
+    "primitive-bounds": {
+      "runtimeModule": "sch_Primitive",
+      "class": "SCH_Primitive",
+      "method": "getPrimitivesBBox",
+      "access": "read",
+      "releaseTag": "beta",
+      "purpose": "Compute EasyEDA-side bounds for already identified primitives."
+    },
+    "netlist-text": {
+      "runtimeModule": "sch_Netlist",
+      "class": "SCH_Netlist",
+      "method": "getNetlist",
+      "access": "read",
+      "releaseTag": "public",
+      "enumPolicy": "Use ESYS_NetlistType.PROTEL2 or another named enum member; never use a raw string or number.",
+      "purpose": "Build a deterministic topology graph when primitive-level evidence is insufficient."
+    },
+    "schematic-export": {
+      "runtimeModule": "sch_ManufactureData",
+      "class": "SCH_ManufactureData",
+      "method": "getExportDocumentFile",
+      "methodId": "SCH_ManufactureData.getExportDocumentFile#1",
+      "access": "read",
+      "releaseTag": "beta",
+      "deprecated": true,
+      "adapter": "EasyedaExportAdapter",
+      "compatibilityStatus": "QUARANTINED_CAPABILITY_MATRIX",
+      "argumentPolicy": [
+        "fileType must use ESCH_ExportDocumentFileType.PNG, SVG or PDF",
+        "object defaults to the live-verified Current Schematic scope",
+        "Current Schematic Page PNG, PDF and SVG are blocked before bridge execution on the installed profile because page scope is a known hang",
+        "Current Schematic SVG is documented but unverified; do not substitute an EPRO-derived visual",
+        "ordinary typed plans must reject this deprecated method",
+        "only the fixed export adapter may save the returned File with force=false"
+      ],
+      "purpose": "Capture a traceable schematic visual artifact; it represents a page only when one-page evidence or a verified page-scope export exists."
+    },
+    "library-device-by-id": {
+      "runtimeModule": "lib_Device",
+      "class": "LIB_Device",
+      "method": "get",
+      "access": "read",
+      "releaseTag": "beta",
+      "preconditions": [
+        "deviceUuid is present in component evidence",
+        "libraryUuid is present or the API can resolve the device unambiguously"
+      ],
+      "purpose": "Enrich an identified component with library metadata."
+    }
+  },
+  "identityGuard": [
+    "current-project",
+    "current-document",
+    "current-schematic-page"
+  ],
+  "intents": {
+    "explain-selection": {
+      "required": [
+        "components-current-page",
+        "wires-current-page",
+        "nets-current-page"
+      ],
+      "conditional": [
+        "primitives-in-region",
+        "primitive-bounds",
+        "schematic-export"
+      ]
+    },
+    "trace-signal": {
+      "required": [
+        "components-current-page",
+        "component-pins",
+        "wires-current-page",
+        "nets-current-page"
+      ],
+      "conditional": [
+        "net-by-name",
+        "netlist-text"
+      ]
+    },
+    "explain-component": {
+      "required": [
+        "component-by-id",
+        "component-pins",
+        "attributes-by-parent"
+      ],
+      "conditional": [
+        "library-device-by-id"
+      ]
+    },
+    "power-path": {
+      "required": [
+        "components-current-page",
+        "component-pins",
+        "wires-current-page",
+        "nets-current-page"
+      ],
+      "conditional": [
+        "netlist-text"
+      ]
+    },
+    "review-concept": {
+      "required": [
+        "components-current-page",
+        "wires-current-page",
+        "nets-current-page"
+      ],
+      "conditional": [
+        "component-pins",
+        "netlist-text",
+        "schematic-export"
+      ]
+    },
+    "compare-options": {
+      "required": [
+        "component-by-id",
+        "attributes-by-parent"
+      ],
+      "conditional": [
+        "library-device-by-id"
+      ],
+      "note": "External datasheet or procurement lookup is a separate evidence provider and is never inferred from JLC Hardware Learning or EasyEDA alone."
+    }
+  }
+}

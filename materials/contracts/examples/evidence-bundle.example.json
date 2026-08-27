@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "learning.evidence-bundle.v1",
+  "bundleId": "bundle:example-opamp-feedback",
+  "questionId": "question:example-opamp-feedback",
+  "status": "verified",
+  "identityBefore": {
+    "projectUuid": "project-example-uuid",
+    "documentUuid": "document-example-uuid",
+    "documentType": "SCHEMATIC_PAGE",
+    "schematicPageUuid": "document-example-uuid",
+    "capturedAt": "2026-08-24T04:00:02Z"
+  },
+  "identityAfter": {
+    "projectUuid": "project-example-uuid",
+    "documentUuid": "document-example-uuid",
+    "documentType": "SCHEMATIC_PAGE",
+    "schematicPageUuid": "document-example-uuid",
+    "capturedAt": "2026-08-24T04:00:04Z"
+  },
+  "items": [
+    {
+      "evidenceId": "evidence:component-u3",
+      "kind": "component",
+      "source": "easyeda-official-api",
+      "scope": {
+        "projectUuid": "project-example-uuid",
+        "documentUuid": "document-example-uuid",
+        "primitiveIds": ["primitive-u3"],
+        "netNames": [],
+        "shapeIds": ["shape:selection-frame"]
+      },
+      "payload": {
+        "designator": "U3",
+        "name": "Operational Amplifier"
+      },
+      "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "capturedAt": "2026-08-24T04:00:03Z",
+      "confidence": 1,
+      "warnings": []
+    },
+    {
+      "evidenceId": "evidence:net-feedback",
+      "kind": "net",
+      "source": "easyeda-official-api",
+      "scope": {
+        "projectUuid": "project-example-uuid",
+        "documentUuid": "document-example-uuid",
+        "primitiveIds": ["primitive-u3", "primitive-r12", "primitive-r13"],
+        "netNames": ["OPAMP_FB"],
+        "shapeIds": ["shape:selection-frame"]
+      },
+      "payload": {
+        "netName": "OPAMP_FB",
+        "connectedDesignators": ["U3", "R12", "R13"]
+      },
+      "sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "capturedAt": "2026-08-24T04:00:03Z",
+      "confidence": 1,
+      "warnings": []
+    }
+  ],
+  "warnings": [],
+  "createdAt": "2026-08-24T04:00:05Z"
+}

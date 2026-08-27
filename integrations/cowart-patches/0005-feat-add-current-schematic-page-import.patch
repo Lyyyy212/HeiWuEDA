@@ -1,0 +1,154 @@
+From 06bd12d30c651875fb07d3d2396f640dfbfe7f17 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Mon, 24 Aug 2026 16:52:33 +0800
+Subject: [PATCH] feat: request guarded current schematic page import
+
+---
+ scripts/probe-hardware-learning.mjs    | 11 ++++++++++
+ scripts/probe-learning-tools.mjs       |  6 ++++++
+ src/learning/HardwareQuestionPanel.jsx | 29 +++++++++++++++++++++++++-
+ src/learning/learningMessage.js        | 20 +++++++++++++++++-
+ 4 files changed, 64 insertions(+), 2 deletions(-)
+
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index 139f553..5203dc6 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -44,6 +44,17 @@ const questionPanelSource = await readFile(
+ );
+ assert.match(questionPanelSource, /onPointerDown=\{stopCanvasInteraction\}/);
+ assert.match(questionPanelSource, /onClick=\{stopCanvasInteraction\}/);
++assert.match(questionPanelSource, /导入当前原理图页/);
++assert.match(questionPanelSource, /sendCurrentSchematicPageImport/);
++
++const learningMessageSource = await readFile(
++  new URL("../src/learning/learningMessage.js", import.meta.url),
++  "utf8",
++);
++assert.match(learningMessageSource, /intent: import-current-easyeda-schematic-page/);
++assert.match(learningMessageSource, /schematic-source-render --render-png/);
++assert.match(learningMessageSource, /禁止调用会卡住页面的 current-page 视觉导出/);
++assert.doesNotMatch(learningMessageSource, /getExportDocumentFile|imagegen/);
+ 
+ const stylesSource = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+ assert.match(
+diff --git a/scripts/probe-learning-tools.mjs b/scripts/probe-learning-tools.mjs
+index bdee69f..0e9f99e 100644
+--- a/scripts/probe-learning-tools.mjs
++++ b/scripts/probe-learning-tools.mjs
+@@ -58,7 +58,13 @@ try {
+ 
+   const panelSource = await readFile(new URL("../src/learning/HardwareQuestionPanel.jsx", import.meta.url), "utf8");
+   assert.match(panelSource, /captureLearningSelection/);
++  assert.match(panelSource, /sendCurrentSchematicPageImport/);
++  assert.match(panelSource, /导入当前原理图页/);
+   assert.doesNotMatch(panelSource, /imagegen|insert_cowart_image|insert_cowart_html_draft/);
++  const messageSource = await readFile(new URL("../src/learning/learningMessage.js", import.meta.url), "utf8");
++  assert.match(messageSource, /official-easyeda-export/);
++  assert.match(messageSource, /learning-page-import-manifest/);
++  assert.doesNotMatch(messageSource, /getExportDocumentFile|eda\.|imagegen/);
+   const annotationSource = await readFile(new URL("../src/learning/learningAnnotations.js", import.meta.url), "utf8");
+   assert.match(annotationSource, /cowartLearningOperationId/);
+   assert.match(annotationSource, /await saveCowartCanvasSnapshot\(/);
+diff --git a/src/learning/HardwareQuestionPanel.jsx b/src/learning/HardwareQuestionPanel.jsx
+index 291bb92..4e22ca4 100644
+--- a/src/learning/HardwareQuestionPanel.jsx
++++ b/src/learning/HardwareQuestionPanel.jsx
+@@ -3,7 +3,10 @@ import { useEditor } from 'tldraw'
+ 
+ import { saveCowartLearningQuestion } from '../cowartClient.js'
+ import { captureLearningSelection } from './captureLearningSelection.js'
+-import { sendHardwareLearningQuestion } from './learningMessage.js'
++import {
++  sendCurrentSchematicPageImport,
++  sendHardwareLearningQuestion
++} from './learningMessage.js'
+ 
+ function inferIntent(question) {
+   if (/比较|对比|compare|\bvs\b/i.test(question)) return 'compare-options'
+@@ -23,6 +26,7 @@ export function HardwareQuestionPanel() {
+   const [questionText, setQuestionText] = useState('')
+   const [level, setLevel] = useState('intermediate')
+   const [status, setStatus] = useState('idle')
++  const [importStatus, setImportStatus] = useState('idle')
+ 
+   async function submit() {
+     if (!questionText.trim() || status === 'saving') return
+@@ -60,6 +64,20 @@ export function HardwareQuestionPanel() {
+     }
+   }
+ 
++  async function importCurrentSchematicPage() {
++    if (importStatus === 'sending') return
++    setImportStatus('sending')
++    try {
++      await sendCurrentSchematicPageImport({
++        cowartPageId: editor.getCurrentPageId()
++      })
++      setImportStatus('sent')
++    } catch (error) {
++      console.error(error)
++      setImportStatus('error')
++    }
++  }
++
+   return (
+     <section
+       className="cowart-hardware-question-panel"
+@@ -70,6 +88,15 @@ export function HardwareQuestionPanel() {
+       onWheel={stopCanvasInteraction}
+     >
+       <strong>硬件学习</strong>
++      <button
++        disabled={importStatus === 'sending'}
++        onClick={importCurrentSchematicPage}
++        type="button"
++      >
++        {importStatus === 'sending' ? '正在请求导入…' : '导入当前原理图页'}
++      </button>
++      {importStatus === 'error' && <small>导入请求发送失败，请检查 Codex 消息桥。</small>}
++      {importStatus === 'sent' && <small>已发送当前页只读导入请求。</small>}
+       <textarea
+         aria-label="硬件问题"
+         onChange={(event) => setQuestionText(event.target.value)}
+diff --git a/src/learning/learningMessage.js b/src/learning/learningMessage.js
+index 4dc1d89..d508baf 100644
+--- a/src/learning/learningMessage.js
++++ b/src/learning/learningMessage.js
+@@ -1,10 +1,15 @@
+-export async function sendHardwareLearningQuestion(question) {
++function resolveSender() {
+   const sender = typeof window.cowartMcp?.sendFollowUpMessage === 'function'
+     ? (message) => window.cowartMcp.sendFollowUpMessage(message)
+     : typeof window.openai?.sendFollowUpMessage === 'function'
+       ? (message) => window.openai.sendFollowUpMessage(message)
+       : null
+   if (!sender) throw new Error('当前 Cowart 画板没有可用的 Codex 消息桥。')
++  return sender
++}
++
++export async function sendHardwareLearningQuestion(question) {
++  const sender = resolveSender()
+   const prompt = [
+     '请使用 EasyEDA hardware lifecycle skill 的学习画板流程解析这个 Cowart 选区。',
+     `questionId: ${question.questionId}`,
+@@ -16,3 +21,16 @@ export async function sendHardwareLearningQuestion(question) {
+   return sender({ prompt, content: [{ type: 'text', text: prompt }] })
+ }
+ 
++export async function sendCurrentSchematicPageImport({ cowartPageId }) {
++  const sender = resolveSender()
++  const prompt = [
++    '请使用 EasyEDA hardware lifecycle skill 的学习画板导入流程，把当前 EasyEDA 原理图页导入这个已有 Cowart 页面。',
++    'intent: import-current-easyeda-schematic-page',
++    `cowartPageId: ${cowartPageId}`,
++    '必须先后校验同一个 projectUuid、documentUuid、documentType=1；只通过官方只读 schematic-source-export 导出 EPRO。',
++    '使用本地 schematic-source-render --render-png 按当前 documentUuid 选择并渲染 PNG，再生成 learning-page-import-manifest。',
++    '仅按清单调用 hardware-learning Cowart 的 official-easyeda-export 图片入口并写入同一 cowartPageId；保留源与渲染证据路径和 SHA-256。',
++    '禁止调用会卡住页面的 current-page 视觉导出，禁止切页、保存或写入 EasyEDA，禁止生图、改图、AI HTML 或 Slides。'
++  ].join('\n')
++  return sender({ prompt, content: [{ type: 'text', text: prompt }] })
++}
+-- 
+2.55.0.windows.3
+

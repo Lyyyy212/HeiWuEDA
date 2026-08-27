@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "learning.tutor-answer.v1",
+  "answerId": "answer:example-opamp-feedback",
+  "questionId": "question:example-opamp-feedback",
+  "summary": "R12 和 R13 构成运放的反馈网络，用于决定闭环增益或偏置关系。",
+  "explanation": "从当前网络证据可以确认 U3、R12 和 R13 连接在同一反馈相关网络中。具体增益公式仍取决于两个电阻分别连接到输入、输出还是参考电位，需要结合引脚与阻值继续确认。",
+  "claims": [
+    {
+      "claimId": "claim:feedback-network-members",
+      "text": "U3、R12 和 R13 位于同一反馈相关网络。",
+      "evidenceIds": [
+        "evidence:component-u3",
+        "evidence:net-feedback"
+      ],
+      "confidence": 1
+    }
+  ],
+  "assumptions": [
+    "根据问题和网络名称，R12/R13 很可能用于闭环反馈，但其拓扑角色仍需引脚证据确认。"
+  ],
+  "unknowns": [
+    "尚未读取 R12、R13 的阻值和 U3 的具体引脚连接。"
+  ],
+  "safetyNotes": [],
+  "nextQuestions": [
+    "是否继续读取 U3 引脚和 R12/R13 阻值来计算闭环增益？"
+  ],
+  "canvasAnnotations": [
+    {
+      "commandId": "annotation-command:example-note",
+      "operationId": "operation:example-answer-presentation",
+      "kind": "note",
+      "pageId": "page:example-page",
+      "anchorShapeId": "shape:selection-frame",
+      "text": "R12/R13：反馈网络；具体增益需结合阻值和 U3 引脚。",
+      "bounds": {
+        "x": 950,
+        "y": 510,
+        "width": 360,
+        "height": 180,
+        "rotation": 0,
+        "coordinateSpace": "hardware-learning-page"
+      },
+      "targetShapeIds": [
+        "shape:selection-frame"
+      ],
+      "style": {
+        "color": "blue",
+        "fill": "light-blue",
+        "dash": "solid",
+        "size": "m"
+      }
+    }
+  ],
+  "createdAt": "2026-08-24T04:00:06Z"
+}

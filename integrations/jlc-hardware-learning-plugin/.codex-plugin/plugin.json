@@ -1,0 +1,44 @@
+{
+  "name": "jlc-hardware-learning",
+  "version": "0.1.3",
+  "description": "A persistent JLC Hardware Learning canvas for selection-scoped schematic questions, official EasyEDA visual evidence, teaching annotations, and local exports.",
+  "author": {
+    "name": "EasyEDA Hardware Workbench"
+  },
+  "license": "MIT",
+  "keywords": [
+    "jlc",
+    "hardware-learning",
+    "easyeda",
+    "schematic",
+    "canvas"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "JLC Hardware Learning",
+    "shortDescription": "Learn from official EasyEDA schematic visual evidence.",
+    "longDescription": "A dedicated JLC SVG hardware-learning canvas for framing schematic regions, asking questions in the normal Codex conversation, adding teaching annotations, importing identity-verified EasyEDA PNG or locally rendered PDF evidence, switching canvas pages, and exporting PNG, SVG, or JSON files. The canvas keeps project-local state, protects imported schematic evidence, supports render-safe zoom and viewport image culling, and disables generation, telemetry, and direct EasyEDA writes.",
+    "developerName": "EasyEDA Hardware Workbench",
+    "category": "Productivity",
+    "capabilities": [
+      "Hardware learning canvas",
+      "Selection-scoped schematic questions",
+      "Numbered learning frames",
+      "Evidence-bound teaching annotations",
+      "Official EasyEDA PNG and PDF-derived visual import",
+      "Project-local persistence",
+      "Render-safe zoom and viewport culling",
+      "Protected schematic evidence",
+      "Local PNG, SVG, and JSON export"
+    ],
+    "brandColor": "#2563EB",
+    "logo": "./assets/jlc-hardware-learning.svg",
+    "composerIcon": "./assets/jlc-hardware-learning.svg",
+    "defaultPrompt": [
+      "打开 JLC 硬件学习画板并解析我框选的原理图区域。",
+      "解释当前学习框里的器件和信号路径。",
+      "检查当前学习框的硬件风险并添加教学标注。"
+    ]
+  }
+}

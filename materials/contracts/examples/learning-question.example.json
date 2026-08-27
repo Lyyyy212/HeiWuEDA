@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "learning.question.v1",
+  "questionId": "question:example-opamp-feedback",
+  "sessionId": "learning:example-session",
+  "intent": "explain-selection",
+  "userQuestion": "模块1里的运放为什么需要 R12 和 R13？",
+  "learningLevel": "intermediate",
+  "selection": {
+    "version": 1,
+    "canvasSelectionVersion": 2,
+    "selectionRevision": 7,
+    "canvasPageId": "page:example-page",
+    "selectedShapeIds": [
+      "shape:schematic-image",
+      "shape:selection-frame",
+      "shape:question-note"
+    ],
+    "shapes": [
+      {
+        "shapeId": "shape:schematic-image",
+        "shapeType": "image",
+        "role": "source-image",
+        "pageBounds": {
+          "x": 100,
+          "y": 80,
+          "width": 1600,
+          "height": 900,
+          "rotation": 0,
+          "coordinateSpace": "hardware-learning-page"
+        },
+        "parentShapeId": "page:example-page",
+        "assetUrl": "/page-assets/example-page/schematic.png",
+        "text": null,
+        "meta": {
+          "source": "easyeda-validated-page-bound-artifact"
+        }
+      },
+      {
+        "shapeId": "shape:selection-frame",
+        "shapeType": "geo",
+        "role": "selection-frame",
+        "pageBounds": {
+          "x": 510,
+          "y": 320,
+          "width": 420,
+          "height": 260,
+          "rotation": 0,
+          "coordinateSpace": "hardware-learning-page"
+        },
+        "parentShapeId": "page:example-page",
+        "assetUrl": null,
+        "text": null,
+        "learningFrameNumber": 1,
+        "meta": {
+          "hardwareLearningAnnotation": true,
+          "hardwareLearningFrame": true,
+          "hardwareLearningFrameNumber": 1
+        }
+      },
+      {
+        "shapeId": "shape:question-note",
+        "shapeType": "note",
+        "role": "question-note",
+        "pageBounds": {
+          "x": 950,
+          "y": 340,
+          "width": 260,
+          "height": 140,
+          "rotation": 0,
+          "coordinateSpace": "hardware-learning-page"
+        },
+        "parentShapeId": "page:example-page",
+        "assetUrl": null,
+        "text": "为什么需要这两个反馈电阻？",
+        "meta": {}
+      }
+    ],
+    "selectedFrameNumbers": [1],
+    "referencedFrameNumbers": [1],
+    "selectionSource": "frame-number-reference",
+    "unionBounds": {
+      "x": 510,
+      "y": 320,
+      "width": 700,
+      "height": 260,
+      "rotation": 0,
+      "coordinateSpace": "hardware-learning-page"
+    },
+    "selectionScreenshotAssetUrl": "/page-assets/example-page/assets/learning/selection-example.png",
+    "selectionScreenshotSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "capturedAt": "2026-08-24T04:00:00Z",
+    "canvasSnapshotSha256": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "easyedaContext": {
+    "mode": "live-verified",
+    "projectUuid": "project-example-uuid",
+    "documentUuid": "document-example-uuid",
+    "documentType": "SCHEMATIC_PAGE",
+    "schematicPageUuid": "document-example-uuid",
+    "windowId": "window-example-id",
+    "capturedAt": "2026-08-24T04:00:00Z",
+    "artifactSha256": "3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "requestedAt": "2026-08-24T04:00:01Z"
+}

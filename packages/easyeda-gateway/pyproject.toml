@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "easyeda-workbench-gateway"
+version = "0.8.0"
+description = "Guarded local API adapter for the official EasyEDA bridge"
+requires-python = ">=3.11"
+license = "PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md", "LICENSES/*.txt"]
+authors = [{ name = "Lyyyy" }]
+dependencies = ["pypdf>=5,<7"]
+
+[project.scripts]
+easyeda-gateway = "easyeda_gateway.cli:main"
+
+[tool.setuptools]
+packages = ["easyeda_gateway"]
+
+[tool.setuptools.package-data]
+easyeda_gateway = ["api-manifest.json", "jlc_pdf_print.cjs", "jlc_svg_png.cjs", "official_runtime/*.min.js"]

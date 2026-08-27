@@ -1,0 +1,1459 @@
+From 5a23095b8142843ea4427005fda9d756b8936bf2 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Tue, 25 Aug 2026 18:17:25 +0800
+Subject: [PATCH 22/22] feat: enhance learning canvas interactions
+
+---
+ package.json                                  |   4 +-
+ scripts/probe-hardware-learning.mjs           |  33 +-
+ .../HardwareLearningCanvas.jsx                | 478 +++++++-----------
+ .../InlineCanvasTextEditor.jsx                |  93 ++++
+ src/learning-canvas/LearningShape.jsx         | 160 ++++++
+ src/learning-canvas/history.js                | 110 ++++
+ src/learning-canvas/history.test.mjs          |  59 +++
+ src/learning-canvas/interaction.js            |  89 ++++
+ src/learning-canvas/interaction.test.mjs      |  78 +++
+ 9 files changed, 796 insertions(+), 308 deletions(-)
+ create mode 100644 src/learning-canvas/InlineCanvasTextEditor.jsx
+ create mode 100644 src/learning-canvas/LearningShape.jsx
+ create mode 100644 src/learning-canvas/history.js
+ create mode 100644 src/learning-canvas/history.test.mjs
+ create mode 100644 src/learning-canvas/interaction.js
+ create mode 100644 src/learning-canvas/interaction.test.mjs
+
+diff --git a/package.json b/package.json
+index f8fe4b4..bcf33b6 100644
+--- a/package.json
++++ b/package.json
+@@ -5,7 +5,7 @@
+   "type": "module",
+   "scripts": {
+     "check:plugin": "node ./scripts/check-plugin-metadata.mjs && node ./scripts/check-agent-plugin.mjs",
+-    "check": "node --check ./mcp/server.mjs && node --check ./mcp/lib/plugin-root.mjs && node --check ./mcp/lib/widget-resource.mjs && node --check ./mcp/lib/cowart-static-widget.mjs && node --check ./mcp/lib/canvas-storage.mjs && node --check ./mcp/lib/ga4-analytics.mjs && node --check ./mcp/learning/conversation-question.mjs && node --check ./src/analytics.js && node --check ./src/learning-canvas/model.js && node --check ./src/learning-canvas/annotations.js && node --check ./src/learning-canvas/export.js && node --check ./scripts/build-release-artifacts.mjs && node --check ./scripts/probe-cold-install.mjs && node --check ./scripts/probe-analytics.mjs && node --check ./scripts/probe-ga4.mjs && node --check ./scripts/probe-mcp.mjs && node --check ./scripts/start-mcp.mjs && node --check ./scripts/vite-build-once.mjs && node --check ./mcp/generated/cowart-mcp.mjs",
++    "check": "node --check ./mcp/server.mjs && node --check ./mcp/lib/plugin-root.mjs && node --check ./mcp/lib/widget-resource.mjs && node --check ./mcp/lib/cowart-static-widget.mjs && node --check ./mcp/lib/canvas-storage.mjs && node --check ./mcp/lib/ga4-analytics.mjs && node --check ./mcp/learning/conversation-question.mjs && node --check ./src/analytics.js && node --check ./src/learning-canvas/model.js && node --check ./src/learning-canvas/history.js && node --check ./src/learning-canvas/interaction.js && node --check ./src/learning-canvas/annotations.js && node --check ./src/learning-canvas/export.js && node --check ./scripts/build-release-artifacts.mjs && node --check ./scripts/probe-cold-install.mjs && node --check ./scripts/probe-analytics.mjs && node --check ./scripts/probe-ga4.mjs && node --check ./scripts/probe-mcp.mjs && node --check ./scripts/start-mcp.mjs && node --check ./scripts/vite-build-once.mjs && node --check ./mcp/generated/cowart-mcp.mjs",
+     "dev": "vite",
+     "build:web": "node ./scripts/vite-build-once.mjs",
+     "build:artifacts": "node ./scripts/build-release-artifacts.mjs",
+@@ -18,7 +18,7 @@
+     "probe:analytics": "node ./scripts/probe-analytics.mjs",
+     "probe:hardware-learning": "node ./scripts/probe-hardware-learning.mjs",
+     "probe:learning-tools": "node ./scripts/probe-learning-tools.mjs",
+-    "test:learning-canvas": "node --test ./src/learning-canvas/model.test.mjs ./src/cowartClient.test.mjs ./mcp/learning/conversation-question.test.mjs",
++    "test:learning-canvas": "node --test ./src/learning-canvas/model.test.mjs ./src/learning-canvas/history.test.mjs ./src/learning-canvas/interaction.test.mjs ./src/cowartClient.test.mjs ./mcp/learning/conversation-question.test.mjs",
+     "probe:ga4": "node ./scripts/probe-ga4.mjs",
+     "quality": "npm run check:plugin && npm run check && npm run test:learning-canvas && npm run check:artifacts && npm run probe:hardware-learning && npm run probe:learning-tools && npm run probe:mcp:cold && npm run probe:mcp && npm run probe:analytics && npm run probe:ga4"
+   },
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index 20b303c..a5e131f 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -55,10 +55,7 @@ assert.match(learningCanvasSource, /cowart-top-actions/);
+ assert.match(learningCanvasSource, /cowart-style-panel/);
+ assert.match(learningCanvasSource, /cowart-bottom-toolbar/);
+ assert.match(learningCanvasSource, /cowart-zoom-controls/);
+-assert.match(learningCanvasSource, /learning-inline-text-editor/);
+ assert.match(learningCanvasSource, /<InlineCanvasTextEditor/);
+-assert.match(learningCanvasSource, /<div[\s\S]*?className="learning-inline-editor"/);
+-assert.match(learningCanvasSource, /pageToScreen\(point, camera\)/);
+ assert.doesNotMatch(learningCanvasSource, /<foreignObject/);
+ assert.doesNotMatch(learningCanvasSource, /learning-note-dialog|learning-dialog-backdrop|<small>\{label\}<\/small>/);
+ assert.match(learningCanvasSource, /id: 'eraser', label: '橡皮擦'/);
+@@ -66,8 +63,38 @@ assert.match(learningCanvasSource, /id: 'rectangle', label: '矩形'/);
+ assert.match(learningCanvasSource, /duplicateLearningShapes/);
+ assert.match(learningCanvasSource, /selectionRevisionRef/);
+ assert.match(learningCanvasSource, /buildLearningCanvasSvg/);
++assert.match(learningCanvasSource, /createHistoryManager/);
++assert.match(learningCanvasSource, /cameraAfterWheel/);
++assert.match(learningCanvasSource, /selectionForShapePointerDown/);
++assert.match(learningCanvasSource, /translateCanvasSelection/);
++assert.match(learningCanvasSource, /onPointerCancel=\{handlePointerCancel\}/);
+ assert.doesNotMatch(learningCanvasSource, /from ['"]tldraw['"]|tl-watermark|Made with tldraw/);
+ 
++const inlineEditorSource = await readFile(
++  new URL("../src/learning-canvas/InlineCanvasTextEditor.jsx", import.meta.url),
++  "utf8",
++);
++assert.match(inlineEditorSource, /learning-inline-text-editor/);
++assert.match(inlineEditorSource, /<div[\s\S]*?className="learning-inline-editor"/);
++assert.match(inlineEditorSource, /pageToScreen\(point, camera\)/);
++assert.match(inlineEditorSource, /event\.nativeEvent\.isComposing/);
++assert.doesNotMatch(inlineEditorSource, /<foreignObject/);
++
++const historySource = await readFile(
++  new URL("../src/learning-canvas/history.js", import.meta.url),
++  "utf8",
++);
++assert.match(historySource, /createSnapshotDelta/);
++assert.match(historySource, /redoStack\.length = 0/);
++
++const interactionSource = await readFile(
++  new URL("../src/learning-canvas/interaction.js", import.meta.url),
++  "utf8",
++);
++assert.match(interactionSource, /shape\.type === 'image'\) return shape\.isLocked !== true/);
++assert.match(interactionSource, /wheel\.ctrlKey \|\| wheel\.metaKey/);
++assert.match(interactionSource, /nudgeDeltaForKey/);
++
+ const stylesSource = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+ assert.doesNotMatch(stylesSource, /cowart-hardware-question-panel/);
+ assert.doesNotMatch(stylesSource, /tl-watermark|SEE-LICENSE/);
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index 2e4e565..5b0ccd4 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -32,7 +32,7 @@ import {
+   ZoomIn,
+   ZoomOut
+ } from 'lucide-react'
+-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
++import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+ import { flushSync } from 'react-dom'
+ 
+ import {
+@@ -63,13 +63,10 @@ import {
+   deleteLearningShapes,
+   duplicateLearningShapes,
+   fitCamera,
+-  layoutLearningText,
+-  learningTextMetricsForSize,
+   migrateLegacyLearningFrames,
+   normalizeBounds,
+   normalizeLearningStyle,
+   pageBoundsForShape,
+-  pageToScreen,
+   pageRecords,
+   resizeRectangleShape,
+   screenToPage,
+@@ -80,13 +77,25 @@ import {
+   translateShape,
+   unionBounds,
+   updateShape,
++  updateShapes,
+   zoomCameraAt
+ } from './model.js'
++import { createHistoryManager } from './history.js'
++import InlineCanvasTextEditor from './InlineCanvasTextEditor.jsx'
++import LearningShape from './LearningShape.jsx'
++import {
++  cameraAfterWheel,
++  canMoveCanvasShape,
++  escapeAction,
++  isSpaceKey,
++  isTextEditingTarget,
++  movableShapeIds,
++  nudgeDeltaForKey,
++  selectionForShapePointerDown,
++  translateCanvasSelection
++} from './interaction.js'
+ import {
+   buildLearningCanvasSvg,
+-  colorValue,
+-  dashArrayForStyle,
+-  strokeWidthForSize,
+   svgDataUrl,
+   svgToPngDataUrl,
+   textToBase64
+@@ -139,249 +148,6 @@ function pointerPosition(event, root) {
+   return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+ }
+ 
+-function LearningShape({ shape, snapshot, assetSources, cameraZoom = 1, editing, selected, onPointerDown, onDoubleClick }) {
+-  const common = {
+-    'data-shape-id': shape.id,
+-    onDoubleClick: (event) => onDoubleClick(event, shape),
+-    onPointerDown: (event) => onPointerDown(event, shape),
+-    style: { cursor: 'inherit' },
+-    opacity: Math.min(1, Math.max(0.1, Number(shape.opacity) || 1)),
+-    transform: `translate(${shape.x || 0} ${shape.y || 0}) rotate(${((shape.rotation || 0) * 180) / Math.PI})`
+-  }
+-  if (shape.type === 'image') {
+-    const asset = snapshot.store[shape.props?.assetId]
+-    const source = assetSources.get(asset?.props?.src) || asset?.props?.src || ''
+-    return (
+-      <image
+-        {...common}
+-        className={selected ? 'is-selected' : ''}
+-        height={shape.props?.h || 1}
+-        href={source}
+-        preserveAspectRatio="none"
+-        width={shape.props?.w || 1}
+-      />
+-    )
+-  }
+-  if (shape.type === 'arrow') {
+-    const start = shape.props?.start ?? { x: 0, y: 0 }
+-    const end = shape.props?.end ?? { x: 1, y: 1 }
+-    const width = strokeWidthForSize(shape.props?.size)
+-    return (
+-      <line
+-        {...common}
+-        className={selected ? 'is-selected' : ''}
+-        markerEnd={shape.props?.arrowheadEnd === 'none' ? undefined : 'url(#learning-arrow)'}
+-        stroke={colorValue(shape.props?.color, '#2563eb')}
+-        strokeDasharray={dashArrayForStyle(shape.props?.dash, width)}
+-        strokeLinecap="round"
+-        strokeWidth={width}
+-        x1={start.x}
+-        x2={end.x}
+-        y1={start.y}
+-        y2={end.y}
+-      />
+-    )
+-  }
+-  if (shape.type === 'draw' || shape.type === 'highlight') {
+-    const points = (shape.meta?.cowartLearningPoints ?? []).map((point) => `${point.x},${point.y}`).join(' ')
+-    const width = shape.type === 'highlight'
+-      ? strokeWidthForSize(shape.props?.size, 5) * 4
+-      : strokeWidthForSize(shape.props?.size, 4)
+-    return (
+-      <polyline
+-        {...common}
+-        className={selected ? 'is-selected' : ''}
+-        fill="none"
+-        points={points}
+-        stroke={colorValue(shape.props?.color, shape.type === 'highlight' ? '#facc15' : '#7c3aed')}
+-        strokeLinecap="round"
+-        strokeLinejoin="round"
+-        strokeWidth={width}
+-      />
+-    )
+-  }
+-  if (shape.type === 'geo') {
+-    const kind = shape.meta?.cowartLearningKind
+-    const frame = shape.meta?.cowartLearningFrame === true
+-    const note = kind === 'note'
+-    const textOnly = kind === 'text'
+-    const highlight = kind === 'highlight'
+-    const text = shape.meta?.cowartLearningText || ''
+-    const stroke = colorValue(shape.props?.color, frame ? '#7c3aed' : '#2563eb')
+-    const fill = shape.props?.fill === 'solid'
+-        ? stroke
+-        : shape.props?.fill === 'semi' || highlight
+-          ? stroke
+-          : 'transparent'
+-    const fillOpacity = note
+-      ? shape.props?.fill === 'solid' ? 0.34 : shape.props?.fill === 'semi' ? 0.18 : 0
+-      : shape.props?.fill === 'solid' ? 0.92 : 0.22
+-    const strokeWidth = strokeWidthForSize(shape.props?.size, frame ? 4 : 3)
+-    const geometry = shape.props?.geo === 'ellipse' ? 'ellipse' : 'rectangle'
+-    const frameNumber = frame && Number.isSafeInteger(shape.meta?.cowartLearningFrameNumber) && shape.meta.cowartLearningFrameNumber > 0
+-      ? shape.meta.cowartLearningFrameNumber
+-      : null
+-    const badgeWidth = frameNumber === null ? 0 : Math.max(30, String(frameNumber).length * 9 + 18)
+-    const badgeScale = 1 / Math.max(0.05, Number(cameraZoom) || 1)
+-    const textLayout = (note || textOnly)
+-      ? layoutLearningText(text, {
+-          width: shape.props?.w || (note ? 260 : 120),
+-          height: shape.props?.h || (note ? 120 : 54),
+-          size: shape.props?.size
+-        })
+-      : null
+-    return (
+-      <g {...common} className={selected ? 'is-selected' : ''}>
+-        {textOnly && (
+-          <rect
+-            fill="transparent"
+-            height={shape.props?.h || 54}
+-            pointerEvents="all"
+-            stroke="none"
+-            width={shape.props?.w || 120}
+-          />
+-        )}
+-        {!textOnly && geometry === 'rectangle' && (
+-          <rect
+-            className={frame ? 'learning-frame-shape' : ''}
+-            fill={fill}
+-            fillOpacity={fillOpacity}
+-            height={shape.props?.h || 1}
+-            rx={note ? 10 : 3}
+-            stroke={stroke}
+-            strokeDasharray={dashArrayForStyle(shape.props?.dash, strokeWidth)}
+-            strokeWidth={strokeWidth}
+-            width={shape.props?.w || 1}
+-          />
+-        )}
+-        {!textOnly && geometry === 'ellipse' && (
+-          <ellipse
+-            cx={(shape.props?.w || 1) / 2}
+-            cy={(shape.props?.h || 1) / 2}
+-            fill={fill}
+-            fillOpacity={fillOpacity}
+-            rx={(shape.props?.w || 1) / 2}
+-            ry={(shape.props?.h || 1) / 2}
+-            stroke={stroke}
+-            strokeDasharray={dashArrayForStyle(shape.props?.dash, strokeWidth)}
+-            strokeWidth={strokeWidth}
+-          />
+-        )}
+-        {frameNumber !== null && (
+-          <g className="learning-frame-number" pointerEvents="none" transform={`translate(7 7) scale(${badgeScale})`}>
+-            <rect fill={stroke} height="28" rx="14" stroke="#ffffff" strokeWidth="2" width={badgeWidth} />
+-            <text
+-              dominantBaseline="middle"
+-              fill="#ffffff"
+-              fontFamily="system-ui, sans-serif"
+-              fontSize="15"
+-              fontWeight="700"
+-              textAnchor="middle"
+-              x={badgeWidth / 2}
+-              y="14"
+-            >
+-              {frameNumber}
+-            </text>
+-          </g>
+-        )}
+-        {!editing && (note || textOnly) && (
+-          <text className="learning-note-text" fill={textOnly ? stroke : undefined} fontSize={textLayout.fontSize} x="14" y="8">
+-            {textLayout.lines.map((line, index) => (
+-              <tspan key={`${shape.id}-${index}`} x="14" dy={index === 0 ? textLayout.firstBaseline : textLayout.lineHeight}>{line}</tspan>
+-            ))}
+-          </text>
+-        )}
+-      </g>
+-    )
+-  }
+-  return null
+-}
+-
+-function InlineCanvasTextEditor({ camera, draft, shape, style, onCancel, onChange, onCommit }) {
+-  const inputRef = useRef(null)
+-  const editingStyle = normalizeLearningStyle(draft.style ?? style)
+-  const point = shape ? { x: shape.x, y: shape.y } : draft.point
+-  const width = shape?.props?.w || (draft.mode === 'note' ? 260 : 320)
+-  const height = shape?.props?.h || (draft.mode === 'note' ? 120 : 82)
+-  const screenPoint = pageToScreen(point, camera)
+-  const screenWidth = Math.max(draft.mode === 'note' ? 210 : 240, width * camera.z)
+-  const screenHeight = Math.max(draft.mode === 'note' ? 104 : 74, height * camera.z)
+-  const color = colorValue(editingStyle.color, draft.mode === 'note' ? '#eab308' : '#1f2937')
+-  const textMetrics = learningTextMetricsForSize(editingStyle.size)
+-  const fillOpacity = editingStyle.fill === 'solid' ? (draft.mode === 'note' ? 0.34 : 0.92) : editingStyle.fill === 'semi' ? 0.18 : 0
+-  const background = fillOpacity > 0 ? `${color}${Math.round(fillOpacity * 255).toString(16).padStart(2, '0')}` : 'transparent'
+-
+-  useLayoutEffect(() => {
+-    const input = inputRef.current
+-    if (!input) return
+-    let frame = 0
+-    let attempts = 0
+-    const focusEditor = () => {
+-      attempts += 1
+-      input.focus({ preventScroll: true })
+-      if (draft.shapeId && attempts === 1) {
+-        const caret = input.value.length
+-        input.setSelectionRange(caret, caret)
+-      }
+-      if (document.activeElement !== input && attempts < 8) {
+-        frame = requestAnimationFrame(focusEditor)
+-      }
+-    }
+-    focusEditor()
+-    return () => cancelAnimationFrame(frame)
+-  }, [draft.mode, draft.shapeId])
+-
+-  return (
+-    <div
+-      className="learning-inline-editor"
+-      data-mode={draft.mode}
+-      onDoubleClick={(event) => event.stopPropagation()}
+-      onPointerDown={(event) => event.stopPropagation()}
+-      style={{
+-        height: screenHeight,
+-        left: screenPoint.x,
+-        top: screenPoint.y,
+-        width: screenWidth
+-      }}
+-    >
+-      <div
+-        className="learning-inline-editor-surface"
+-        style={{ '--editor-color': color, '--editor-background': background }}
+-      >
+-        <textarea
+-          aria-label={draft.mode === 'note' ? '便签文字' : '画布文字'}
+-          autoFocus
+-          data-cowart-inline-editor="true"
+-          data-testid="learning-inline-text-editor"
+-          maxLength={800}
+-          onBlur={onCommit}
+-          onChange={(event) => onChange(event.target.value)}
+-          onKeyDown={(event) => {
+-            event.stopPropagation()
+-            if (event.key === 'Escape') {
+-              event.preventDefault()
+-              onCancel()
+-            } else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+-              event.preventDefault()
+-              onCommit()
+-            }
+-          }}
+-          onPointerDown={(event) => event.stopPropagation()}
+-          onWheel={(event) => event.stopPropagation()}
+-          placeholder={draft.mode === 'note' ? '输入便签…' : '输入文字…'}
+-          ref={inputRef}
+-          spellCheck="false"
+-          style={{
+-            fontSize: `${textMetrics.fontSize * camera.z}px`,
+-            lineHeight: `${textMetrics.lineHeight * camera.z}px`
+-          }}
+-          value={draft.text}
+-        />
+-      </div>
+-    </div>
+-  )
+-}
+-
+ function ToolbarButton({ active = false, disabled = false, label, Icon, onClick, testId }) {
+   return (
+     <button
+@@ -442,9 +208,9 @@ export default function HardwareLearningCanvas() {
+   const saveQueueRef = useRef(Promise.resolve())
+   const localMutationRef = useRef(0)
+   const selectionRevisionRef = useRef(0)
+-  const undoRef = useRef([])
+-  const redoRef = useRef([])
++  const historyRef = useRef(createHistoryManager({ limit: 100 }))
+   const annotationPollingRef = useRef(false)
++  const spacePressedRef = useRef(false)
+   const [snapshot, setSnapshot] = useState(null)
+   const [view, setView] = useState(EMPTY_VIEW_STATE)
+   const [selectedIds, setSelectedIds] = useState([])
+@@ -452,6 +218,7 @@ export default function HardwareLearningCanvas() {
+   const [style, setStyle] = useState(DEFAULT_LEARNING_STYLE)
+   const [gesture, setGesture] = useState(null)
+   const [draftShape, setDraftShape] = useState(null)
++  const [draftShapes, setDraftShapes] = useState([])
+   const [marqueeBounds, setMarqueeBounds] = useState(null)
+   const [assetSources, setAssetSources] = useState(new Map())
+   const [status, setStatus] = useState({ kind: 'loading', text: '正在加载学习画布…' })
+@@ -466,6 +233,7 @@ export default function HardwareLearningCanvas() {
+   })
+   const [lastExport, setLastExport] = useState(null)
+   const [minimapOpen, setMinimapOpen] = useState(false)
++  const [spacePanActive, setSpacePanActive] = useState(false)
+ 
+   const pages = useMemo(() => pageRecords(snapshot), [snapshot])
+   const pageId = view.currentPageId || pages[0]?.id || null
+@@ -513,10 +281,9 @@ export default function HardwareLearningCanvas() {
+     const current = snapshotRef.current
+     if (!current || next === current) return Promise.resolve()
+     if (options.history !== false) {
+-      undoRef.current.push(current)
+-      if (undoRef.current.length > 50) undoRef.current.shift()
+-      redoRef.current = []
+-      setHistoryVersion((value) => value + 1)
++      if (historyRef.current.record(current, next, options.message)) {
++        setHistoryVersion((value) => value + 1)
++      }
+     }
+     return persistSnapshot(next, options.message)
+   }, [persistSnapshot])
+@@ -547,6 +314,7 @@ export default function HardwareLearningCanvas() {
+           camera: loaded.viewState?.camera || DEFAULT_CAMERA
+         }
+         snapshotRef.current = migration.snapshot
++        historyRef.current.clear()
+         remoteSignatureRef.current = snapshotSignature(migration.snapshot)
+         viewRef.current = loadedView
+         setSnapshot(migration.snapshot)
+@@ -637,6 +405,8 @@ export default function HardwareLearningCanvas() {
+         if (!stopped && remote && signature !== remoteSignatureRef.current) {
+           const migration = migrateLegacyLearningFrames(remote)
+           snapshotRef.current = migration.snapshot
++          historyRef.current.clear()
++          setHistoryVersion((value) => value + 1)
+           remoteSignatureRef.current = snapshotSignature(migration.snapshot)
+           setSnapshot(migration.snapshot)
+           setStatus({ kind: 'saved', text: '已同步外部导入或标注' })
+@@ -680,8 +450,15 @@ export default function HardwareLearningCanvas() {
+ 
+   useEffect(() => {
+     function keyDown(event) {
+-      const editingText = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
+-      if (editingText) return
++      if (isTextEditingTarget(event.target)) return
++      if (isSpaceKey(event)) {
++        event.preventDefault()
++        if (!spacePressedRef.current) {
++          spacePressedRef.current = true
++          setSpacePanActive(true)
++        }
++        return
++      }
+       if (event.key === 'Delete' || event.key === 'Backspace') {
+         if (!snapshotRef.current || !selectedIds.length) return
+         const result = deleteLearningShapes(snapshotRef.current, selectedIds)
+@@ -690,39 +467,57 @@ export default function HardwareLearningCanvas() {
+           setSelectedIds([])
+           commitSnapshot(result.snapshot, { message: `已删除 ${result.deleted.length} 个标注` })
+         }
++        return
+       }
+       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+         event.preventDefault()
+         if (event.shiftKey) redo()
+         else undo()
++        return
+       }
+       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') {
+         event.preventDefault()
+         duplicateSelected()
++        return
+       }
+       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+         event.preventDefault()
+         setSelectedIds(pageShapes.map((shape) => shape.id))
++        return
+       }
+       if ((event.ctrlKey || event.metaKey) && event.key === '0') {
+         event.preventDefault()
+         fitContent()
++        return
+       }
+       if ((event.ctrlKey || event.metaKey) && event.key === '1') {
+         event.preventDefault()
+         zoomTo100()
++        return
++      }
++      if (!event.ctrlKey && !event.metaKey && (event.key === '+' || event.key === '=')) {
++        event.preventDefault()
++        zoomBy(1.2)
++        return
++      }
++      if (!event.ctrlKey && !event.metaKey && event.key === '-') {
++        event.preventDefault()
++        zoomBy(1 / 1.2)
++        return
+       }
+-      if (!event.ctrlKey && !event.metaKey && (event.key === '+' || event.key === '=')) zoomBy(1.2)
+-      if (!event.ctrlKey && !event.metaKey && event.key === '-') zoomBy(1 / 1.2)
+       if (event.key === 'Escape') {
+         event.preventDefault()
++        const action = escapeAction({
++          hasGesture: Boolean(gesture),
++          openMenu,
++          tool,
++          selectedCount: selectedIds.length
++        })
++        if (action === 'cancel-gesture') cancelActiveGesture()
++        if (action === 'close-menu') setOpenMenu(null)
++        if (action === 'clear-selection') setSelectedIds([])
+         setTool('select')
+-        setGesture(null)
+-        setDraftShape(null)
+-        setMarqueeBounds(null)
+-        setNoteDraft(null)
+-        setOpenMenu(null)
+-        setSelectedIds([])
++        return
+       }
+       if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.altKey && selectedIds.length === 1) {
+         const selectedShape = snapshotRef.current?.store?.[selectedIds[0]]
+@@ -731,32 +526,63 @@ export default function HardwareLearningCanvas() {
+           return
+         }
+       }
++      const nudge = !event.ctrlKey && !event.metaKey && !event.altKey
++        ? nudgeDeltaForKey(event.key, { shiftKey: event.shiftKey })
++        : null
++      if (nudge && snapshotRef.current && selectedIds.length) {
++        event.preventDefault()
++        const result = translateCanvasSelection(snapshotRef.current, selectedIds, nudge)
++        if (result.updated.length) {
++          commitSnapshot(result.snapshot, {
++            message: `已移动 ${result.updated.length} 个对象`
++          })
++        } else {
++          setStatus({ kind: 'saved', text: '锁定的原理图不能移动' })
++        }
++        return
++      }
+       const shortcut = {
+         v: 'select', h: 'hand', f: 'frame', d: 'pen', e: 'eraser', t: 'text',
+         a: 'arrow', n: 'note', r: 'rectangle', o: 'ellipse', l: 'line', k: 'highlight'
+       }[event.key.toLowerCase()]
+       if (shortcut && !event.ctrlKey && !event.metaKey) setTool(shortcut)
+     }
++    function keyUp(event) {
++      if (!isSpaceKey(event)) return
++      spacePressedRef.current = false
++      setSpacePanActive(false)
++    }
++    function windowBlur() {
++      spacePressedRef.current = false
++      setSpacePanActive(false)
++      if (gesture) cancelActiveGesture()
++    }
+     window.addEventListener('keydown', keyDown)
+-    return () => window.removeEventListener('keydown', keyDown)
++    window.addEventListener('keyup', keyUp)
++    window.addEventListener('blur', windowBlur)
++    return () => {
++      window.removeEventListener('keydown', keyDown)
++      window.removeEventListener('keyup', keyUp)
++      window.removeEventListener('blur', windowBlur)
++    }
+   })
+ 
+   const undo = useCallback(() => {
+-    const previous = undoRef.current.pop()
+-    if (!previous || !snapshotRef.current) return
+-    redoRef.current.push(snapshotRef.current)
++    if (!snapshotRef.current) return
++    const result = historyRef.current.undo(snapshotRef.current)
++    if (!result) return
+     setHistoryVersion((value) => value + 1)
+     setSelectedIds([])
+-    persistSnapshot(previous, '已撤销')
++    persistSnapshot(result.snapshot, `已撤销：${result.label}`)
+   }, [persistSnapshot])
+ 
+   const redo = useCallback(() => {
+-    const next = redoRef.current.pop()
+-    if (!next || !snapshotRef.current) return
+-    undoRef.current.push(snapshotRef.current)
++    if (!snapshotRef.current) return
++    const result = historyRef.current.redo(snapshotRef.current)
++    if (!result) return
+     setHistoryVersion((value) => value + 1)
+     setSelectedIds([])
+-    persistSnapshot(next, '已重做')
++    persistSnapshot(result.snapshot, `已重做：${result.label}`)
+   }, [persistSnapshot])
+ 
+   const fitContent = useCallback((ids = [], targetPageId = pageId) => {
+@@ -839,10 +665,21 @@ export default function HardwareLearningCanvas() {
+     setTool(nextTool)
+     setGesture(null)
+     setDraftShape(null)
++    setDraftShapes([])
+     setMarqueeBounds(null)
+     setOpenMenu(null)
+   }
+ 
++  function cancelActiveGesture() {
++    if (gesture?.pointerId !== undefined && rootRef.current?.hasPointerCapture?.(gesture.pointerId)) {
++      rootRef.current.releasePointerCapture(gesture.pointerId)
++    }
++    setGesture(null)
++    setDraftShape(null)
++    setDraftShapes([])
++    setMarqueeBounds(null)
++  }
++
+   function startPointerGesture(event, type, data = {}) {
+     rootRef.current?.setPointerCapture?.(event.pointerId)
+     setGesture({ type, pointerId: event.pointerId, ...data })
+@@ -853,15 +690,16 @@ export default function HardwareLearningCanvas() {
+     if (noteDraft) return
+     const screen = pointerPosition(event, rootRef.current)
+     const page = screenToPage(screen, camera)
+-    if (event.button === 1 || event.button === 2 || tool === 'hand' || event.altKey) {
++    if (event.button === 1 || event.button === 2 || tool === 'hand' || spacePressedRef.current || event.altKey) {
+       event.preventDefault()
+       startPointerGesture(event, 'pan', { startScreen: screen, startCamera: camera })
+       return
+     }
+     if (event.button !== 0) return
+     if (tool === 'select') {
+-      setSelectedIds([])
+-      startPointerGesture(event, 'marquee', { startPage: page, currentPage: page })
++      const baseSelection = event.shiftKey ? selectedIds : []
++      if (!event.shiftKey) setSelectedIds([])
++      startPointerGesture(event, 'marquee', { startPage: page, currentPage: page, baseSelection })
+       return
+     }
+     if (tool === 'note' || tool === 'text') {
+@@ -889,7 +727,8 @@ export default function HardwareLearningCanvas() {
+   }
+ 
+   function handleShapePointerDown(event, shape) {
+-    if (event.button !== 0 || !rootRef.current) return
++    if (!rootRef.current) return
++    if (event.button !== 0 || tool === 'hand' || spacePressedRef.current || event.altKey) return
+     if (noteDraft) return
+     if (tool === 'eraser') {
+       event.stopPropagation()
+@@ -915,20 +754,19 @@ export default function HardwareLearningCanvas() {
+     event.stopPropagation()
+     const screen = pointerPosition(event, rootRef.current)
+     const page = screenToPage(screen, camera)
+-    setSelectedIds((current) => {
+-      if (event.shiftKey) return current.includes(shape.id) ? current.filter((id) => id !== shape.id) : [...current, shape.id]
+-      return [shape.id]
+-    })
+-    if (shape.type === 'image') {
+-      if (shape.isLocked === true) {
+-        setStatus({ kind: 'saved', text: '原理图已锁定；点击上方解锁按钮后可移动' })
+-        return
+-      }
+-      startPointerGesture(event, 'move', { startPage: page, originalShape: shape })
++    const nextSelection = selectionForShapePointerDown(selectedIds, shape.id, { shiftKey: event.shiftKey })
++    setSelectedIds(nextSelection)
++    if (event.shiftKey) return
++    if (shape.type === 'image' && shape.isLocked === true) {
++      setStatus({ kind: 'saved', text: '原理图已锁定；点击上方解锁按钮后可移动' })
+       return
+     }
+-    if (shape.meta?.cowartHardwareAnnotation || shape.meta?.cowartLearningFrame) {
+-      startPointerGesture(event, 'move', { startPage: page, originalShape: shape })
++    if (canMoveCanvasShape(shape)) {
++      const dragIds = movableShapeIds(snapshotRef.current, nextSelection)
++      const originalShapes = dragIds.map((id) => snapshotRef.current.store[id]).filter(Boolean)
++      if (originalShapes.length) {
++        startPointerGesture(event, 'move', { startPage: page, originalShapes })
++      }
+     }
+   }
+ 
+@@ -937,6 +775,7 @@ export default function HardwareLearningCanvas() {
+     if (!['note', 'text'].includes(mode)) return false
+     setGesture(null)
+     setDraftShape(null)
++    setDraftShapes([])
+     setMarqueeBounds(null)
+     setOpenMenu(null)
+     flushSync(() => {
+@@ -1018,7 +857,8 @@ export default function HardwareLearningCanvas() {
+     }
+     if (gesture.type === 'move') {
+       const delta = { x: page.x - gesture.startPage.x, y: page.y - gesture.startPage.y }
+-      setDraftShape(translateShape(gesture.originalShape, delta))
++      setDraftShape(null)
++      setDraftShapes(gesture.originalShapes.map((shape) => translateShape(shape, delta)))
+       return
+     }
+     if (gesture.type === 'resize') {
+@@ -1042,7 +882,7 @@ export default function HardwareLearningCanvas() {
+               shapeBounds.y <= bounds.y + bounds.h && shapeBounds.y + shapeBounds.h >= bounds.y
+           })
+           .map((shape) => shape.id)
+-        setSelectedIds(matches)
++        setSelectedIds([...new Set([...(gesture.baseSelection || []), ...matches])])
+       }
+       setGesture(null)
+       setMarqueeBounds(null)
+@@ -1074,21 +914,47 @@ export default function HardwareLearningCanvas() {
+       next = addShape(next, created)
+       setSelectedIds([created.id])
+       commitSnapshot(next, { message: created.meta.cowartLearningFrame ? '学习框已保存，可在对话栏提问' : '标注已保存' })
+-    } else if ((gesture.type === 'move' || gesture.type === 'resize') && draftShape) {
++    } else if (gesture.type === 'move' && draftShapes.length) {
++      commitSnapshot(updateShapes(next, draftShapes), {
++        message: `已移动 ${draftShapes.length} 个对象`
++      })
++    } else if (gesture.type === 'resize' && draftShape) {
+       commitSnapshot(updateShape(next, draftShape), {
+-        message: draftShape.type === 'image' ? '原理图位置已更新' : '标注位置已更新'
++        message: '标注大小已更新'
+       })
+     }
+     setGesture(null)
+     setDraftShape(null)
++    setDraftShapes([])
+   }
+ 
+   function handleWheel(event) {
+     if (!rootRef.current) return
+     event.preventDefault()
+     const screen = pointerPosition(event, rootRef.current)
+-    const nextZoom = camera.z * Math.exp(-event.deltaY * 0.0015)
+-    setViewState((current) => ({ ...current, camera: zoomCameraAt(current.camera, screen, nextZoom) }))
++    const wheel = {
++      ctrlKey: event.ctrlKey,
++      deltaMode: event.deltaMode,
++      deltaX: event.deltaX,
++      deltaY: event.deltaY,
++      metaKey: event.metaKey,
++      shiftKey: event.shiftKey
++    }
++    const viewport = {
++      width: rootRef.current.clientWidth,
++      height: rootRef.current.clientHeight
++    }
++    setViewState((current) => ({
++      ...current,
++      camera: cameraAfterWheel(current.camera, wheel, screen, viewport).camera
++    }))
++  }
++
++  function handlePointerCancel(event) {
++    if (!gesture || gesture.pointerId !== event.pointerId) return
++    cancelActiveGesture()
++    setTool('select')
++    setStatus({ kind: 'saved', text: '已取消未完成的操作' })
+   }
+ 
+   function handleResizePointerDown(event, shape, handle) {
+@@ -1268,14 +1134,19 @@ export default function HardwareLearningCanvas() {
+     }
+   }
+ 
++  const previewById = new Map(draftShapes.map((shape) => [shape.id, shape]))
++  if (draftShape) previewById.set(draftShape.id, draftShape)
+   const selectedShape = selectedIds.length === 1 ? snapshot?.store?.[selectedIds[0]] : null
+-  const selectedBounds = selectedShape && pageBoundsForShape(snapshot.store, draftShape?.id === selectedShape.id ? draftShape : selectedShape)
++  const selectedBounds = selectedShape && pageBoundsForShape(snapshot.store, previewById.get(selectedShape.id) || selectedShape)
+   const selectionBounds = snapshot && unionBounds(selectedIds
+-    .map((id) => snapshot.store[id])
++    .map((id) => previewById.get(id) || snapshot.store[id])
+     .filter(Boolean)
+     .map((shape) => pageBoundsForShape(snapshot.store, shape)))
+-  const visibleShapes = pageShapes.map((shape) => draftShape?.id === shape.id ? draftShape : shape)
++  const visibleShapes = pageShapes.map((shape) => previewById.get(shape.id) || shape)
+   if (draftShape && !snapshot?.store?.[draftShape.id]) visibleShapes.push(draftShape)
++  const canUndo = historyVersion >= 0 && historyRef.current.canUndo
++  const canRedo = historyVersion >= 0 && historyRef.current.canRedo
++  const effectiveTool = spacePanActive ? 'hand' : tool
+   const contentBounds = snapshot && unionBounds(pageShapes.map((shape) => pageBoundsForShape(snapshot.store, shape)))
+   const viewportBounds = rootRef.current ? {
+     x: -camera.x / camera.z,
+@@ -1287,11 +1158,12 @@ export default function HardwareLearningCanvas() {
+   return (
+     <main className="learning-canvas-shell" data-engine="cowart-learning-canvas-v2">
+       <section
+-        className={`learning-canvas-viewport tool-${tool}`}
++        className={`learning-canvas-viewport tool-${effectiveTool}`}
+         onContextMenu={(event) => event.preventDefault()}
+         onPointerDown={handleCanvasPointerDown}
+         onPointerMove={handlePointerMove}
+         onPointerUp={finishGesture}
++        onPointerCancel={handlePointerCancel}
+         onWheel={handleWheel}
+         ref={rootRef}
+       >
+@@ -1392,8 +1264,8 @@ export default function HardwareLearningCanvas() {
+         </select>
+ 
+         <span className="cowart-control-separator" />
+-        <MenuButton disabled={!undoRef.current.length} Icon={Undo2} label="撤销" onClick={undo} testId="learning-undo" />
+-        <MenuButton disabled={!redoRef.current.length} Icon={Redo2} label="重做" onClick={redo} testId="learning-redo" />
++        <MenuButton disabled={!canUndo} Icon={Undo2} label="撤销" onClick={undo} testId="learning-undo" />
++        <MenuButton disabled={!canRedo} Icon={Redo2} label="重做" onClick={redo} testId="learning-redo" />
+         <MenuButton disabled={!selectedIds.some((id) => snapshot?.store?.[id]?.type !== 'image')} Icon={Trash2} label="删除" onClick={deleteSelected} testId="learning-delete" />
+         <MenuButton disabled={!selectedIds.some((id) => snapshot?.store?.[id]?.type !== 'image')} Icon={Copy} label="复制" onClick={duplicateSelected} testId="learning-duplicate" />
+         {selectedIds.some((id) => snapshot?.store?.[id]?.type === 'image') && (
+diff --git a/src/learning-canvas/InlineCanvasTextEditor.jsx b/src/learning-canvas/InlineCanvasTextEditor.jsx
+new file mode 100644
+index 0000000..3fd7c24
+--- /dev/null
++++ b/src/learning-canvas/InlineCanvasTextEditor.jsx
+@@ -0,0 +1,93 @@
++import { useLayoutEffect, useRef } from 'react'
++
++import { learningTextMetricsForSize, normalizeLearningStyle, pageToScreen } from './model.js'
++import { colorValue } from './export.js'
++
++export default function InlineCanvasTextEditor({ camera, draft, shape, style, onCancel, onChange, onCommit }) {
++  const inputRef = useRef(null)
++  const cancelledRef = useRef(false)
++  const editingStyle = normalizeLearningStyle(draft.style ?? style)
++  const point = shape ? { x: shape.x, y: shape.y } : draft.point
++  const width = shape?.props?.w || (draft.mode === 'note' ? 260 : 320)
++  const height = shape?.props?.h || (draft.mode === 'note' ? 120 : 82)
++  const screenPoint = pageToScreen(point, camera)
++  const screenWidth = Math.max(draft.mode === 'note' ? 210 : 240, width * camera.z)
++  const screenHeight = Math.max(draft.mode === 'note' ? 104 : 74, height * camera.z)
++  const color = colorValue(editingStyle.color, draft.mode === 'note' ? '#eab308' : '#1f2937')
++  const textMetrics = learningTextMetricsForSize(editingStyle.size)
++  const fillOpacity = editingStyle.fill === 'solid' ? (draft.mode === 'note' ? 0.34 : 0.92) : editingStyle.fill === 'semi' ? 0.18 : 0
++  const background = fillOpacity > 0 ? `${color}${Math.round(fillOpacity * 255).toString(16).padStart(2, '0')}` : 'transparent'
++
++  useLayoutEffect(() => {
++    const input = inputRef.current
++    if (!input) return
++    let frame = 0
++    let attempts = 0
++    const focusEditor = () => {
++      attempts += 1
++      input.focus({ preventScroll: true })
++      if (draft.shapeId && attempts === 1) {
++        const caret = input.value.length
++        input.setSelectionRange(caret, caret)
++      }
++      if (document.activeElement !== input && attempts < 8) {
++        frame = requestAnimationFrame(focusEditor)
++      }
++    }
++    focusEditor()
++    return () => cancelAnimationFrame(frame)
++  }, [draft.mode, draft.shapeId])
++
++  return (
++    <div
++      className="learning-inline-editor"
++      data-mode={draft.mode}
++      onDoubleClick={(event) => event.stopPropagation()}
++      onPointerDown={(event) => event.stopPropagation()}
++      style={{
++        height: screenHeight,
++        left: screenPoint.x,
++        top: screenPoint.y,
++        width: screenWidth
++      }}
++    >
++      <div
++        className="learning-inline-editor-surface"
++        style={{ '--editor-color': color, '--editor-background': background }}
++      >
++        <textarea
++          aria-label={draft.mode === 'note' ? '便签文字' : '画布文字'}
++          autoFocus
++          data-cowart-inline-editor="true"
++          data-testid="learning-inline-text-editor"
++          maxLength={800}
++          onBlur={() => {
++            if (!cancelledRef.current) onCommit()
++          }}
++          onChange={(event) => onChange(event.target.value)}
++          onKeyDown={(event) => {
++            event.stopPropagation()
++            if (event.key === 'Escape') {
++              event.preventDefault()
++              cancelledRef.current = true
++              onCancel()
++            } else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
++              event.preventDefault()
++              onCommit()
++            }
++          }}
++          onPointerDown={(event) => event.stopPropagation()}
++          onWheel={(event) => event.stopPropagation()}
++          placeholder={draft.mode === 'note' ? '输入便签…' : '输入文字…'}
++          ref={inputRef}
++          spellCheck="false"
++          style={{
++            fontSize: `${textMetrics.fontSize * camera.z}px`,
++            lineHeight: `${textMetrics.lineHeight * camera.z}px`
++          }}
++          value={draft.text}
++        />
++      </div>
++    </div>
++  )
++}
+diff --git a/src/learning-canvas/LearningShape.jsx b/src/learning-canvas/LearningShape.jsx
+new file mode 100644
+index 0000000..191ad56
+--- /dev/null
++++ b/src/learning-canvas/LearningShape.jsx
+@@ -0,0 +1,160 @@
++import { layoutLearningText } from './model.js'
++import { colorValue, dashArrayForStyle, strokeWidthForSize } from './export.js'
++
++export default function LearningShape({ shape, snapshot, assetSources, cameraZoom = 1, editing, selected, onPointerDown, onDoubleClick }) {
++  const common = {
++    'data-shape-id': shape.id,
++    onDoubleClick: (event) => onDoubleClick(event, shape),
++    onPointerDown: (event) => onPointerDown(event, shape),
++    style: { cursor: 'inherit' },
++    opacity: Math.min(1, Math.max(0.1, Number(shape.opacity) || 1)),
++    transform: `translate(${shape.x || 0} ${shape.y || 0}) rotate(${((shape.rotation || 0) * 180) / Math.PI})`
++  }
++  if (shape.type === 'image') {
++    const asset = snapshot.store[shape.props?.assetId]
++    const source = assetSources.get(asset?.props?.src) || asset?.props?.src || ''
++    return (
++      <image
++        {...common}
++        className={selected ? 'is-selected' : ''}
++        height={shape.props?.h || 1}
++        href={source}
++        preserveAspectRatio="none"
++        width={shape.props?.w || 1}
++      />
++    )
++  }
++  if (shape.type === 'arrow') {
++    const start = shape.props?.start ?? { x: 0, y: 0 }
++    const end = shape.props?.end ?? { x: 1, y: 1 }
++    const width = strokeWidthForSize(shape.props?.size)
++    return (
++      <line
++        {...common}
++        className={selected ? 'is-selected' : ''}
++        markerEnd={shape.props?.arrowheadEnd === 'none' ? undefined : 'url(#learning-arrow)'}
++        stroke={colorValue(shape.props?.color, '#2563eb')}
++        strokeDasharray={dashArrayForStyle(shape.props?.dash, width)}
++        strokeLinecap="round"
++        strokeWidth={width}
++        x1={start.x}
++        x2={end.x}
++        y1={start.y}
++        y2={end.y}
++      />
++    )
++  }
++  if (shape.type === 'draw' || shape.type === 'highlight') {
++    const points = (shape.meta?.cowartLearningPoints ?? []).map((point) => `${point.x},${point.y}`).join(' ')
++    const width = shape.type === 'highlight'
++      ? strokeWidthForSize(shape.props?.size, 5) * 4
++      : strokeWidthForSize(shape.props?.size, 4)
++    return (
++      <polyline
++        {...common}
++        className={selected ? 'is-selected' : ''}
++        fill="none"
++        points={points}
++        stroke={colorValue(shape.props?.color, shape.type === 'highlight' ? '#facc15' : '#7c3aed')}
++        strokeLinecap="round"
++        strokeLinejoin="round"
++        strokeWidth={width}
++      />
++    )
++  }
++  if (shape.type === 'geo') {
++    const kind = shape.meta?.cowartLearningKind
++    const frame = shape.meta?.cowartLearningFrame === true
++    const note = kind === 'note'
++    const textOnly = kind === 'text'
++    const highlight = kind === 'highlight'
++    const text = shape.meta?.cowartLearningText || ''
++    const stroke = colorValue(shape.props?.color, frame ? '#7c3aed' : '#2563eb')
++    const fill = shape.props?.fill === 'solid'
++        ? stroke
++        : shape.props?.fill === 'semi' || highlight
++          ? stroke
++          : 'transparent'
++    const fillOpacity = note
++      ? shape.props?.fill === 'solid' ? 0.34 : shape.props?.fill === 'semi' ? 0.18 : 0
++      : shape.props?.fill === 'solid' ? 0.92 : 0.22
++    const strokeWidth = strokeWidthForSize(shape.props?.size, frame ? 4 : 3)
++    const geometry = shape.props?.geo === 'ellipse' ? 'ellipse' : 'rectangle'
++    const frameNumber = frame && Number.isSafeInteger(shape.meta?.cowartLearningFrameNumber) && shape.meta.cowartLearningFrameNumber > 0
++      ? shape.meta.cowartLearningFrameNumber
++      : null
++    const badgeWidth = frameNumber === null ? 0 : Math.max(30, String(frameNumber).length * 9 + 18)
++    const badgeScale = 1 / Math.max(0.05, Number(cameraZoom) || 1)
++    const textLayout = (note || textOnly)
++      ? layoutLearningText(text, {
++          width: shape.props?.w || (note ? 260 : 120),
++          height: shape.props?.h || (note ? 120 : 54),
++          size: shape.props?.size
++        })
++      : null
++    return (
++      <g {...common} className={selected ? 'is-selected' : ''}>
++        {textOnly && (
++          <rect
++            fill="transparent"
++            height={shape.props?.h || 54}
++            pointerEvents="all"
++            stroke="none"
++            width={shape.props?.w || 120}
++          />
++        )}
++        {!textOnly && geometry === 'rectangle' && (
++          <rect
++            className={frame ? 'learning-frame-shape' : ''}
++            fill={fill}
++            fillOpacity={fillOpacity}
++            height={shape.props?.h || 1}
++            rx={note ? 10 : 3}
++            stroke={stroke}
++            strokeDasharray={dashArrayForStyle(shape.props?.dash, strokeWidth)}
++            strokeWidth={strokeWidth}
++            width={shape.props?.w || 1}
++          />
++        )}
++        {!textOnly && geometry === 'ellipse' && (
++          <ellipse
++            cx={(shape.props?.w || 1) / 2}
++            cy={(shape.props?.h || 1) / 2}
++            fill={fill}
++            fillOpacity={fillOpacity}
++            rx={(shape.props?.w || 1) / 2}
++            ry={(shape.props?.h || 1) / 2}
++            stroke={stroke}
++            strokeDasharray={dashArrayForStyle(shape.props?.dash, strokeWidth)}
++            strokeWidth={strokeWidth}
++          />
++        )}
++        {frameNumber !== null && (
++          <g className="learning-frame-number" pointerEvents="none" transform={`translate(7 7) scale(${badgeScale})`}>
++            <rect fill={stroke} height="28" rx="14" stroke="#ffffff" strokeWidth="2" width={badgeWidth} />
++            <text
++              dominantBaseline="middle"
++              fill="#ffffff"
++              fontFamily="system-ui, sans-serif"
++              fontSize="15"
++              fontWeight="700"
++              textAnchor="middle"
++              x={badgeWidth / 2}
++              y="14"
++            >
++              {frameNumber}
++            </text>
++          </g>
++        )}
++        {!editing && (note || textOnly) && (
++          <text className="learning-note-text" fill={textOnly ? stroke : undefined} fontSize={textLayout.fontSize} x="14" y="8">
++            {textLayout.lines.map((line, index) => (
++              <tspan key={`${shape.id}-${index}`} x="14" dy={index === 0 ? textLayout.firstBaseline : textLayout.lineHeight}>{line}</tspan>
++            ))}
++          </text>
++        )}
++      </g>
++    )
++  }
++  return null
++}
+diff --git a/src/learning-canvas/history.js b/src/learning-canvas/history.js
+new file mode 100644
+index 0000000..2a53a50
+--- /dev/null
++++ b/src/learning-canvas/history.js
+@@ -0,0 +1,110 @@
++function cloneValue(value) {
++  return value === undefined ? undefined : structuredClone(value)
++}
++
++function stableEqual(left, right) {
++  if (left === right) return true
++  return JSON.stringify(left) === JSON.stringify(right)
++}
++
++function snapshotRoot(snapshot) {
++  if (!snapshot) return {}
++  const root = { ...snapshot }
++  delete root.store
++  return root
++}
++
++export function createSnapshotDelta(before, after, label = '画布更新') {
++  if (!before?.store || !after?.store) return null
++  const records = {}
++  const ids = new Set([...Object.keys(before.store), ...Object.keys(after.store)])
++  for (const id of ids) {
++    const previous = before.store[id]
++    const next = after.store[id]
++    if (stableEqual(previous, next)) continue
++    records[id] = {
++      before: cloneValue(previous),
++      after: cloneValue(next)
++    }
++  }
++
++  const beforeRoot = snapshotRoot(before)
++  const afterRoot = snapshotRoot(after)
++  const rootChanged = !stableEqual(beforeRoot, afterRoot)
++  if (!Object.keys(records).length && !rootChanged) return null
++
++  return {
++    label,
++    records,
++    root: rootChanged
++      ? { before: cloneValue(beforeRoot), after: cloneValue(afterRoot) }
++      : null
++  }
++}
++
++export function applySnapshotDelta(snapshot, delta, direction) {
++  if (!snapshot?.store || !delta || !['before', 'after'].includes(direction)) return snapshot
++  const next = structuredClone(snapshot)
++  if (delta.root) {
++    for (const key of Object.keys(next)) {
++      if (key !== 'store') delete next[key]
++    }
++    Object.assign(next, cloneValue(delta.root[direction]))
++  }
++  for (const [id, change] of Object.entries(delta.records)) {
++    const record = change[direction]
++    if (record === undefined) delete next.store[id]
++    else next.store[id] = cloneValue(record)
++  }
++  return next
++}
++
++export function createHistoryManager({ limit = 100 } = {}) {
++  const undoStack = []
++  const redoStack = []
++
++  return {
++    get canUndo() {
++      return undoStack.length > 0
++    },
++    get canRedo() {
++      return redoStack.length > 0
++    },
++    get undoCount() {
++      return undoStack.length
++    },
++    get redoCount() {
++      return redoStack.length
++    },
++    clear() {
++      undoStack.length = 0
++      redoStack.length = 0
++    },
++    record(before, after, label) {
++      const delta = createSnapshotDelta(before, after, label)
++      if (!delta) return false
++      undoStack.push(delta)
++      if (undoStack.length > limit) undoStack.shift()
++      redoStack.length = 0
++      return true
++    },
++    undo(snapshot) {
++      const delta = undoStack.pop()
++      if (!delta) return null
++      redoStack.push(delta)
++      return {
++        label: delta.label,
++        snapshot: applySnapshotDelta(snapshot, delta, 'before')
++      }
++    },
++    redo(snapshot) {
++      const delta = redoStack.pop()
++      if (!delta) return null
++      undoStack.push(delta)
++      return {
++        label: delta.label,
++        snapshot: applySnapshotDelta(snapshot, delta, 'after')
++      }
++    }
++  }
++}
+diff --git a/src/learning-canvas/history.test.mjs b/src/learning-canvas/history.test.mjs
+new file mode 100644
+index 0000000..7e93d3f
+--- /dev/null
++++ b/src/learning-canvas/history.test.mjs
+@@ -0,0 +1,59 @@
++import assert from 'node:assert/strict'
++import test from 'node:test'
++
++import { applySnapshotDelta, createHistoryManager, createSnapshotDelta } from './history.js'
++
++function snapshot() {
++  return {
++    schema: { schemaVersion: 2 },
++    store: {
++      'page:page': { id: 'page:page', typeName: 'page', meta: { next: 1 } },
++      'asset:image': { id: 'asset:image', typeName: 'asset', props: { src: '/source.png' } },
++      'shape:a': { id: 'shape:a', typeName: 'shape', parentId: 'page:page', x: 10, y: 20 }
++    }
++  }
++}
++
++test('snapshot delta only stores changed records and restores both directions', () => {
++  const before = snapshot()
++  const after = structuredClone(before)
++  after.store['shape:a'].x = 40
++  after.store['shape:b'] = { id: 'shape:b', typeName: 'shape', parentId: 'page:page', x: 2, y: 3 }
++  const delta = createSnapshotDelta(before, after, '移动')
++  assert.deepEqual(Object.keys(delta.records).sort(), ['shape:a', 'shape:b'])
++  assert.equal(delta.records['asset:image'], undefined)
++  assert.deepEqual(applySnapshotDelta(after, delta, 'before'), before)
++  assert.deepEqual(applySnapshotDelta(before, delta, 'after'), after)
++})
++
++test('history keeps selection-free updates out and clears redo only on scene record', () => {
++  const history = createHistoryManager({ limit: 2 })
++  const initial = snapshot()
++  assert.equal(history.record(initial, structuredClone(initial), '无变化'), false)
++  const moved = structuredClone(initial)
++  moved.store['shape:a'].x += 1
++  assert.equal(history.record(initial, moved, '移动'), true)
++  const undone = history.undo(moved)
++  assert.deepEqual(undone.snapshot, initial)
++  assert.equal(history.canRedo, true)
++  assert.equal(history.record(initial, structuredClone(initial), '仅选择'), false)
++  assert.equal(history.canRedo, true)
++  const redone = history.redo(initial)
++  assert.deepEqual(redone.snapshot, moved)
++})
++
++test('history limit evicts the oldest scene delta', () => {
++  const history = createHistoryManager({ limit: 2 })
++  let current = snapshot()
++  for (let x = 11; x <= 13; x += 1) {
++    const next = structuredClone(current)
++    next.store['shape:a'].x = x
++    history.record(current, next, `移动到 ${x}`)
++    current = next
++  }
++  assert.equal(history.undoCount, 2)
++  current = history.undo(current).snapshot
++  current = history.undo(current).snapshot
++  assert.equal(current.store['shape:a'].x, 11)
++  assert.equal(history.undo(current), null)
++})
+diff --git a/src/learning-canvas/interaction.js b/src/learning-canvas/interaction.js
+new file mode 100644
+index 0000000..b737ba2
+--- /dev/null
++++ b/src/learning-canvas/interaction.js
+@@ -0,0 +1,89 @@
++import { translateShape, updateShapes, zoomCameraAt } from './model.js'
++
++const LINE_DELTA_PIXELS = 16
++
++export function isTextEditingTarget(target) {
++  const tagName = String(target?.tagName || '').toUpperCase()
++  return tagName === 'INPUT' || tagName === 'TEXTAREA' || target?.isContentEditable === true
++}
++
++export function isSpaceKey(event) {
++  return event?.code === 'Space' || event?.key === ' ' || event?.key === 'Spacebar'
++}
++
++export function selectionForShapePointerDown(selectedIds, shapeId, { shiftKey = false } = {}) {
++  const current = Array.isArray(selectedIds) ? selectedIds : []
++  if (shiftKey) {
++    return current.includes(shapeId)
++      ? current.filter((id) => id !== shapeId)
++      : [...current, shapeId]
++  }
++  return current.includes(shapeId) ? current : [shapeId]
++}
++
++export function canMoveCanvasShape(shape) {
++  if (!shape || shape.typeName !== 'shape') return false
++  if (shape.type === 'image') return shape.isLocked !== true
++  return shape.meta?.cowartHardwareAnnotation === true || shape.meta?.cowartLearningFrame === true
++}
++
++export function movableShapeIds(snapshot, shapeIds) {
++  return [...new Set(shapeIds)]
++    .filter((id) => canMoveCanvasShape(snapshot?.store?.[id]))
++}
++
++export function translateCanvasSelection(snapshot, shapeIds, delta) {
++  if (!snapshot?.store || (!delta?.x && !delta?.y)) return { snapshot, updated: [] }
++  const updatedShapes = movableShapeIds(snapshot, shapeIds)
++    .map((id) => translateShape(snapshot.store[id], delta))
++  return {
++    snapshot: updatedShapes.length ? updateShapes(snapshot, updatedShapes) : snapshot,
++    updated: updatedShapes.map((shape) => shape.id)
++  }
++}
++
++export function nudgeDeltaForKey(key, { shiftKey = false } = {}) {
++  const amount = shiftKey ? 10 : 1
++  if (key === 'ArrowLeft') return { x: -amount, y: 0 }
++  if (key === 'ArrowRight') return { x: amount, y: 0 }
++  if (key === 'ArrowUp') return { x: 0, y: -amount }
++  if (key === 'ArrowDown') return { x: 0, y: amount }
++  return null
++}
++
++function wheelPixels(value, deltaMode, pageSize) {
++  if (deltaMode === 1) return value * LINE_DELTA_PIXELS
++  if (deltaMode === 2) return value * Math.max(1, pageSize)
++  return value
++}
++
++export function cameraAfterWheel(camera, wheel, screenPoint, viewport = {}) {
++  const deltaX = wheelPixels(wheel.deltaX || 0, wheel.deltaMode, viewport.width || 1)
++  const deltaY = wheelPixels(wheel.deltaY || 0, wheel.deltaMode, viewport.height || 1)
++  if (wheel.ctrlKey || wheel.metaKey) {
++    return {
++      camera: zoomCameraAt(camera, screenPoint, camera.z * Math.exp(-deltaY * 0.002)),
++      kind: 'zoom'
++    }
++  }
++
++  const horizontalFromShift = wheel.shiftKey && Math.abs(deltaX) < Math.abs(deltaY)
++  const panX = horizontalFromShift ? deltaY : deltaX
++  const panY = horizontalFromShift ? 0 : deltaY
++  return {
++    camera: {
++      ...camera,
++      x: camera.x - panX,
++      y: camera.y - panY
++    },
++    kind: 'pan'
++  }
++}
++
++export function escapeAction({ hasGesture, openMenu, tool, selectedCount }) {
++  if (hasGesture) return 'cancel-gesture'
++  if (openMenu) return 'close-menu'
++  if (tool !== 'select') return 'select-tool'
++  if (selectedCount > 0) return 'clear-selection'
++  return 'none'
++}
+diff --git a/src/learning-canvas/interaction.test.mjs b/src/learning-canvas/interaction.test.mjs
+new file mode 100644
+index 0000000..ca6f5d1
+--- /dev/null
++++ b/src/learning-canvas/interaction.test.mjs
+@@ -0,0 +1,78 @@
++import assert from 'node:assert/strict'
++import test from 'node:test'
++
++import {
++  cameraAfterWheel,
++  canMoveCanvasShape,
++  escapeAction,
++  nudgeDeltaForKey,
++  selectionForShapePointerDown,
++  translateCanvasSelection
++} from './interaction.js'
++
++function snapshot() {
++  return {
++    store: {
++      'shape:a': {
++        id: 'shape:a', typeName: 'shape', type: 'geo', parentId: 'page:page', x: 10, y: 20,
++        meta: { cowartHardwareAnnotation: true }
++      },
++      'shape:image-unlocked': {
++        id: 'shape:image-unlocked', typeName: 'shape', type: 'image', parentId: 'page:page', x: 30, y: 40,
++        isLocked: false, meta: { cowartHardwareEvidence: true }
++      },
++      'shape:image-locked': {
++        id: 'shape:image-locked', typeName: 'shape', type: 'image', parentId: 'page:page', x: 50, y: 60,
++        isLocked: true, meta: { cowartHardwareEvidence: true }
++      }
++    }
++  }
++}
++
++test('shape pointer selection retains an existing multi-selection for dragging', () => {
++  assert.deepEqual(selectionForShapePointerDown(['shape:a', 'shape:b'], 'shape:a'), ['shape:a', 'shape:b'])
++  assert.deepEqual(selectionForShapePointerDown(['shape:a'], 'shape:b', { shiftKey: true }), ['shape:a', 'shape:b'])
++  assert.deepEqual(selectionForShapePointerDown(['shape:a'], 'shape:a', { shiftKey: true }), [])
++})
++
++test('multi-selection movement preserves locked schematic evidence', () => {
++  const initial = snapshot()
++  assert.equal(canMoveCanvasShape(initial.store['shape:image-unlocked']), true)
++  assert.equal(canMoveCanvasShape(initial.store['shape:image-locked']), false)
++  const moved = translateCanvasSelection(initial, Object.keys(initial.store), { x: 5, y: -3 })
++  assert.deepEqual(moved.updated.sort(), ['shape:a', 'shape:image-unlocked'])
++  assert.deepEqual({ x: moved.snapshot.store['shape:a'].x, y: moved.snapshot.store['shape:a'].y }, { x: 15, y: 17 })
++  assert.deepEqual(
++    { x: moved.snapshot.store['shape:image-unlocked'].x, y: moved.snapshot.store['shape:image-unlocked'].y },
++    { x: 35, y: 37 }
++  )
++  assert.deepEqual(
++    { x: moved.snapshot.store['shape:image-locked'].x, y: moved.snapshot.store['shape:image-locked'].y },
++    { x: 50, y: 60 }
++  )
++})
++
++test('wheel pans by default, shift pans horizontally, and ctrl zooms at the pointer', () => {
++  const camera = { x: 10, y: 20, z: 1 }
++  assert.deepEqual(
++    cameraAfterWheel(camera, { deltaX: 5, deltaY: 30, deltaMode: 0 }, { x: 100, y: 80 }).camera,
++    { x: 5, y: -10, z: 1 }
++  )
++  assert.deepEqual(
++    cameraAfterWheel(camera, { deltaX: 0, deltaY: 30, deltaMode: 0, shiftKey: true }, { x: 100, y: 80 }).camera,
++    { x: -20, y: 20, z: 1 }
++  )
++  const zoomed = cameraAfterWheel(camera, { deltaX: 0, deltaY: -100, deltaMode: 0, ctrlKey: true }, { x: 100, y: 80 })
++  assert.equal(zoomed.kind, 'zoom')
++  assert.ok(zoomed.camera.z > 1)
++  assert.notEqual(zoomed.camera.x, camera.x)
++})
++
++test('keyboard helpers implement nudge and layered Escape', () => {
++  assert.deepEqual(nudgeDeltaForKey('ArrowLeft'), { x: -1, y: 0 })
++  assert.deepEqual(nudgeDeltaForKey('ArrowDown', { shiftKey: true }), { x: 0, y: 10 })
++  assert.equal(escapeAction({ hasGesture: true, openMenu: 'main', tool: 'pen', selectedCount: 1 }), 'cancel-gesture')
++  assert.equal(escapeAction({ hasGesture: false, openMenu: 'main', tool: 'pen', selectedCount: 1 }), 'close-menu')
++  assert.equal(escapeAction({ hasGesture: false, openMenu: null, tool: 'pen', selectedCount: 1 }), 'select-tool')
++  assert.equal(escapeAction({ hasGesture: false, openMenu: null, tool: 'select', selectedCount: 1 }), 'clear-selection')
++})
+-- 
+2.55.0.windows.3

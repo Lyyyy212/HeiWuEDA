@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source and pinned upstream repositories
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install gateway
+        run: python -m pip install ./packages/easyeda-gateway
+
+      - name: Test gateway
+        run: python -m unittest discover -s packages/easyeda-gateway/tests -t packages/easyeda-gateway -v
+
+      - name: Build gateway wheel
+        run: python -m pip wheel --no-deps --wheel-dir dist ./packages/easyeda-gateway
+
+      - name: Verify gateway wheel licenses
+        run: python scripts/release/verify_wheel.py dist/easyeda_workbench_gateway-0.8.0-py3-none-any.whl
+
+      - name: Test lifecycle
+        working-directory: skills/easyeda-hardware-lifecycle/scripts
+        run: python -m unittest discover -s tests -v
+
+      - name: Validate learning contracts
+        run: node materials/scripts/validate-learning-design.mjs
+
+      - name: Validate learning integration
+        run: node materials/scripts/validate-jlc-hardware-learning-integration.mjs
+
+      - name: Validate packaged learning plugin
+        run: node materials/scripts/validate-jlc-hardware-learning-plugin.mjs integrations/jlc-hardware-learning-plugin
+
+      - name: Install learning plugin dependencies
+        working-directory: integrations/jlc-hardware-learning-plugin
+        run: npm ci
+
+      - name: Test and rebuild learning plugin
+        working-directory: integrations/jlc-hardware-learning-plugin
+        run: npm run quality

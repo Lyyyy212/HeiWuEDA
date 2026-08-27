@@ -1,0 +1,100 @@
+From 9fe8e4ff66642392342883b8ae7391c0432175bb Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Wed, 26 Aug 2026 12:58:29 +0800
+Subject: [PATCH] fix: version Cowart widget resource URI
+
+---
+ mcp/server.mjs        | 13 ++++++++++++-
+ scripts/probe-mcp.mjs | 15 +++++++++++++--
+ 2 files changed, 25 insertions(+), 3 deletions(-)
+
+diff --git a/mcp/server.mjs b/mcp/server.mjs
+index 542708f..a0a5676 100644
+--- a/mcp/server.mjs
++++ b/mcp/server.mjs
+@@ -72,7 +72,6 @@ const TOOL_INSERT_LEARNING_ANNOTATIONS = "insert_cowart_learning_annotations";
+ const execFileAsync = promisify(execFile);
+ 
+ const PAGE_ID_PREFIX = "page:";
+-const COWART_WIDGET_URI = "ui://widget/cowart/canvas.html";
+ const COWART_HTML_DRAFT_URL_ORIGIN = "http://cowart.local";
+ const DEFAULT_DISPLAY_MODE = "fullscreen";
+ const COWART_GOOGLE_DOMAINS = [
+@@ -156,6 +155,16 @@ function assertLearningGenerationAllowed(args, capability) {
+ const pluginManifest = JSON.parse(
+   readFileSync(pluginPath(".codex-plugin", "plugin.json"), "utf8"),
+ );
++const COWART_WIDGET_URI = cowartWidgetResourceUri(pluginManifest.version);
++
++function cowartWidgetResourceUri(version) {
++  const cacheKey = String(version || "")
++    .trim()
++    .replace(/[^A-Za-z0-9._-]+/g, "-")
++    .replace(/^-+|-+$/g, "");
++  if (!cacheKey) throw new Error("Cowart widget resource requires a plugin version.");
++  return `ui://widget/cowart/canvas-${cacheKey}.html`;
++}
+ 
+ const server = new McpServer(
+   {
+@@ -1456,6 +1465,7 @@ function registerCowartWidget(mcpServer) {
+           title,
+           rendering: "native-widget",
+           staticDir: COWART_STATIC_BUILD_DIR,
++          resourceUri: COWART_WIDGET_URI,
+           projectDir,
+           canvasDir,
+           preferredDisplayMode,
+@@ -1468,6 +1478,7 @@ function registerCowartWidget(mcpServer) {
+             title,
+             rendering: "native-widget",
+             staticDir: COWART_STATIC_BUILD_DIR,
++            resourceUri: COWART_WIDGET_URI,
+             projectDir,
+             canvasDir,
+             preferredDisplayMode,
+diff --git a/scripts/probe-mcp.mjs b/scripts/probe-mcp.mjs
+index 19561f6..86ed852 100644
+--- a/scripts/probe-mcp.mjs
++++ b/scripts/probe-mcp.mjs
+@@ -12,6 +12,14 @@ const transportEnvironment = Object.fromEntries(
+ );
+ const serverRoot = path.resolve(optionValue("--server-root") || process.cwd());
+ const maximumStartupMs = Number(optionValue("--max-startup-ms") || 0);
++const pluginManifest = JSON.parse(
++  await readFile(path.join(serverRoot, ".codex-plugin", "plugin.json"), "utf8"),
++);
++const widgetCacheKey = String(pluginManifest.version || "")
++  .trim()
++  .replace(/[^A-Za-z0-9._-]+/g, "-")
++  .replace(/^-+|-+$/g, "");
++const expectedWidgetUri = `ui://widget/cowart/canvas-${widgetCacheKey}.html`;
+ transportEnvironment.COWART_PLUGIN_ROOT = serverRoot;
+ const transport = new StdioClientTransport({
+   command: "node",
+@@ -109,9 +117,12 @@ try {
+       title: "Probe Cowart",
+     },
+   });
+-  if (renderResult._meta?.["openai/outputTemplate"] !== "ui://widget/cowart/canvas.html") {
++  if (renderResult._meta?.["openai/outputTemplate"] !== expectedWidgetUri) {
+     throw new Error("Cowart render tool result did not include the expected outputTemplate.");
+   }
++  if (renderResult.structuredContent?.resourceUri !== expectedWidgetUri) {
++    throw new Error("Cowart render tool result did not expose its versioned resource URI.");
++  }
+   if (renderResult.structuredContent?.preferredDisplayMode !== "fullscreen") {
+     throw new Error("Cowart render tool did not default to fullscreen display mode.");
+   }
+@@ -298,7 +309,7 @@ try {
+   }
+ 
+   const resource = await client.readResource({
+-    uri: "ui://widget/cowart/canvas.html",
++    uri: expectedWidgetUri,
+   });
+   const resourceMeta = resource.contents?.[0]?._meta || {};
+   const widgetCsp = resourceMeta["openai/widgetCSP"] || {};
+-- 
+2.55.0.windows.3
+

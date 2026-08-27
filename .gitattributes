@@ -1,0 +1,33 @@
+* text=auto
+
+*.py text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.mjs text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.html text eol=lf
+*.d.ts text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.patch text eol=lf whitespace=-blank-at-eol,-blank-at-eof
+
+*.tgz binary
+*.png binary
+*.gif binary
+*.jpg binary
+*.jpeg binary
+*.eblob binary
+*.esch binary
+*.esym binary
+
+# Preserve verbatim third-party and generated text while keeping diff checks
+# focused on first-party source.
+LICENSE whitespace=-blank-at-eof
+packages/easyeda-gateway/LICENSE whitespace=-blank-at-eof
+packages/easyeda-gateway/LICENSES/** whitespace=-blank-at-eol,-blank-at-eof
+materials/scripts/api-indexer/vendor/** whitespace=-blank-at-eol,-blank-at-eof
+materials/sources/official-docs/** whitespace=-blank-at-eol,-blank-at-eof
+integrations/jlc-hardware-learning-plugin/mcp/generated/** whitespace=-space-before-tab
+skills/easyeda-hardware-lifecycle/scripts/**/*.py whitespace=-blank-at-eof

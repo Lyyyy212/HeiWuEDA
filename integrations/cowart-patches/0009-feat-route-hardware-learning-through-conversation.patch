@@ -1,0 +1,921 @@
+From c466d83180e9f3bf74a782c7da13c9db630eb9df Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Mon, 24 Aug 2026 19:54:59 +0800
+Subject: [PATCH] feat: route hardware learning through conversation
+
+---
+ mcp/learning/conversation-question.mjs   | 230 +++++++++++++++++++++++
+ mcp/lib/canvas-storage.mjs               |  18 +-
+ mcp/server.mjs                           |  54 +++++-
+ scripts/probe-hardware-learning.mjs      |  44 ++---
+ scripts/probe-learning-tools.mjs         |  86 +++++++--
+ src/App.jsx                              |   4 +-
+ src/cowartClient.js                      |   8 -
+ src/learning/HardwareQuestionPanel.jsx   | 120 ------------
+ src/learning/captureLearningSelection.js |  88 ---------
+ src/learning/learningMessage.js          |  35 ----
+ src/styles.css                           |  26 ---
+ 11 files changed, 389 insertions(+), 324 deletions(-)
+ create mode 100644 mcp/learning/conversation-question.mjs
+ delete mode 100644 src/learning/HardwareQuestionPanel.jsx
+ delete mode 100644 src/learning/captureLearningSelection.js
+ delete mode 100644 src/learning/learningMessage.js
+
+diff --git a/mcp/learning/conversation-question.mjs b/mcp/learning/conversation-question.mjs
+new file mode 100644
+index 0000000..a84e465
+--- /dev/null
++++ b/mcp/learning/conversation-question.mjs
+@@ -0,0 +1,230 @@
++import { createHash, randomUUID } from "node:crypto";
++
++const INTENTS = new Set([
++  "explain-selection",
++  "trace-signal",
++  "explain-component",
++  "power-path",
++  "review-concept",
++  "compare-options",
++]);
++const LEARNING_LEVELS = new Set(["beginner", "intermediate", "advanced"]);
++
++function sha256(value) {
++  return createHash("sha256").update(value).digest("hex");
++}
++
++function finite(value, fallback = 0) {
++  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
++}
++
++function shapeLocalBounds(shape) {
++  if (shape?.type !== "arrow") {
++    return {
++      x: 0,
++      y: 0,
++      width: Math.max(1, finite(shape?.props?.w, shape?.type === "text" ? 160 : 1)),
++      height: Math.max(1, finite(shape?.props?.h, shape?.type === "text" ? 40 : 1)),
++    };
++  }
++  const start = shape.props?.start ?? { x: 0, y: 0 };
++  const end = shape.props?.end ?? { x: 0, y: 0 };
++  const x = Math.min(finite(start.x), finite(end.x));
++  const y = Math.min(finite(start.y), finite(end.y));
++  return {
++    x,
++    y,
++    width: Math.max(1, Math.abs(finite(end.x) - finite(start.x))),
++    height: Math.max(1, Math.abs(finite(end.y) - finite(start.y))),
++  };
++}
++
++function pageBounds(store, shape) {
++  const local = shapeLocalBounds(shape);
++  let x = finite(shape.x) + local.x;
++  let y = finite(shape.y) + local.y;
++  let parent = store[shape.parentId];
++  const visited = new Set([shape.id]);
++  while (parent?.typeName === "shape" && !visited.has(parent.id)) {
++    visited.add(parent.id);
++    x += finite(parent.x);
++    y += finite(parent.y);
++    parent = store[parent.parentId];
++  }
++  return {
++    x,
++    y,
++    width: local.width,
++    height: local.height,
++    rotation: finite(shape.rotation),
++    coordinateSpace: "cowart-page",
++  };
++}
++
++function pageIdForShape(store, shape) {
++  let record = shape;
++  const visited = new Set();
++  while (record && !visited.has(record.id)) {
++    visited.add(record.id);
++    if (record.typeName === "page") return record.id;
++    const parent = store[record.parentId];
++    if (parent?.typeName === "page") return parent.id;
++    record = parent;
++  }
++  return null;
++}
++
++function roleForShape(shape) {
++  if (shape.type === "image") return "source-image";
++  if (shape.type === "geo" && shape.props?.geo === "rectangle") return "selection-frame";
++  if (shape.meta?.cowartHardwareAnnotation === true) return "selection-frame";
++  if (shape.type === "note" || shape.type === "text") return "question-note";
++  if (["arrow", "highlight", "geo", "draw"].includes(shape.type)) return "annotation";
++  return "other";
++}
++
++function envelopeForShape(store, shape, role = roleForShape(shape)) {
++  const asset = shape.props?.assetId ? store[shape.props.assetId] : null;
++  return {
++    shapeId: shape.id,
++    shapeType: shape.type,
++    role,
++    pageBounds: pageBounds(store, shape),
++    parentShapeId: shape.parentId ?? null,
++    assetUrl: asset?.props?.src ?? null,
++    text: shape.props?.text ?? null,
++    meta: shape.meta ?? {},
++  };
++}
++
++function unionBounds(bounds) {
++  const x = Math.min(...bounds.map((item) => item.x));
++  const y = Math.min(...bounds.map((item) => item.y));
++  const right = Math.max(...bounds.map((item) => item.x + item.width));
++  const bottom = Math.max(...bounds.map((item) => item.y + item.height));
++  return {
++    x,
++    y,
++    width: right - x,
++    height: bottom - y,
++    rotation: 0,
++    coordinateSpace: "cowart-page",
++  };
++}
++
++function overlapArea(a, b) {
++  const width = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
++  const height = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
++  return width * height;
++}
++
++function choosePersistedSelection(selectionState) {
++  if (selectionState?.selectedShapes?.length > 0) {
++    return { source: "current", selection: selectionState };
++  }
++  if (selectionState?.lastNonEmptySelection?.selectedShapes?.length > 0) {
++    return { source: "last-non-empty", selection: selectionState.lastNonEmptySelection };
++  }
++  throw new Error("No current or last non-empty Cowart selection is available. Draw or select a frame first.");
++}
++
++export function buildConversationLearningQuestion({
++  canvasSnapshot,
++  selectionState,
++  userQuestion,
++  learningLevel = "intermediate",
++  intent = "explain-selection",
++  questionId = `question:${randomUUID()}`,
++  requestedAt = new Date().toISOString(),
++} = {}) {
++  if (!canvasSnapshot?.store || !canvasSnapshot?.schema) {
++    throw new Error("A saved Cowart canvas snapshot is required.");
++  }
++  if (typeof userQuestion !== "string" || !userQuestion.trim() || userQuestion.trim().length > 4000) {
++    throw new Error("userQuestion must contain 1..4000 characters.");
++  }
++  if (!INTENTS.has(intent)) throw new Error(`Unsupported learning intent: ${intent}`);
++  if (!LEARNING_LEVELS.has(learningLevel)) throw new Error(`Unsupported learning level: ${learningLevel}`);
++  if (typeof questionId !== "string" || !questionId.startsWith("question:")) {
++    throw new Error("questionId must start with question:");
++  }
++
++  const store = canvasSnapshot.store;
++  const chosen = choosePersistedSelection(selectionState);
++  const selectedRecords = chosen.selection.selectedShapes.map((item) => {
++    const record = store[item.id];
++    if (!record || record.typeName !== "shape") {
++      throw new Error(`Selected Cowart shape no longer exists: ${item.id}`);
++    }
++    return record;
++  });
++  const pageIds = new Set(selectedRecords.map((shape) => pageIdForShape(store, shape)));
++  if (pageIds.size !== 1 || pageIds.has(null)) {
++    throw new Error("Cowart learning selection must belong to exactly one page.");
++  }
++  const cowartPageId = [...pageIds][0];
++  if (chosen.selection.currentPageId && chosen.selection.currentPageId !== cowartPageId) {
++    throw new Error("Persisted Cowart selection page no longer matches its selected shapes.");
++  }
++
++  const selectedBounds = selectedRecords.map((shape) => pageBounds(store, shape));
++  const selectionBounds = unionBounds(selectedBounds);
++  const selectedIds = new Set(selectedRecords.map((shape) => shape.id));
++  const contextualImages = Object.values(store)
++    .filter((record) => record?.typeName === "shape" && record.type === "image")
++    .filter((record) => pageIdForShape(store, record) === cowartPageId)
++    .filter((record) => !selectedIds.has(record.id))
++    .map((record) => ({ record, area: overlapArea(selectionBounds, pageBounds(store, record)) }))
++    .filter((item) => item.area > 0)
++    .sort((left, right) => right.area - left.area)
++    .slice(0, 4);
++
++  const shapes = selectedRecords.map((shape) => envelopeForShape(store, shape));
++  const existingSourceImages = shapes.filter((shape) => shape.role === "source-image").length;
++  for (const item of contextualImages.slice(0, Math.max(0, 4 - existingSourceImages))) {
++    shapes.push({
++      ...envelopeForShape(store, item.record, "source-image"),
++      contextualForSelectedShapeIds: [...selectedIds],
++    });
++  }
++
++  const selectionCore = {
++    version: 1,
++    cowartPageId,
++    selectedShapeIds: [...selectedIds],
++    shapes,
++    unionBounds: selectionBounds,
++    capturedAt: chosen.selection.updatedAt ?? requestedAt,
++    selectionSource: chosen.source,
++  };
++  const canvasSnapshotSha256 = sha256(JSON.stringify(selectionCore));
++  const question = {
++    schemaVersion: "learning.question.v1",
++    questionId,
++    sessionId: `learning:cowart:${cowartPageId.replace(/^page:/, "")}`,
++    intent,
++    userQuestion: userQuestion.trim(),
++    learningLevel,
++    selection: {
++      ...selectionCore,
++      selectionScreenshotAssetUrl: null,
++      selectionScreenshotSha256: null,
++      canvasSnapshotSha256,
++    },
++    easyedaContext: {
++      mode: "offline-artifact",
++      projectUuid: null,
++      documentUuid: null,
++      documentType: null,
++      schematicPageUuid: null,
++      windowId: null,
++      capturedAt: requestedAt,
++      artifactSha256: canvasSnapshotSha256,
++    },
++    requestedAt,
++  };
++  return { question, selectionSource: chosen.source };
++}
++
++export const conversationLearningIntents = [...INTENTS];
++export const conversationLearningLevels = [...LEARNING_LEVELS];
+diff --git a/mcp/lib/canvas-storage.mjs b/mcp/lib/canvas-storage.mjs
+index 814d63f..4be3d00 100644
+--- a/mcp/lib/canvas-storage.mjs
++++ b/mcp/lib/canvas-storage.mjs
+@@ -716,9 +716,25 @@ export async function writeCowartSelectionState(args = {}, selection) {
+     throw new Error("Expected a Cowart selection state.");
+   }
+   const selectionFile = resolveSelectionFile(args);
++  let previousSelection = null;
++  try {
++    previousSelection = await readJsonFile(selectionFile);
++  } catch (error) {
++    if (error?.code !== "ENOENT") throw error;
++  }
++  const updatedAt = selection.updatedAt ?? new Date().toISOString();
++  const lastNonEmptySelection = selection.selectedShapes.length > 0
++    ? {
++        version: selection.version ?? 1,
++        currentPageId: selection.currentPageId ?? null,
++        selectedShapes: selection.selectedShapes,
++        updatedAt,
++      }
++    : previousSelection?.lastNonEmptySelection ?? null;
+   const payload = {
+     ...selection,
+-    updatedAt: selection.updatedAt ?? new Date().toISOString(),
++    updatedAt,
++    lastNonEmptySelection,
+   };
+   await writeJsonAtomic(selectionFile, payload);
+   return { ok: true, path: selectionFile, selection: payload };
+diff --git a/mcp/server.mjs b/mcp/server.mjs
+index da4e0a0..a5fce1a 100644
+--- a/mcp/server.mjs
++++ b/mcp/server.mjs
+@@ -44,6 +44,11 @@ import {
+   pullLearningAnnotations,
+   saveLearningQuestion,
+ } from "./learning/storage.mjs";
++import {
++  buildConversationLearningQuestion,
++  conversationLearningIntents,
++  conversationLearningLevels,
++} from "./learning/conversation-question.mjs";
+ 
+ const TOOL_RENDER_WIDGET = "render_cowart_canvas_widget";
+ const TOOL_GET_CANVAS_STATE = "get_cowart_canvas_state";
+@@ -1247,10 +1252,14 @@ function registerCowartLearningTools(mcpServer) {
+     {
+       title: "Save Cowart Hardware Learning Question",
+       description:
+-        "Save a selection-scoped hardware question and deterministic Cowart selection screenshot to local project learning storage. This tool never generates or edits an image.",
++        "Save a hardware question typed in the normal Codex conversation against the current or last non-empty Cowart selection. It can also accept the legacy Widget question envelope. This tool never generates or edits an image.",
+       inputSchema: {
+         ...projectArgsSchema,
+-        question: z.any(),
++        question: z.any().optional(),
++        userQuestion: z.string().trim().min(1).max(4000).optional(),
++        learningLevel: z.enum(conversationLearningLevels).optional(),
++        intent: z.enum(conversationLearningIntents).optional(),
++        questionId: z.string().regex(/^question:/).optional(),
+         screenshotDataUrl: z.string().optional(),
+       },
+       annotations: {
+@@ -1260,16 +1269,42 @@ function registerCowartLearningTools(mcpServer) {
+         openWorldHint: false,
+       },
+       _meta: {
+-        ui: { visibility: ["app"] },
++        ui: { visibility: ["model", "app"] },
+         "openai/widgetAccessible": true,
+       },
+     },
+     async (input = {}) => {
+       if (!isHardwareLearningTarget(input)) throw new Error("learning question tool requires hardware-learning mode");
+-      const result = await saveLearningQuestion(input);
++      if (input.question && input.userQuestion) {
++        throw new Error("Provide either question or userQuestion, not both.");
++      }
++      let question = input.question;
++      let selectionSource = "legacy-widget-envelope";
++      if (!question) {
++        const [{ selection }, canvasState] = await Promise.all([
++          readCowartSelectionState(input),
++          readCowartCanvasState(input, { hydrateAssets: false }),
++        ]);
++        const built = buildConversationLearningQuestion({
++          canvasSnapshot: canvasState.snapshot,
++          selectionState: selection,
++          userQuestion: input.userQuestion,
++          learningLevel: input.learningLevel,
++          intent: input.intent,
++          questionId: input.questionId,
++        });
++        question = built.question;
++        selectionSource = built.selectionSource;
++      }
++      const result = await saveLearningQuestion({ ...input, question });
+       return {
+         content: [{ type: "text", text: `Saved Cowart learning question to ${result.questionPath}.` }],
+-        structuredContent: result,
++        structuredContent: {
++          ...result,
++          questionId: question.questionId,
++          cowartPageId: question.selection?.cowartPageId ?? null,
++          selectionSource,
++        },
+       };
+     },
+   );
+@@ -1660,7 +1695,7 @@ function registerCowartImageTools(mcpServer) {
+     {
+       title: "Get Cowart Selection",
+       description:
+-        "Return the currently selected Cowart/tldraw shapes and image asset metadata from a project's canvas/cowart-selection.json state file.",
++        "Return the current Cowart selection and the last non-empty selection retained for conversation-bar questions after canvas focus changes.",
+       inputSchema: projectArgsSchema,
+       annotations: {
+         readOnlyHint: true,
+@@ -1672,9 +1707,14 @@ function registerCowartImageTools(mcpServer) {
+     async (input = {}) => {
+       const { selection, selectionFile } = await readCowartSelectionState(input);
+       const selectedShapes = selection.selectedShapes ?? [];
++      const fallbackShapes = selection.lastNonEmptySelection?.selectedShapes ?? [];
+       const summary =
+         selectedShapes.length === 0
+-          ? "No Cowart shapes are currently selected."
++          ? fallbackShapes.length === 0
++            ? "No current or retained Cowart selection is available."
++            : `No Cowart shapes are currently selected. Retained last non-empty selection:\n${fallbackShapes
++                .map((shape) => `${shape.id} [${shape.type ?? "unknown"}]`)
++                .join("\n")}`
+           : selectedShapes
+               .map((shape) => {
+                 const assetName = shape.asset?.name ? ` (${shape.asset.name})` : "";
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index 5dbff21..517d8d4 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -37,33 +37,11 @@ const appSource = await readFile(new URL("../src/App.jsx", import.meta.url), "ut
+ assert.match(appSource, /!hardwareLearning && <CowartToolbarItem toolId=\{AI_IMAGE_TOOL_ID\}/);
+ assert.match(appSource, /!hardwareLearning && <CowartAiDraftGenerationPanel \/>/);
+ assert.match(appSource, /!isHardwareLearningMode\(\) && !isInCropTool/);
+-
+-const questionPanelSource = await readFile(
+-  new URL("../src/learning/HardwareQuestionPanel.jsx", import.meta.url),
+-  "utf8",
+-);
+-assert.match(questionPanelSource, /onPointerDown=\{stopCanvasInteraction\}/);
+-assert.match(questionPanelSource, /onClick=\{stopCanvasInteraction\}/);
+-assert.match(questionPanelSource, /导入官方原理图 PNG/);
+-assert.match(questionPanelSource, /sendNativeSchematicVisualImport/);
+-assert.doesNotMatch(questionPanelSource, /autoImportedEditors|导入当前工程全部原理图/);
+-
+-const learningMessageSource = await readFile(
+-  new URL("../src/learning/learningMessage.js", import.meta.url),
+-  "utf8",
+-);
+-assert.match(learningMessageSource, /intent: import-easyeda-native-schematic-visual/);
+-assert.match(learningMessageSource, /schematic-export --format PNG --scope current-schematic/);
+-assert.match(learningMessageSource, /learning-native-visual-import-manifest/);
+-assert.match(learningMessageSource, /禁止 EPRO 图像渲染/);
+-assert.doesNotMatch(learningMessageSource, /schematic-source-render|schematic-project-source-render/);
+-assert.doesNotMatch(learningMessageSource, /getExportDocumentFile|imagegen/);
++assert.doesNotMatch(appSource, /HardwareQuestionPanel|cowart-hardware-question-panel/);
++assert.match(appSource, /currentPageId: editor\.getCurrentPageId\(\)/);
+ 
+ const stylesSource = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+-assert.match(
+-  stylesSource,
+-  /\.cowart-hardware-question-panel\s*\{[\s\S]*?pointer-events:\s*auto;/,
+-);
++assert.doesNotMatch(stylesSource, /cowart-hardware-question-panel/);
+ 
+ const serverSource = await readFile(new URL("../mcp/server.mjs", import.meta.url), "utf8");
+ assert.match(serverSource, /mode: widgetModeSchema\.optional\(\)/);
+@@ -72,5 +50,21 @@ assert.match(serverSource, /LEARNING_EVIDENCE_SOURCES\.has\(args\.evidenceSource
+ assert.match(serverSource, /assetMeta\.evidenceSource = evidenceSource/);
+ assert.match(serverSource, /shapeMeta\.evidenceSource = evidenceSource/);
+ assert.match(serverSource, /does not match the admitted evidenceSource/);
++assert.match(serverSource, /TOOL_SAVE_LEARNING_QUESTION[\s\S]*?visibility: \["model", "app"\]/);
++assert.match(serverSource, /buildConversationLearningQuestion/);
++
++const selectionStorageSource = await readFile(
++  new URL("../mcp/lib/canvas-storage.mjs", import.meta.url),
++  "utf8",
++);
++assert.match(selectionStorageSource, /lastNonEmptySelection/);
++
++const conversationQuestionSource = await readFile(
++  new URL("../mcp/learning/conversation-question.mjs", import.meta.url),
++  "utf8",
++);
++assert.match(conversationQuestionSource, /selectionSource: chosen\.source/);
++assert.match(conversationQuestionSource, /roleForShape/);
++assert.doesNotMatch(conversationQuestionSource, /imagegen|insert_cowart_image|sendFollowUpMessage/);
+ 
+ console.log("Cowart hardware-learning profile probe passed.");
+diff --git a/scripts/probe-learning-tools.mjs b/scripts/probe-learning-tools.mjs
+index 3f9c1b9..9225657 100644
+--- a/scripts/probe-learning-tools.mjs
++++ b/scripts/probe-learning-tools.mjs
+@@ -9,6 +9,11 @@ import {
+   pullLearningAnnotations,
+   saveLearningQuestion,
+ } from "../mcp/learning/storage.mjs";
++import {
++  readCowartSelectionState,
++  writeCowartSelectionState,
++} from "../mcp/lib/canvas-storage.mjs";
++import { buildConversationLearningQuestion } from "../mcp/learning/conversation-question.mjs";
+ 
+ const projectDir = await mkdtemp(join(tmpdir(), "cowart-learning-probe-"));
+ try {
+@@ -22,6 +27,71 @@ try {
+   assert.equal(saved.replayed, false);
+   assert.equal((await saveLearningQuestion({ projectDir, question, screenshotDataUrl })).replayed, true);
+ 
++  const selectedFrame = {
++    version: 1,
++    currentPageId: "page:page",
++    selectedShapes: [{ id: "shape:frame", type: "geo" }],
++    updatedAt: "2026-08-24T00:00:00.000Z",
++  };
++  await writeCowartSelectionState({ projectDir }, selectedFrame);
++  await writeCowartSelectionState({ projectDir }, {
++    version: 1,
++    currentPageId: "page:page",
++    selectedShapes: [],
++    updatedAt: "2026-08-24T00:00:01.000Z",
++  });
++  const persistedSelection = (await readCowartSelectionState({ projectDir })).selection;
++  assert.equal(persistedSelection.selectedShapes.length, 0);
++  assert.equal(persistedSelection.lastNonEmptySelection.selectedShapes[0].id, "shape:frame");
++
++  const canvasSnapshot = {
++    schema: { schemaVersion: 2 },
++    store: {
++      "page:page": { id: "page:page", typeName: "page", name: "Page 1", index: "a1" },
++      "asset:image": {
++        id: "asset:image",
++        typeName: "asset",
++        type: "image",
++        props: { src: "/page-assets/page-page/source.png", w: 300, h: 200 },
++      },
++      "shape:image": {
++        id: "shape:image",
++        typeName: "shape",
++        type: "image",
++        parentId: "page:page",
++        x: 0,
++        y: 0,
++        rotation: 0,
++        props: { assetId: "asset:image", w: 300, h: 200 },
++        meta: {},
++      },
++      "shape:frame": {
++        id: "shape:frame",
++        typeName: "shape",
++        type: "geo",
++        parentId: "page:page",
++        x: 50,
++        y: 40,
++        rotation: 0,
++        props: { geo: "rectangle", w: 100, h: 80 },
++        meta: {},
++      },
++    },
++  };
++  const conversational = buildConversationLearningQuestion({
++    canvasSnapshot,
++    selectionState: persistedSelection,
++    userQuestion: "这个框里的电路是做什么的？",
++    questionId: "question:conversation-probe",
++    requestedAt: "2026-08-24T00:00:02.000Z",
++  });
++  assert.equal(conversational.selectionSource, "last-non-empty");
++  assert.equal(conversational.question.selection.cowartPageId, "page:page");
++  assert.deepEqual(conversational.question.selection.selectedShapeIds, ["shape:frame"]);
++  assert.equal(conversational.question.selection.shapes[0].role, "selection-frame");
++  assert.ok(conversational.question.selection.shapes.some((shape) => shape.role === "source-image"));
++  assert.equal((await saveLearningQuestion({ projectDir, question: conversational.question })).replayed, false);
++
+   const operationId = "operation:probe";
+   const pageId = "page:probe";
+   const commands = [{
+@@ -56,18 +126,10 @@ try {
+     /not whitelisted|forbidden/,
+   );
+ 
+-  const panelSource = await readFile(new URL("../src/learning/HardwareQuestionPanel.jsx", import.meta.url), "utf8");
+-  assert.match(panelSource, /captureLearningSelection/);
+-  assert.match(panelSource, /sendNativeSchematicVisualImport/);
+-  assert.match(panelSource, /导入官方原理图 PNG/);
+-  assert.doesNotMatch(panelSource, /autoImportedEditors|导入当前工程全部原理图/);
+-  assert.doesNotMatch(panelSource, /imagegen|insert_cowart_image|insert_cowart_html_draft/);
+-  const messageSource = await readFile(new URL("../src/learning/learningMessage.js", import.meta.url), "utf8");
+-  assert.match(messageSource, /official-easyeda-export/);
+-  assert.match(messageSource, /learning-native-visual-import-manifest/);
+-  assert.match(messageSource, /import-easyeda-native-schematic-visual/);
+-  assert.doesNotMatch(messageSource, /learning-page-import-manifest|learning-project-import-manifest/);
+-  assert.doesNotMatch(messageSource, /getExportDocumentFile|eda\.|imagegen/);
++  const appSource = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
++  assert.doesNotMatch(appSource, /HardwareQuestionPanel|cowart-hardware-question-panel/);
++  const conversationSource = await readFile(new URL("../mcp/learning/conversation-question.mjs", import.meta.url), "utf8");
++  assert.doesNotMatch(conversationSource, /imagegen|insert_cowart_image|insert_cowart_html_draft/);
+   const annotationSource = await readFile(new URL("../src/learning/learningAnnotations.js", import.meta.url), "utf8");
+   assert.match(annotationSource, /cowartLearningOperationId/);
+   assert.match(annotationSource, /await saveCowartCanvasSnapshot\(/);
+diff --git a/src/App.jsx b/src/App.jsx
+index 236d59b..b70a23d 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -93,7 +93,6 @@ import {
+   sanitizeCanvasSnapshotForTldraw
+ } from './canvasSnapshot.js'
+ import { isHardwareLearningMode } from './learning/hardwareLearningProfile.js'
+-import { HardwareQuestionPanel } from './learning/HardwareQuestionPanel.jsx'
+ import { startLearningAnnotationPolling } from './learning/learningAnnotations.js'
+ 
+ const SELECTION_STATE_ELEMENT_ID = 'cowart-selection-state'
+@@ -3458,7 +3457,6 @@ function CowartCanvasOverlay() {
+   const hardwareLearning = isHardwareLearningMode()
+   return (
+     <>
+-      {hardwareLearning && <HardwareQuestionPanel />}
+       {!hardwareLearning && <CowartAiImageGenerationPanel />}
+       {!hardwareLearning && <CowartAiDraftGenerationPanel />}
+       {!hardwareLearning && <CowartAiSlidesGenerationPanel />}
+@@ -5809,6 +5807,8 @@ function getCowartSelection(editor) {
+ 
+ function getCowartSelectionSnapshot(editor) {
+   return {
++    version: 1,
++    currentPageId: editor.getCurrentPageId(),
+     selectedShapes: getCowartSelection(editor)
+   }
+ }
+diff --git a/src/cowartClient.js b/src/cowartClient.js
+index 9ec6b6c..1c228b2 100644
+--- a/src/cowartClient.js
++++ b/src/cowartClient.js
+@@ -11,7 +11,6 @@ const TOOL_READ_PAGE_ASSET = 'read_cowart_page_asset'
+ const TOOL_DOWNLOAD_FILE = 'download_cowart_file'
+ const TOOL_COPY_IMAGE_TO_CLIPBOARD = 'copy_cowart_image_to_clipboard'
+ const TOOL_INSERT_HTML_DRAFT = 'insert_cowart_html_draft'
+-const TOOL_SAVE_LEARNING_QUESTION = 'save_cowart_learning_question'
+ const TOOL_INSERT_LEARNING_ANNOTATIONS = 'insert_cowart_learning_annotations'
+ const WIDGET_PAYLOAD_TIMEOUT_MS = 5000
+ 
+@@ -199,13 +198,6 @@ export async function saveCowartReferenceImage(reference) {
+   return callCowartServerTool(TOOL_SAVE_REFERENCE_IMAGE, reference)
+ }
+ 
+-export async function saveCowartLearningQuestion(question) {
+-  if (!hasCowartWidgetBridge()) {
+-    throw new Error('当前 Cowart 硬件学习画板没有可用的本地问题保存桥。')
+-  }
+-  return callCowartServerTool(TOOL_SAVE_LEARNING_QUESTION, question)
+-}
+-
+ export async function pullCowartLearningAnnotations(pageId) {
+   if (!hasCowartWidgetBridge()) return { operations: [] }
+   return callCowartServerTool(TOOL_INSERT_LEARNING_ANNOTATIONS, { action: 'pull', pageId })
+diff --git a/src/learning/HardwareQuestionPanel.jsx b/src/learning/HardwareQuestionPanel.jsx
+deleted file mode 100644
+index 5662726..0000000
+--- a/src/learning/HardwareQuestionPanel.jsx
++++ /dev/null
+@@ -1,120 +0,0 @@
+-import { useState } from 'react'
+-import { useEditor } from 'tldraw'
+-
+-import { saveCowartLearningQuestion } from '../cowartClient.js'
+-import { captureLearningSelection } from './captureLearningSelection.js'
+-import {
+-  sendNativeSchematicVisualImport,
+-  sendHardwareLearningQuestion
+-} from './learningMessage.js'
+-
+-function inferIntent(question) {
+-  if (/比较|对比|compare|\bvs\b/i.test(question)) return 'compare-options'
+-  if (/电源|供电|power|supply|rail/i.test(question)) return 'power-path'
+-  if (/信号|网络|走向|trace|signal|net/i.test(question)) return 'trace-signal'
+-  if (/器件|芯片|电阻|电容|component|part/i.test(question)) return 'explain-component'
+-  if (/检查|风险|review|risk/i.test(question)) return 'review-concept'
+-  return 'explain-selection'
+-}
+-
+-function stopCanvasInteraction(event) {
+-  event.stopPropagation()
+-}
+-
+-export function HardwareQuestionPanel() {
+-  const editor = useEditor()
+-  const [questionText, setQuestionText] = useState('')
+-  const [level, setLevel] = useState('intermediate')
+-  const [status, setStatus] = useState('idle')
+-  const [importStatus, setImportStatus] = useState('idle')
+-
+-  async function submit() {
+-    if (!questionText.trim() || status === 'saving') return
+-    setStatus('saving')
+-    try {
+-      const captured = await captureLearningSelection(editor)
+-      const now = new Date().toISOString()
+-      const question = {
+-        schemaVersion: 'learning.question.v1',
+-        questionId: `question:${crypto.randomUUID()}`,
+-        sessionId: `learning:cowart:${editor.getCurrentPageId().replace(/^page:/, '')}`,
+-        intent: inferIntent(questionText),
+-        userQuestion: questionText.trim(),
+-        learningLevel: level,
+-        selection: captured.selection,
+-        easyedaContext: {
+-          mode: 'offline-artifact',
+-          projectUuid: null,
+-          documentUuid: null,
+-          documentType: null,
+-          schematicPageUuid: null,
+-          windowId: null,
+-          capturedAt: now,
+-          artifactSha256: captured.selection.selectionScreenshotSha256
+-        },
+-        requestedAt: now
+-      }
+-      await saveCowartLearningQuestion({ question, screenshotDataUrl: captured.screenshotDataUrl })
+-      await sendHardwareLearningQuestion(question)
+-      setQuestionText('')
+-      setStatus('sent')
+-    } catch (error) {
+-      console.error(error)
+-      setStatus('error')
+-    }
+-  }
+-
+-  async function importNativeSchematicVisual() {
+-    if (importStatus === 'sending') return
+-    setImportStatus('sending')
+-    try {
+-      await sendNativeSchematicVisualImport({
+-        cowartPageId: editor.getCurrentPageId()
+-      })
+-      setImportStatus('sent')
+-    } catch (error) {
+-      console.error(error)
+-      setImportStatus('error')
+-    }
+-  }
+-
+-  return (
+-    <section
+-      className="cowart-hardware-question-panel"
+-      aria-label="硬件学习提问"
+-      onClick={stopCanvasInteraction}
+-      onPointerDown={stopCanvasInteraction}
+-      onPointerUp={stopCanvasInteraction}
+-      onWheel={stopCanvasInteraction}
+-    >
+-      <strong>硬件学习</strong>
+-      <button
+-        disabled={importStatus === 'sending'}
+-        onClick={importNativeSchematicVisual}
+-        type="button"
+-      >
+-        {importStatus === 'sending' ? '正在请求官方 PNG…' : '导入官方原理图 PNG'}
+-      </button>
+-      {importStatus === 'error' && <small>导入请求发送失败，请检查 Codex 消息桥。</small>}
+-      {importStatus === 'sent' && <small>已发送官方 PNG 只读导入请求。</small>}
+-      <textarea
+-        aria-label="硬件问题"
+-        onChange={(event) => setQuestionText(event.target.value)}
+-        placeholder="选中原理图区域后提问…"
+-        value={questionText}
+-      />
+-      <div>
+-        <select aria-label="学习层级" onChange={(event) => setLevel(event.target.value)} value={level}>
+-          <option value="beginner">入门</option>
+-          <option value="intermediate">进阶</option>
+-          <option value="advanced">高级</option>
+-        </select>
+-        <button disabled={!questionText.trim() || status === 'saving'} onClick={submit} type="button">
+-          {status === 'saving' ? '保存中…' : '解析选区'}
+-        </button>
+-      </div>
+-      {status === 'error' && <small>提交失败，请检查当前选区和本地桥。</small>}
+-      {status === 'sent' && <small>问题已保存并发送。</small>}
+-    </section>
+-  )
+-}
+diff --git a/src/learning/captureLearningSelection.js b/src/learning/captureLearningSelection.js
+deleted file mode 100644
+index fe87ffc..0000000
+--- a/src/learning/captureLearningSelection.js
++++ /dev/null
+@@ -1,88 +0,0 @@
+-async function sha256Text(value) {
+-  const bytes = new TextEncoder().encode(value)
+-  const digest = await crypto.subtle.digest('SHA-256', bytes)
+-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+-}
+-
+-async function sha256DataUrl(dataUrl) {
+-  const encoded = String(dataUrl).split(',', 2)[1] || ''
+-  const binary = atob(encoded)
+-  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
+-  const digest = await crypto.subtle.digest('SHA-256', bytes)
+-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+-}
+-
+-function roleForShape(shape) {
+-  if (shape.type === 'image') return 'source-image'
+-  if (shape.meta?.cowartHardwareAnnotation === true) return 'selection-frame'
+-  if (shape.type === 'note' || shape.type === 'text') return 'question-note'
+-  if (['arrow', 'highlight', 'geo', 'draw'].includes(shape.type)) return 'annotation'
+-  return 'other'
+-}
+-
+-function unionBounds(bounds) {
+-  const x = Math.min(...bounds.map((item) => item.x))
+-  const y = Math.min(...bounds.map((item) => item.y))
+-  const right = Math.max(...bounds.map((item) => item.x + item.width))
+-  const bottom = Math.max(...bounds.map((item) => item.y + item.height))
+-  return { x, y, width: right - x, height: bottom - y, rotation: 0, coordinateSpace: 'cowart-page' }
+-}
+-
+-export async function captureLearningSelection(editor) {
+-  const shapeIds = editor.getSelectedShapeIds()
+-  if (shapeIds.length === 0) throw new Error('请先选择原理图图片或标注区域。')
+-  const shapes = shapeIds.map((shapeId) => {
+-    const shape = editor.getShape(shapeId)
+-    const bounds = editor.getShapePageBounds(shapeId)
+-    if (!shape || !bounds) throw new Error(`无法读取选中 shape：${shapeId}`)
+-    const asset = shape.props?.assetId ? editor.getAsset(shape.props.assetId) : null
+-    return {
+-      shapeId,
+-      shapeType: shape.type,
+-      role: roleForShape(shape),
+-      pageBounds: {
+-        x: bounds.x,
+-        y: bounds.y,
+-        width: bounds.width,
+-        height: bounds.height,
+-        rotation: shape.rotation || 0,
+-        coordinateSpace: 'cowart-page'
+-      },
+-      parentShapeId: shape.parentId || null,
+-      assetUrl: asset?.props?.src || null,
+-      text: shape.props?.text || shape.props?.richText?.content?.[0]?.content?.[0]?.text || null,
+-      meta: shape.meta || {}
+-    }
+-  })
+-  if (!shapes.some((shape) => ['source-image', 'selection-frame', 'question-note'].includes(shape.role))) {
+-    throw new Error('选区必须包含原理图图片、框选区域或问题便签。')
+-  }
+-  if (shapes.filter((shape) => shape.role === 'source-image').length > 4) {
+-    throw new Error('一次硬件问题最多引用四张图片。')
+-  }
+-  const image = await editor.toImageDataUrl(shapeIds, {
+-    background: true,
+-    darkMode: false,
+-    format: 'png',
+-    padding: 12
+-  })
+-  const capturedAt = new Date().toISOString()
+-  const selectionCore = {
+-    version: 1,
+-    cowartPageId: editor.getCurrentPageId(),
+-    selectedShapeIds: shapeIds,
+-    shapes,
+-    unionBounds: unionBounds(shapes.map((shape) => shape.pageBounds)),
+-    capturedAt
+-  }
+-  return {
+-    selection: {
+-      ...selectionCore,
+-      selectionScreenshotAssetUrl: null,
+-      selectionScreenshotSha256: await sha256DataUrl(image.url),
+-      canvasSnapshotSha256: await sha256Text(JSON.stringify(selectionCore))
+-    },
+-    screenshotDataUrl: image.url
+-  }
+-}
+-
+diff --git a/src/learning/learningMessage.js b/src/learning/learningMessage.js
+deleted file mode 100644
+index e17d4f4..0000000
+--- a/src/learning/learningMessage.js
++++ /dev/null
+@@ -1,35 +0,0 @@
+-function resolveSender() {
+-  const sender = typeof window.cowartMcp?.sendFollowUpMessage === 'function'
+-    ? (message) => window.cowartMcp.sendFollowUpMessage(message)
+-    : typeof window.openai?.sendFollowUpMessage === 'function'
+-      ? (message) => window.openai.sendFollowUpMessage(message)
+-      : null
+-  if (!sender) throw new Error('当前 Cowart 画板没有可用的 Codex 消息桥。')
+-  return sender
+-}
+-
+-export async function sendHardwareLearningQuestion(question) {
+-  const sender = resolveSender()
+-  const prompt = [
+-    '请使用 EasyEDA hardware lifecycle skill 的学习画板流程解析这个 Cowart 选区。',
+-    `questionId: ${question.questionId}`,
+-    `intent: ${question.intent}`,
+-    `learningLevel: ${question.learningLevel}`,
+-    `问题：${question.userQuestion}`,
+-    '请从本地 learning question 记录读取完整选区；不要调用生图、改图、AI HTML 或 Slides。'
+-  ].join('\n')
+-  return sender({ prompt, content: [{ type: 'text', text: prompt }] })
+-}
+-
+-export async function sendNativeSchematicVisualImport({ cowartPageId }) {
+-  const sender = resolveSender()
+-  const prompt = [
+-    '请使用 EasyEDA hardware lifecycle skill 的原生视觉导入流程，把官方 EasyEDA 原理图 PNG 导入这个已有 Cowart 页面。',
+-    'intent: import-easyeda-native-schematic-visual',
+-    `cowartPageId: ${cowartPageId}`,
+-    '必须先后校验同一个 projectUuid、documentUuid、documentType=1；只通过官方只读 schematic-export --format PNG --scope current-schematic 导出原生 PNG。',
+-    '使用 learning-native-visual-import-manifest 校验官方导出证据，再按清单通过 official-easyeda-export 图片入口写入同一 cowartPageId；保留 PNG、证据路径和 SHA-256。',
+-    'Current Schematic 产物不得冒充精确当前图页。禁止 EPRO 图像渲染、全部图页渲染、current-page 视觉导出、切页、保存或写入 EasyEDA，禁止生图、改图、AI HTML 或 Slides。'
+-  ].join('\n')
+-  return sender({ prompt, content: [{ type: 'text', text: prompt }] })
+-}
+diff --git a/src/styles.css b/src/styles.css
+index 5f1b8ba..0473e20 100644
+--- a/src/styles.css
++++ b/src/styles.css
+@@ -1177,29 +1177,3 @@ body {
+     border-radius: 18px;
+   }
+ }
+-.cowart-hardware-question-panel {
+-  position: absolute;
+-  right: 18px;
+-  bottom: 18px;
+-  z-index: 500;
+-  pointer-events: auto;
+-  display: grid;
+-  width: min(380px, calc(100vw - 36px));
+-  gap: 8px;
+-  padding: 12px;
+-  border: 1px solid color-mix(in srgb, var(--color-text-3) 25%, transparent);
+-  border-radius: 12px;
+-  background: color-mix(in srgb, var(--color-panel) 94%, transparent);
+-  box-shadow: 0 8px 30px rgb(0 0 0 / 16%);
+-}
+-
+-.cowart-hardware-question-panel textarea {
+-  min-height: 82px;
+-  resize: vertical;
+-}
+-
+-.cowart-hardware-question-panel > div {
+-  display: flex;
+-  justify-content: space-between;
+-  gap: 8px;
+-}
+-- 
+2.55.0.windows.3
+

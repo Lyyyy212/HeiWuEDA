@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "easyeda.hardware-lifecycle.api-plan.v1",
+  "planId": "read-schematic-pages-example",
+  "risk": "READ",
+  "registry": {
+    "schemaVersion": "easyeda.api-manifest.v1",
+    "package": "@jlceda/pro-api-types",
+    "version": "0.4.15",
+    "declarationSha256": "088146a3e913a7e08c164a4c7c60aae41c0cfecafe18697c68d6aa470ffa4254"
+  },
+  "identity": {
+    "projectUuid": null,
+    "documentUuid": null,
+    "documentType": null,
+    "capturedAt": "2026-08-24T00:00:00Z",
+    "bridgeService": "easyeda-bridge",
+    "windowId": null,
+    "gatewayVersion": "0.4.0",
+    "bridgeScriptSha256": null
+  },
+  "calls": [
+    {
+      "methodId": "DMT_Schematic.getAllSchematicPagesInfo#1",
+      "effect": "READ",
+      "purpose": "List project schematic pages without changing the active document",
+      "args": [],
+      "resultKey": "schematicPages"
+    }
+  ],
+  "save": false,
+  "planDigest": "de5e4596e99f680cde832dc39c53088e841d5a185b5f8a8a2ac5c73621ac0875"
+}

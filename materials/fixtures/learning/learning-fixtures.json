@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "learning.fixture-set.v1",
+  "fixtures": [
+    {
+      "id": "inverting-opamp",
+      "asset": "fixture://inverting-opamp.png",
+      "question": "这个反相运放的反馈电阻为什么会决定增益？",
+      "expectedIntent": "explain-component",
+      "level": "intermediate"
+    },
+    {
+      "id": "rc-low-pass",
+      "asset": "fixture://rc-low-pass.png",
+      "question": "这个 RC 低通的信号走向和截止频率怎么理解？",
+      "expectedIntent": "trace-signal",
+      "level": "beginner"
+    },
+    {
+      "id": "ldo-decoupling",
+      "asset": "fixture://ldo-decoupling.png",
+      "question": "LDO 和这些去耦电容组成的电源路径有什么风险？",
+      "expectedIntent": "power-path",
+      "level": "intermediate"
+    },
+    {
+      "id": "mcu-uart",
+      "asset": "fixture://mcu-uart.png",
+      "question": "检查 MCU UART 信号连接是否合理，还需要确认哪些条件？",
+      "expectedIntent": "trace-signal",
+      "level": "advanced"
+    },
+    {
+      "id": "differential-chain",
+      "asset": "fixture://differential-chain.png",
+      "question": "比较这两个差分接收方案，哪个更适合长线传输？",
+      "expectedIntent": "compare-options",
+      "level": "advanced"
+    },
+    {
+      "id": "image-netlist-conflict",
+      "asset": "fixture://image-netlist-conflict.png",
+      "question": "图像看起来已连接，但网络表不一致时应该相信什么？",
+      "expectedIntent": "trace-signal",
+      "level": "intermediate",
+      "conflict": true
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "jlc-hardware-learning-local",
+  "interface": {
+    "displayName": "JLC Hardware Learning Local"
+  },
+  "plugins": [
+    {
+      "name": "jlc-hardware-learning",
+      "source": {
+        "source": "local",
+        "path": "."
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

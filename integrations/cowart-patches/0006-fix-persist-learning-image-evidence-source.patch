@@ -1,0 +1,74 @@
+From 5bde5e9a6ed084de8aced18cda74d14ea5515084 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Mon, 24 Aug 2026 17:01:31 +0800
+Subject: [PATCH] fix: persist admitted learning image evidence source
+
+---
+ mcp/server.mjs                      | 20 +++++++++++++++++++-
+ scripts/probe-hardware-learning.mjs |  3 +++
+ 2 files changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/mcp/server.mjs b/mcp/server.mjs
+index e8331fe..da4e0a0 100644
+--- a/mcp/server.mjs
++++ b/mcp/server.mjs
+@@ -571,6 +571,17 @@ async function insertCowartImage(args = {}) {
+     : chooseIndex(store, parentId);
+   const mimeType = mimeTypeForFile(fileName);
+ 
++  const evidenceSource = nonEmptyString(args.evidenceSource);
++  const assetMeta = args.assetMeta && typeof args.assetMeta === "object"
++    ? { ...args.assetMeta }
++    : {};
++  if (evidenceSource) {
++    if (assetMeta.evidenceSource && assetMeta.evidenceSource !== evidenceSource) {
++      throw new Error("assetMeta.evidenceSource does not match the admitted evidenceSource");
++    }
++    assetMeta.evidenceSource = evidenceSource;
++  }
++
+   const assetRecord = {
+     id: assetId,
+     typeName: "asset",
+@@ -584,10 +595,16 @@ async function insertCowartImage(args = {}) {
+       mimeType,
+       isAnimated: false,
+     },
+-    meta: args.assetMeta && typeof args.assetMeta === "object" ? args.assetMeta : {},
++    meta: assetMeta,
+   };
+ 
+   const shapeMeta = args.shapeMeta && typeof args.shapeMeta === "object" ? { ...args.shapeMeta } : {};
++  if (evidenceSource) {
++    if (shapeMeta.evidenceSource && shapeMeta.evidenceSource !== evidenceSource) {
++      throw new Error("shapeMeta.evidenceSource does not match the admitted evidenceSource");
++    }
++    shapeMeta.evidenceSource = evidenceSource;
++  }
+   if (anchorShapeId && !shapeMeta.cowartAnnotationSourceShapeId) {
+     shapeMeta.cowartAnnotationSourceShapeId = anchorShapeId;
+   }
+@@ -658,6 +675,7 @@ async function insertCowartImage(args = {}) {
+     sourceImagePath,
+     assetFile: filePath,
+     assetUrl: assetRecord.props.src,
++    evidenceSource,
+     imageSize,
+     bounds,
+     replacedAiImageHolder: shouldReplaceAiImageHolder,
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index 5203dc6..0889f9b 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -66,5 +66,8 @@ const serverSource = await readFile(new URL("../mcp/server.mjs", import.meta.url
+ assert.match(serverSource, /mode: widgetModeSchema\.optional\(\)/);
+ assert.match(serverSource, /assertLearningGenerationAllowed\(args, "HTML"\)/);
+ assert.match(serverSource, /LEARNING_EVIDENCE_SOURCES\.has\(args\.evidenceSource\)/);
++assert.match(serverSource, /assetMeta\.evidenceSource = evidenceSource/);
++assert.match(serverSource, /shapeMeta\.evidenceSource = evidenceSource/);
++assert.match(serverSource, /does not match the admitted evidenceSource/);
+ 
+ console.log("Cowart hardware-learning profile probe passed.");
+-- 
+2.55.0.windows.3
+

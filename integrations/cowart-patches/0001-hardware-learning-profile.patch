@@ -1,0 +1,312 @@
+From c9f55fd45d677b6e2540e6c0bed6ba06fdf177a4 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Mon, 24 Aug 2026 12:33:24 +0800
+Subject: [PATCH 1/2] feat: add hardware learning render profile
+
+---
+ mcp/server.mjs                          | 35 ++++++++++++++++++
+ package.json                            |  1 +
+ scripts/probe-hardware-learning.mjs     | 47 +++++++++++++++++++++++++
+ src/App.jsx                             | 25 +++++++------
+ src/analytics.js                        |  4 +++
+ src/learning/hardwareLearningProfile.js | 22 ++++++++++++
+ 6 files changed, 124 insertions(+), 10 deletions(-)
+ create mode 100644 scripts/probe-hardware-learning.mjs
+ create mode 100644 src/learning/hardwareLearningProfile.js
+
+diff --git a/mcp/server.mjs b/mcp/server.mjs
+index a9a8313..5e45f10 100644
+--- a/mcp/server.mjs
++++ b/mcp/server.mjs
+@@ -108,6 +108,24 @@ const projectArgsSchema = {
+ };
+ 
+ const displayModeSchema = z.enum(["fullscreen", "inline"]);
++const widgetModeSchema = z.enum(["default", "hardware-learning"]);
++const HARDWARE_LEARNING_MODE = "hardware-learning";
++const hardwareLearningCanvasDirs = new Set();
++const LEARNING_EVIDENCE_SOURCES = new Set([
++  "user-provided-local-image",
++  "official-easyeda-export",
++  "official-datasheet-figure",
++]);
++
++function isHardwareLearningTarget(args = {}) {
++  return hardwareLearningCanvasDirs.has(resolveCowartPaths(args).canvasDir);
++}
++
++function assertLearningGenerationAllowed(args, capability) {
++  if (!isHardwareLearningTarget(args)) return;
++  if (capability === "image" && LEARNING_EVIDENCE_SOURCES.has(args.evidenceSource)) return;
++  throw new Error(`Cowart hardware-learning mode blocks ${capability} generation or insertion.`);
++}
+ 
+ const pluginManifest = JSON.parse(
+   readFileSync(pluginPath(".codex-plugin", "plugin.json"), "utf8"),
+@@ -460,6 +478,7 @@ async function getImageDimensions(filePath) {
+ }
+ 
+ async function insertCowartImage(args = {}) {
++  assertLearningGenerationAllowed(args, "image");
+   const imagePath = nonEmptyString(args.imagePath);
+   if (!imagePath) throw new Error("imagePath is required.");
+ 
+@@ -638,6 +657,7 @@ async function insertCowartImage(args = {}) {
+ }
+ 
+ async function insertCowartHtmlDraft(args = {}) {
++  assertLearningGenerationAllowed(args, "HTML");
+   const htmlContent = nonEmptyString(args.htmlContent);
+   const htmlPath = nonEmptyString(args.htmlPath);
+   if (!htmlContent && !htmlPath) {
+@@ -1055,6 +1075,8 @@ function registerCowartWidget(mcpServer) {
+         ...projectArgsSchema,
+         title: z.string().trim().optional(),
+         displayMode: displayModeSchema.optional(),
++        mode: widgetModeSchema.optional(),
++        analyticsEnabled: z.boolean().optional(),
+       },
+       annotations: {
+         readOnlyHint: true,
+@@ -1078,6 +1100,10 @@ function registerCowartWidget(mcpServer) {
+       const { projectDir, canvasDir } = resolveCowartPaths(input);
+       const title = nonEmptyString(input.title) || "Cowart Canvas";
+       const preferredDisplayMode = normalizeDisplayMode(input.displayMode);
++      const mode = input.mode === HARDWARE_LEARNING_MODE ? HARDWARE_LEARNING_MODE : "default";
++      const analyticsEnabled = mode === HARDWARE_LEARNING_MODE ? false : input.analyticsEnabled !== false;
++      if (mode === HARDWARE_LEARNING_MODE) hardwareLearningCanvasDirs.add(canvasDir);
++      else hardwareLearningCanvasDirs.delete(canvasDir);
+ 
+       return {
+         content: [
+@@ -1095,6 +1121,8 @@ function registerCowartWidget(mcpServer) {
+           projectDir,
+           canvasDir,
+           preferredDisplayMode,
++          mode,
++          analyticsEnabled,
+         },
+         _meta: {
+           "openai/outputTemplate": COWART_WIDGET_URI,
+@@ -1105,6 +1133,8 @@ function registerCowartWidget(mcpServer) {
+             projectDir,
+             canvasDir,
+             preferredDisplayMode,
++            mode,
++            analyticsEnabled,
+           },
+         },
+       };
+@@ -1577,6 +1607,11 @@ function registerCowartImageTools(mcpServer) {
+         annotationScreenshot: z.string().trim().optional(),
+         shapeMeta: z.record(z.string(), z.unknown()).optional(),
+         assetMeta: z.record(z.string(), z.unknown()).optional(),
++        evidenceSource: z.enum([
++          "user-provided-local-image",
++          "official-easyeda-export",
++          "official-datasheet-figure",
++        ]).optional(),
+         dryRun: z.boolean().optional(),
+       },
+       annotations: {
+diff --git a/package.json b/package.json
+index 9cad07b..c43473d 100644
+--- a/package.json
++++ b/package.json
+@@ -16,6 +16,7 @@
+     "probe:mcp": "node ./scripts/probe-mcp.mjs",
+     "probe:mcp:cold": "node ./scripts/probe-cold-install.mjs",
+     "probe:analytics": "node ./scripts/probe-analytics.mjs",
++    "probe:hardware-learning": "node ./scripts/probe-hardware-learning.mjs",
+     "probe:ga4": "node ./scripts/probe-ga4.mjs",
+     "quality": "npm run check:plugin && npm run check && npm run check:artifacts && npm run probe:mcp:cold && npm run probe:mcp && npm run probe:analytics && npm run probe:ga4"
+   },
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+new file mode 100644
+index 0000000..b070776
+--- /dev/null
++++ b/scripts/probe-hardware-learning.mjs
+@@ -0,0 +1,47 @@
++import assert from "node:assert/strict";
++import { readFile } from "node:fs/promises";
++
++import { createCowartAnalytics } from "../src/analytics.js";
++import {
++  HARDWARE_LEARNING_MODE,
++  currentCowartWidgetProfile,
++} from "../src/learning/hardwareLearningProfile.js";
++
++const windowObject = {
++  openai: {
++    toolOutput: { mode: HARDWARE_LEARNING_MODE, analyticsEnabled: true },
++    callTool() {
++      throw new Error("analytics MCP must not be called in hardware-learning mode");
++    },
++  },
++  localStorage: {
++    getItem() {
++      throw new Error("analytics client ID must not be read in hardware-learning mode");
++    },
++  },
++};
++let appended = 0;
++const documentObject = {
++  head: { append() { appended += 1; } },
++  createElement() { return {}; },
++  getElementById() { return null; },
++};
++
++const profile = currentCowartWidgetProfile(windowObject);
++assert.equal(profile.hardwareLearning, true);
++assert.equal(profile.analyticsEnabled, false);
++assert.equal(createCowartAnalytics({ windowObject, documentObject }).trackCanvasOpened(), false);
++assert.equal(appended, 0);
++
++const appSource = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
++assert.match(appSource, /!hardwareLearning && <CowartToolbarItem toolId=\{AI_IMAGE_TOOL_ID\}/);
++assert.match(appSource, /!hardwareLearning && <CowartAiDraftGenerationPanel \/>/);
++assert.match(appSource, /!isHardwareLearningMode\(\) && !isInCropTool/);
++
++const serverSource = await readFile(new URL("../mcp/server.mjs", import.meta.url), "utf8");
++assert.match(serverSource, /mode: widgetModeSchema\.optional\(\)/);
++assert.match(serverSource, /assertLearningGenerationAllowed\(args, "HTML"\)/);
++assert.match(serverSource, /LEARNING_EVIDENCE_SOURCES\.has\(args\.evidenceSource\)/);
++
++console.log("Cowart hardware-learning profile probe passed.");
++
+diff --git a/src/App.jsx b/src/App.jsx
+index 7565696..0404b33 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -92,6 +92,7 @@ import {
+   isCanvasSnapshot,
+   sanitizeCanvasSnapshotForTldraw
+ } from './canvasSnapshot.js'
++import { isHardwareLearningMode } from './learning/hardwareLearningProfile.js'
+ 
+ const SELECTION_STATE_ELEMENT_ID = 'cowart-selection-state'
+ const PAGE_ASSETS_ROUTE = '/page-assets/'
+@@ -3452,12 +3453,13 @@ const cowartComponents = {
+ }
+ 
+ function CowartCanvasOverlay() {
++  const hardwareLearning = isHardwareLearningMode()
+   return (
+     <>
+-      <CowartAiImageGenerationPanel />
+-      <CowartAiDraftGenerationPanel />
+-      <CowartAiSlidesGenerationPanel />
+-      <CowartSlidesPresentationOverlay />
++      {!hardwareLearning && <CowartAiImageGenerationPanel />}
++      {!hardwareLearning && <CowartAiDraftGenerationPanel />}
++      {!hardwareLearning && <CowartAiSlidesGenerationPanel />}
++      {!hardwareLearning && <CowartSlidesPresentationOverlay />}
+     </>
+   )
+ }
+@@ -4988,6 +4990,8 @@ function CowartSelectionToolbar() {
+     [editor]
+   )
+ 
++  if (isHardwareLearningMode()) return <CowartImageToolbar />
++
+   if (slidesShapeId) {
+     return <CowartSlidesToolbar slidesShapeId={slidesShapeId} />
+   }
+@@ -5449,7 +5453,7 @@ function CowartImageToolbarContent() {
+         onManipulatingEnd={handleManipulatingEnd}
+         onManipulatingStart={handleManipulatingStart}
+       />
+-      {!isInCropTool && (
++      {!isHardwareLearningMode() && !isInCropTool && (
+         <>
+           <CowartAnnotationEditToolbarButton imageShapeId={imageShapeId} />
+           <CowartAnnotationHtmlToolbarButton imageShapeId={imageShapeId} />
+@@ -5725,16 +5729,17 @@ function CowartToolbarDivider() {
+ }
+ 
+ function CowartToolbar(props) {
++  const hardwareLearning = isHardwareLearningMode()
+   return (
+     <DefaultToolbar {...props} maxItems={11}>
+       <CowartAnnotationToolbarItem />
+       <CowartToolbarDivider />
+       <SelectToolbarItem />
+       <HandToolbarItem />
+-      <CowartToolbarItem toolId={AI_IMAGE_TOOL_ID} />
+-      <CowartToolbarItem toolId={AI_DRAFT_TOOL_ID} />
+-      <CowartToolbarItem toolId={AI_SLIDES_TOOL_ID} />
+-      <CowartToolbarDivider />
++      {!hardwareLearning && <CowartToolbarItem toolId={AI_IMAGE_TOOL_ID} />}
++      {!hardwareLearning && <CowartToolbarItem toolId={AI_DRAFT_TOOL_ID} />}
++      {!hardwareLearning && <CowartToolbarItem toolId={AI_SLIDES_TOOL_ID} />}
++      {!hardwareLearning && <CowartToolbarDivider />}
+       <AssetToolbarItem />
+       <DrawToolbarItem />
+       <EraserToolbarItem />
+@@ -5883,7 +5888,7 @@ export default function App() {
+   }, [])
+ 
+   const handleMount = useCallback((editor) => {
+-    trackCanvasOpened()
++    if (!isHardwareLearningMode()) trackCanvasOpened()
+     window.__cowartEditor = editor
+     window.__cowartSelection = () => getCowartSelection(editor)
+     window.__cowartViewState = () => getCowartViewState(editor)
+diff --git a/src/analytics.js b/src/analytics.js
+index 1ad867d..27ed61f 100644
+--- a/src/analytics.js
++++ b/src/analytics.js
+@@ -1,3 +1,5 @@
++import { isCowartAnalyticsEnabled } from './learning/hardwareLearningProfile.js'
++
+ const DEFAULT_MEASUREMENT_ID = 'G-SJYHV19YZ9'
+ const DEFAULT_APP_VERSION =
+   typeof __COWART_APP_VERSION__ !== 'undefined' ? __COWART_APP_VERSION__ : 'unknown'
+@@ -110,6 +112,7 @@ export function createCowartAnalytics({
+ 
+   function initialize() {
+     if (initialized) return true
++    if (!isCowartAnalyticsEnabled(windowObject)) return false
+     if (!windowObject || !documentObject?.head || !measurementId) return false
+ 
+     const dataLayer = windowObject.dataLayer = windowObject.dataLayer || []
+@@ -189,6 +192,7 @@ export function createCowartAnalytics({
+     parameters = {},
+     { eventCallback, eventTimeout = ANALYTICS_EVENT_TIMEOUT_MS } = {}
+   ) {
++    if (!isCowartAnalyticsEnabled(windowObject)) return false
+     const callAnalyticsTool = analyticsToolCaller(windowObject)
+     if (!callAnalyticsTool) {
+       return queueGoogleTagEvent(eventName, parameters, { eventCallback, eventTimeout })
+diff --git a/src/learning/hardwareLearningProfile.js b/src/learning/hardwareLearningProfile.js
+new file mode 100644
+index 0000000..0e34b9e
+--- /dev/null
++++ b/src/learning/hardwareLearningProfile.js
+@@ -0,0 +1,22 @@
++export const HARDWARE_LEARNING_MODE = 'hardware-learning'
++
++export function currentCowartWidgetProfile(windowObject = globalThis.window) {
++  const payload = windowObject?.openai?.toolOutput && typeof windowObject.openai.toolOutput === 'object'
++    ? windowObject.openai.toolOutput
++    : {}
++  const mode = payload.mode === HARDWARE_LEARNING_MODE ? HARDWARE_LEARNING_MODE : 'default'
++  return {
++    mode,
++    hardwareLearning: mode === HARDWARE_LEARNING_MODE,
++    analyticsEnabled: mode === HARDWARE_LEARNING_MODE ? false : payload.analyticsEnabled !== false
++  }
++}
++
++export function isHardwareLearningMode(windowObject = globalThis.window) {
++  return currentCowartWidgetProfile(windowObject).hardwareLearning
++}
++
++export function isCowartAnalyticsEnabled(windowObject = globalThis.window) {
++  return currentCowartWidgetProfile(windowObject).analyticsEnabled
++}
++
+-- 
+2.55.0.windows.3
+

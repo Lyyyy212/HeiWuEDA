@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "easyeda.github-public-release.v1",
+  "generatedAt": "2026-08-27T09:47:10.0891784+08:00",
+  "publisher": "Lyyyy",
+  "product": "EasyEDA Hardware Workbench",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "commercialUse": "prohibited",
+  "copiedTrackedFiles": 246,
+  "submodules": [
+    {
+      "path": "materials/sources/core/easyeda-api-i18n",
+      "commit": "fc029a814c7c66d9bfe80637de7dba227a4a5256",
+      "url": "https://github.com/easyeda/easyeda-api-i18n.git"
+    },
+    {
+      "path": "materials/sources/core/easyeda-api-skill",
+      "commit": "213856a67d0237d7d06c4a5f44c4310ff633e78d",
+      "url": "https://github.com/easyeda/easyeda-api-skill.git"
+    },
+    {
+      "path": "materials/sources/core/eext-run-api-gateway",
+      "commit": "479d9b3e58d105229dc00f914c0871700a9f04df",
+      "url": "https://github.com/easyeda/eext-run-api-gateway.git"
+    },
+    {
+      "path": "materials/sources/core/pro-api-sdk",
+      "commit": "874bd9d311e8d4d6f7f6c7cf887751db8fb47ac1",
+      "url": "https://github.com/easyeda/pro-api-sdk.git"
+    },
+    {
+      "path": "materials/sources/examples/eext-ai-device-standardization",
+      "commit": "89abac48075bd4e0ebc2a30bee55939251f8660f",
+      "url": "https://github.com/easyeda/eext-ai-device-standardization.git"
+    },
+    {
+      "path": "materials/sources/examples/eext-api-test-tool",
+      "commit": "317bd75e32f0248285fd9d4551e70ed046ef443f",
+      "url": "https://github.com/easyeda/eext-api-test-tool.git"
+    },
+    {
+      "path": "materials/sources/examples/eext-bom-compare",
+      "commit": "4489dd9b857e19505a2f5a0dd383342bb77923d6",
+      "url": "https://github.com/easyeda/eext-bom-compare.git"
+    },
+    {
+      "path": "materials/sources/examples/eext-datasheet-helper",
+      "commit": "197f2a2d995b2b2dcfcead138fb96cbf43846845",
+      "url": "https://github.com/easyeda/eext-datasheet-helper.git"
+    },
+    {
+      "path": "materials/sources/examples/eext-excalidraw",
+      "commit": "448db2cb66f497c26dd1597386759ea0325b6bc8",
+      "url": "https://github.com/easyeda/eext-excalidraw.git"
+    },
+    {
+      "path": "materials/sources/examples/eext-export-design-report",
+      "commit": "31a8cfec95bcae13e981b912c6bc86025062dca0",
+      "url": "https://github.com/easyeda/eext-export-design-report.git"
+    },
+    {
+      "path": "materials/sources/examples/eext-export-gencad",
+      "commit": "aba4dff5b0fb8e1c5ad8288b07eb56b01dd0ab9e",
+      "url": "https://github.com/easyeda/eext-export-gencad.git"
+    },
+    {
+      "path": "materials/sources/examples/eext-export-pcb-to-svg",
+      "commit": "f68898d18c8279e2aaf84a5b2ff07969ebeb005e",
+      "url": "https://github.com/easyeda/eext-export-pcb-to-svg.git"
+    },
+    {
+      "path": "materials/sources/examples/eext-extension-demo",
+      "commit": "739c9a33aeb03a2715966c4ad5cf3af919b599ef",
+      "url": "https://github.com/easyeda/eext-extension-demo.git"
+    },
+    {
+      "path": "materials/sources/examples/eext-generate-schematic-from-netlist",
+      "commit": "35679a0f1e6b1ee2cca8fe0479fdd7def5e75f8d",
+      "url": "https://github.com/easyeda/eext-generate-schematic-from-netlist.git"
+    },
+    {
+      "path": "materials/sources/examples/eext-interactive-html-bom",
+      "commit": "430ea9d06a1c975ed3d2c6da83a6686a1f737084",
+      "url": "https://github.com/easyeda/eext-interactive-html-bom.git"
+    },
+    {
+      "path": "materials/sources/examples/eext-jlc-order-dfm-checker",
+      "commit": "afd538786d510f537ad4fa47c6329e6a99dc7625",
+      "url": "https://github.com/easyeda/eext-jlc-order-dfm-checker.git"
+    },
+    {
+      "path": "materials/sources/examples/eext-netlist-explorer",
+      "commit": "6661961fc8780e13b97a9450a96afbaaf2960bf7",
+      "url": "https://github.com/easyeda/eext-netlist-explorer.git"
+    },
+    {
+      "path": "materials/sources/integrations/cowart",
+      "commit": "c934452ead956f501655f242fd0b8cfa90bea509",
+      "url": "https://github.com/zhongerxin/Cowart.git"
+    }
+  ],
+  "excluded": [
+    "source Git history",
+    "artifacts/**",
+    "evidence/**",
+    "backups/**",
+    ".runtime/**",
+    ".easyeda-hardware-workbench/**"
+  ],
+  "components": [
+    {
+      "path": "integrations/jlc-hardware-learning-plugin",
+      "sourceCommit": "c811392e5c00f8c9b0e2c07efcc7fd41df209840",
+      "copiedTrackedFiles": 64,
+      "historyIncluded": false
+    }
+  ]
+}

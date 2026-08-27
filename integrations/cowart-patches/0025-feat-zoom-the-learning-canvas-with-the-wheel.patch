@@ -1,0 +1,98 @@
+From 1067125e2f994ac96e72fb38c843c8466d4357b6 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Tue, 25 Aug 2026 20:04:44 +0800
+Subject: [PATCH] feat: zoom the learning canvas with the wheel
+
+---
+ scripts/probe-hardware-learning.mjs      |  3 ++-
+ src/learning-canvas/interaction.js       | 21 +++++++++------------
+ src/learning-canvas/interaction.test.mjs | 17 ++++++++---------
+ 3 files changed, 19 insertions(+), 22 deletions(-)
+
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index fe34c69..1125cc5 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -97,7 +97,8 @@ const interactionSource = await readFile(
+   "utf8",
+ );
+ assert.match(interactionSource, /shape\.type === 'image'\) return shape\.isLocked !== true/);
+-assert.match(interactionSource, /wheel\.ctrlKey \|\| wheel\.metaKey/);
++assert.match(interactionSource, /wheel\.shiftKey && !wheel\.ctrlKey && !wheel\.metaKey/);
++assert.match(interactionSource, /kind: 'zoom'/);
+ assert.match(interactionSource, /nudgeDeltaForKey/);
+ 
+ const stylesSource = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+diff --git a/src/learning-canvas/interaction.js b/src/learning-canvas/interaction.js
+index b737ba2..c81eff7 100644
+--- a/src/learning-canvas/interaction.js
++++ b/src/learning-canvas/interaction.js
+@@ -60,23 +60,20 @@ function wheelPixels(value, deltaMode, pageSize) {
+ export function cameraAfterWheel(camera, wheel, screenPoint, viewport = {}) {
+   const deltaX = wheelPixels(wheel.deltaX || 0, wheel.deltaMode, viewport.width || 1)
+   const deltaY = wheelPixels(wheel.deltaY || 0, wheel.deltaMode, viewport.height || 1)
+-  if (wheel.ctrlKey || wheel.metaKey) {
++  if (wheel.shiftKey && !wheel.ctrlKey && !wheel.metaKey) {
++    const panX = Math.abs(deltaX) >= Math.abs(deltaY) ? deltaX : deltaY
+     return {
+-      camera: zoomCameraAt(camera, screenPoint, camera.z * Math.exp(-deltaY * 0.002)),
+-      kind: 'zoom'
++      camera: {
++        ...camera,
++        x: camera.x - panX
++      },
++      kind: 'pan'
+     }
+   }
+ 
+-  const horizontalFromShift = wheel.shiftKey && Math.abs(deltaX) < Math.abs(deltaY)
+-  const panX = horizontalFromShift ? deltaY : deltaX
+-  const panY = horizontalFromShift ? 0 : deltaY
+   return {
+-    camera: {
+-      ...camera,
+-      x: camera.x - panX,
+-      y: camera.y - panY
+-    },
+-    kind: 'pan'
++    camera: zoomCameraAt(camera, screenPoint, camera.z * Math.exp(-deltaY * 0.002)),
++    kind: 'zoom'
+   }
+ }
+ 
+diff --git a/src/learning-canvas/interaction.test.mjs b/src/learning-canvas/interaction.test.mjs
+index ca6f5d1..48b5c84 100644
+--- a/src/learning-canvas/interaction.test.mjs
++++ b/src/learning-canvas/interaction.test.mjs
+@@ -52,20 +52,19 @@ test('multi-selection movement preserves locked schematic evidence', () => {
+   )
+ })
+ 
+-test('wheel pans by default, shift pans horizontally, and ctrl zooms at the pointer', () => {
++test('wheel zooms at the pointer, shift pans horizontally, and ctrl remains zoom-compatible', () => {
+   const camera = { x: 10, y: 20, z: 1 }
+-  assert.deepEqual(
+-    cameraAfterWheel(camera, { deltaX: 5, deltaY: 30, deltaMode: 0 }, { x: 100, y: 80 }).camera,
+-    { x: 5, y: -10, z: 1 }
+-  )
++  const zoomed = cameraAfterWheel(camera, { deltaX: 0, deltaY: -100, deltaMode: 0 }, { x: 100, y: 80 })
++  assert.equal(zoomed.kind, 'zoom')
++  assert.ok(zoomed.camera.z > 1)
++  assert.notEqual(zoomed.camera.x, camera.x)
+   assert.deepEqual(
+     cameraAfterWheel(camera, { deltaX: 0, deltaY: 30, deltaMode: 0, shiftKey: true }, { x: 100, y: 80 }).camera,
+     { x: -20, y: 20, z: 1 }
+   )
+-  const zoomed = cameraAfterWheel(camera, { deltaX: 0, deltaY: -100, deltaMode: 0, ctrlKey: true }, { x: 100, y: 80 })
+-  assert.equal(zoomed.kind, 'zoom')
+-  assert.ok(zoomed.camera.z > 1)
+-  assert.notEqual(zoomed.camera.x, camera.x)
++  const ctrlZoomed = cameraAfterWheel(camera, { deltaX: 0, deltaY: 100, deltaMode: 0, ctrlKey: true }, { x: 100, y: 80 })
++  assert.equal(ctrlZoomed.kind, 'zoom')
++  assert.ok(ctrlZoomed.camera.z < 1)
+ })
+ 
+ test('keyboard helpers implement nudge and layered Escape', () => {
+-- 
+2.55.0.windows.3
+

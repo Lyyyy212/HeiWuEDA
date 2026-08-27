@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "easyeda.hardware-lifecycle.authorization.v1",
+  "type": "object",
+  "required": ["schemaVersion", "approved", "approvedAt", "planDigest", "scope"],
+  "properties": {
+    "schemaVersion": { "const": "easyeda.hardware-lifecycle.authorization.v1" },
+    "approved": { "const": true },
+    "approvedAt": { "type": "string", "format": "date-time" },
+    "planDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "scope": { "type": "object" }
+  },
+  "additionalProperties": false
+}

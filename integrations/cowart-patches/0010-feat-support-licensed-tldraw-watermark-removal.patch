@@ -1,0 +1,81 @@
+From 5d5ae3774caa1520f5f0ec13f66435068996ef14 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local.invalid>
+Date: Mon, 24 Aug 2026 23:30:36 +0800
+Subject: [PATCH] feat: support licensed tldraw watermark removal
+
+---
+ scripts/probe-hardware-learning.mjs | 6 ++++++
+ src/App.jsx                         | 3 +++
+ vite.config.js                      | 6 ++++++
+ 3 files changed, 15 insertions(+)
+
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index 517d8d4..5f97f0b 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -37,11 +37,17 @@ const appSource = await readFile(new URL("../src/App.jsx", import.meta.url), "ut
+ assert.match(appSource, /!hardwareLearning && <CowartToolbarItem toolId=\{AI_IMAGE_TOOL_ID\}/);
+ assert.match(appSource, /!hardwareLearning && <CowartAiDraftGenerationPanel \/>/);
+ assert.match(appSource, /!isHardwareLearningMode\(\) && !isInCropTool/);
++assert.match(appSource, /licenseKey=\{COWART_TLDRAW_LICENSE_KEY \|\| undefined\}/);
+ assert.doesNotMatch(appSource, /HardwareQuestionPanel|cowart-hardware-question-panel/);
+ assert.match(appSource, /currentPageId: editor\.getCurrentPageId\(\)/);
+ 
+ const stylesSource = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+ assert.doesNotMatch(stylesSource, /cowart-hardware-question-panel/);
++assert.doesNotMatch(stylesSource, /tl-watermark|SEE-LICENSE/);
++
++const viteSource = await readFile(new URL("../vite.config.js", import.meta.url), "utf8");
++assert.match(viteSource, /COWART_TLDRAW_LICENSE_KEY/);
++assert.match(viteSource, /__COWART_TLDRAW_LICENSE_KEY__/);
+ 
+ const serverSource = await readFile(new URL("../mcp/server.mjs", import.meta.url), "utf8");
+ assert.match(serverSource, /mode: widgetModeSchema\.optional\(\)/);
+diff --git a/src/App.jsx b/src/App.jsx
+index b70a23d..fb11b38 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -96,6 +96,8 @@ import { isHardwareLearningMode } from './learning/hardwareLearningProfile.js'
+ import { startLearningAnnotationPolling } from './learning/learningAnnotations.js'
+ 
+ const SELECTION_STATE_ELEMENT_ID = 'cowart-selection-state'
++const COWART_TLDRAW_LICENSE_KEY =
++  typeof __COWART_TLDRAW_LICENSE_KEY__ !== 'undefined' ? __COWART_TLDRAW_LICENSE_KEY__ : ''
+ const PAGE_ASSETS_ROUTE = '/page-assets/'
+ const GLOBAL_ASSETS_ROUTE = '/assets/'
+ const AI_IMAGE_TOOL_ID = 'ai-image'
+@@ -6246,6 +6248,7 @@ export default function App() {
+         assetUrls={cowartAssetUrls}
+         assets={cowartTldrawAssetStore}
+         inferDarkMode
++        licenseKey={COWART_TLDRAW_LICENSE_KEY || undefined}
+         onMount={handleMount}
+         options={cowartTldrawOptions}
+         overrides={cowartUiOverrides}
+diff --git a/vite.config.js b/vite.config.js
+index 87ea15d..96b8b7d 100644
+--- a/vite.config.js
++++ b/vite.config.js
+@@ -9,6 +9,11 @@ const projectDir = resolve(process.env.COWART_PROJECT_DIR ?? process.cwd())
+ const cowartAppVersion = JSON.parse(
+   readFileSync(new URL('./package.json', import.meta.url), 'utf8')
+ ).version
++const cowartTldrawLicenseKey =
++  process.env.COWART_TLDRAW_LICENSE_KEY ??
++  process.env.TLDRAW_LICENSE_KEY ??
++  process.env.VITE_TLDRAW_LICENSE_KEY ??
++  ''
+ const canvasDir = resolve(process.env.COWART_CANVAS_DIR ?? join(projectDir, 'canvas'))
+ const canvasFile = join(canvasDir, 'cowart-canvas.json')
+ const selectionFile = join(canvasDir, 'cowart-selection.json')
+@@ -769,6 +774,7 @@ export default defineConfig({
+   define: {
+     __COWART_WIDGET_BUILD__: JSON.stringify(process.env.COWART_WIDGET_BUILD === '1'),
+     __COWART_APP_VERSION__: JSON.stringify(cowartAppVersion),
++    __COWART_TLDRAW_LICENSE_KEY__: JSON.stringify(cowartTldrawLicenseKey),
+     'process.env.NODE_ENV': JSON.stringify('development')
+   },
+   build: {
+-- 
+2.55.0.windows.3
+

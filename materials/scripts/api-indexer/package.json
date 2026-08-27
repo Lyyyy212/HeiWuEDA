@@ -1,0 +1,11 @@
+{
+  "name": "@local/easyeda-official-api-indexer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Build deterministic EasyEDA API and official-example indexes from the locked local materials snapshot.",
+  "scripts": {
+    "build": "node build-api-indexes.mjs",
+    "test": "npm run build && node --test test/*.test.mjs"
+  }
+}

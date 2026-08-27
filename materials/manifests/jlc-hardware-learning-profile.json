@@ -1,0 +1,97 @@
+{
+  "schemaVersion": "jlc.hardware-learning-profile.v1",
+  "profile": "hardware-learning",
+  "provider": {
+    "name": "JLC Hardware Learning",
+    "plugin": "jlc-hardware-learning",
+    "skill": "jlc-hardware-learning",
+    "integrationLock": "manifests/integrations.lock.json",
+    "version": "0.1.1"
+  },
+  "purpose": [
+    "infinite-canvas visual thinking",
+    "official EasyEDA schematic evidence placement",
+    "rectangle, arrow, freehand and text annotation",
+    "selection-scoped hardware questions",
+    "evidence-backed tutoring annotations"
+  ],
+  "excludedCapabilities": [
+    "image generation",
+    "annotation-driven image editing",
+    "AI HTML generation",
+    "AI Slides generation",
+    "analytics and telemetry",
+    "direct EasyEDA writes"
+  ],
+  "skillPolicy": {
+    "allowed": ["jlc-hardware-learning"],
+    "denied": ["imagegen"]
+  },
+  "mcpPolicy": {
+    "modelReadAllowed": [
+      "render_hardware_learning_canvas_widget",
+      "get_hardware_learning_canvas_state",
+      "get_hardware_learning_selection",
+      "read_hardware_learning_page_asset"
+    ],
+    "widgetPersistenceAllowed": [
+      "save_hardware_learning_canvas_state",
+      "save_hardware_learning_selection_state",
+      "save_hardware_learning_view_state",
+      "save_hardware_learning_reference_image",
+      "save_hardware_learning_question",
+      "insert_hardware_learning_annotations"
+    ],
+    "conditionalEvidenceInsertion": {
+      "tool": "insert_hardware_learning_image",
+      "allowedSources": [
+        "user-provided local image",
+        "official EasyEDA PNG export",
+        "bounded PNG page derived locally from a digest-sealed official EasyEDA PDF",
+        "datasheet figure retained as cited evidence"
+      ],
+      "constraints": {
+        "replaceImageHolder": false,
+        "generatedBitmap": false,
+        "purpose": "evidence-placement-only"
+      }
+    },
+    "localExportAllowed": [
+      "choose_hardware_learning_export_directory",
+      "download_hardware_learning_file",
+      "copy_hardware_learning_image_to_clipboard"
+    ]
+  },
+  "easyedaBoundary": {
+    "directAccessFromCanvas": false,
+    "adapter": "OfficialEasyedaEvidenceProvider",
+    "defaultAccess": "read-only",
+    "requiredIdentity": ["projectUuid", "documentUuid", "documentType", "capturedAt"],
+    "signatureRegistry": "manifests/api-manifest.json",
+    "exampleRegistry": "manifests/api-example-index.json"
+  },
+  "uiProfile": {
+    "runtime": "dedicated JLC SVG canvas",
+    "renderArguments": {"mode": "hardware-learning"},
+    "actions": [
+      "Ask Hardware",
+      "Explain Selected Region",
+      "Trace Signal Path",
+      "Explain Component",
+      "Export PNG",
+      "Export SVG",
+      "Export JSON"
+    ]
+  },
+  "privacyPolicy": {
+    "telemetry": "disabled",
+    "remoteAnalyticsDomainsAllowed": false,
+    "questionContentLeavesLocalWorkspace": false
+  },
+  "migrationPolicy": {
+    "legacyBrandingExposed": false,
+    "legacyStorageReadAllowed": true,
+    "legacyStorageWriteAllowed": false,
+    "canonicalStoragePrefix": "hardware-learning"
+  }
+}

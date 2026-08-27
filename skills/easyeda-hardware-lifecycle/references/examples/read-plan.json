@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "easyeda.hardware-lifecycle.api-plan.v1",
+  "planId": "plan:read-document-identity-example",
+  "risk": "READ",
+  "registry": {
+    "schemaVersion": "easyeda.api-manifest.v1",
+    "package": "@jlceda/pro-api-types",
+    "version": "0.4.15",
+    "declarationSha256": "088146a3e913a7e08c164a4c7c60aae41c0cfecafe18697c68d6aa470ffa4254"
+  },
+  "identity": {
+    "projectUuid": "example-project-uuid",
+    "documentUuid": "example-document-uuid",
+    "documentType": "SCHEMATIC_PAGE",
+    "capturedAt": "2026-08-24T00:00:00Z",
+    "bridge": {
+      "service": "easyeda-bridge",
+      "windowId": "example-window"
+    }
+  },
+  "calls": [
+    {
+      "methodId": "DMT_SelectControl.getCurrentDocumentInfo#1",
+      "effect": "READ",
+      "purpose": "Re-read the active document identity before collecting evidence"
+    }
+  ],
+  "save": false
+}

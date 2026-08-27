@@ -1,0 +1,675 @@
+From 9e9451f9a925abbf3892223745d1874a8203268c Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Tue, 25 Aug 2026 14:52:19 +0800
+Subject: [PATCH] feat: number learning frames for module questions
+
+---
+ mcp/learning/conversation-question.mjs        |  91 +++++++++++++-
+ mcp/learning/conversation-question.test.mjs   | 114 ++++++++++++++++++
+ package.json                                  |   2 +-
+ scripts/probe-learning-tools.mjs              |  32 +++++
+ .../HardwareLearningCanvas.jsx                |  25 +++-
+ src/learning-canvas/export.js                 |   9 +-
+ src/learning-canvas/model.js                  |  90 +++++++++++++-
+ src/learning-canvas/model.test.mjs            |  46 +++++++
+ 8 files changed, 398 insertions(+), 11 deletions(-)
+ create mode 100644 mcp/learning/conversation-question.test.mjs
+
+diff --git a/mcp/learning/conversation-question.mjs b/mcp/learning/conversation-question.mjs
+index 577af53..f31bb8b 100644
+--- a/mcp/learning/conversation-question.mjs
++++ b/mcp/learning/conversation-question.mjs
+@@ -106,6 +106,9 @@ function envelopeForShape(store, shape, role = roleForShape(shape)) {
+     parentShapeId: shape.parentId ?? null,
+     assetUrl: asset?.props?.src ?? null,
+     text: shape.props?.text ?? null,
++    learningFrameNumber: shape.meta?.cowartLearningFrame === true
++      ? shape.meta?.cowartLearningFrameNumber ?? null
++      : null,
+     meta: shape.meta ?? {},
+   };
+ }
+@@ -131,12 +134,84 @@ function overlapArea(a, b) {
+   return width * height;
+ }
+ 
++function positiveFrameNumber(value) {
++  const number = Number.parseInt(String(value), 10);
++  return Number.isSafeInteger(number) && number > 0 ? number : null;
++}
++
++export function parseLearningFrameReferences(userQuestion) {
++  const text = String(userQuestion ?? "");
++  const references = new Set();
++  const add = (value) => {
++    const number = positiveFrameNumber(value);
++    if (number !== null) references.add(number);
++  };
++  const taggedPatterns = [
++    /(?:学习框|模块|区域|框)\s*[#＃]?\s*(\d+)/giu,
++    /[#＃]?\s*(\d+)\s*(?:号\s*)?(?:学习框|模块|区域|框)/giu,
++    /[#＃]\s*(\d+)/gu,
++  ];
++  for (const pattern of taggedPatterns) {
++    for (const match of text.matchAll(pattern)) add(match[1]);
++  }
++  const listPattern = /(?:^|[^\d.])(\d+(?:\s*(?:和|与|及|、|，|,|\+|＆|&)\s*\d+)+)(?=$|[^\d.])/gu;
++  for (const match of text.matchAll(listPattern)) {
++    for (const value of match[1].match(/\d+/g) ?? []) add(value);
++  }
++  return [...references].sort((left, right) => left - right);
++}
++
++function numberedSelection(canvasSnapshot, selectionState, frameNumbers) {
++  const store = canvasSnapshot.store;
++  const currentPageId = selectionState?.currentPageId
++    ?? selectionState?.lastNonEmptySelection?.currentPageId
++    ?? null;
++  if (!currentPageId || store[currentPageId]?.typeName !== "page") {
++    throw new Error("Numbered learning-frame references require a saved current Cowart page.");
++  }
++  const matchesByNumber = new Map();
++  for (const record of Object.values(store)) {
++    if (record?.typeName !== "shape" || record.meta?.cowartLearningFrame !== true) continue;
++    if (pageIdForShape(store, record) !== currentPageId) continue;
++    const number = positiveFrameNumber(record.meta?.cowartLearningFrameNumber);
++    if (number === null || !frameNumbers.includes(number)) continue;
++    const matches = matchesByNumber.get(number) ?? [];
++    matches.push(record);
++    matchesByNumber.set(number, matches);
++  }
++  const missing = frameNumbers.filter((number) => !matchesByNumber.has(number));
++  if (missing.length > 0) {
++    throw new Error(`Learning frame number(s) not found on the current page: ${missing.join(", ")}`);
++  }
++  const duplicates = frameNumbers.filter((number) => matchesByNumber.get(number).length !== 1);
++  if (duplicates.length > 0) {
++    throw new Error(`Learning frame number(s) are ambiguous on the current page: ${duplicates.join(", ")}`);
++  }
++  return {
++    source: "frame-number-reference",
++    referencedFrameNumbers: frameNumbers,
++    selection: {
++      version: selectionState?.version
++        ?? selectionState?.lastNonEmptySelection?.version
++        ?? 1,
++      selectionRevision: selectionState?.selectionRevision
++        ?? selectionState?.lastNonEmptySelection?.selectionRevision
++        ?? null,
++      currentPageId,
++      selectedShapes: frameNumbers.map((number) => ({ id: matchesByNumber.get(number)[0].id })),
++      updatedAt: selectionState?.updatedAt
++        ?? selectionState?.lastNonEmptySelection?.updatedAt
++        ?? null,
++    },
++  };
++}
++
+ function choosePersistedSelection(selectionState) {
+   if (selectionState?.selectedShapes?.length > 0) {
+-    return { source: "current", selection: selectionState };
++    return { source: "current", selection: selectionState, referencedFrameNumbers: [] };
+   }
+   if (selectionState?.lastNonEmptySelection?.selectedShapes?.length > 0) {
+-    return { source: "last-non-empty", selection: selectionState.lastNonEmptySelection };
++    return { source: "last-non-empty", selection: selectionState.lastNonEmptySelection, referencedFrameNumbers: [] };
+   }
+   throw new Error("No current or last non-empty Cowart selection is available. Draw or select a frame first.");
+ }
+@@ -163,7 +238,10 @@ export function buildConversationLearningQuestion({
+   }
+ 
+   const store = canvasSnapshot.store;
+-  const chosen = choosePersistedSelection(selectionState);
++  const frameReferences = parseLearningFrameReferences(userQuestion);
++  const chosen = frameReferences.length > 0
++    ? numberedSelection(canvasSnapshot, selectionState, frameReferences)
++    : choosePersistedSelection(selectionState);
+   const selectedRecords = chosen.selection.selectedShapes.map((item) => {
+     const record = store[item.id];
+     if (!record || record.typeName !== "shape") {
+@@ -202,10 +280,15 @@ export function buildConversationLearningQuestion({
+   }
+ 
+   const selectionCore = {
+-    version: chosen.selection.version ?? 1,
++    version: 1,
++    canvasSelectionVersion: chosen.selection.version ?? 1,
+     selectionRevision: chosen.selection.selectionRevision ?? null,
+     cowartPageId,
+     selectedShapeIds: [...selectedIds],
++    selectedFrameNumbers: selectedRecords
++      .map((shape) => positiveFrameNumber(shape.meta?.cowartLearningFrameNumber))
++      .filter((number) => number !== null),
++    referencedFrameNumbers: chosen.referencedFrameNumbers,
+     shapes,
+     unionBounds: selectionBounds,
+     capturedAt: chosen.selection.updatedAt ?? requestedAt,
+diff --git a/mcp/learning/conversation-question.test.mjs b/mcp/learning/conversation-question.test.mjs
+new file mode 100644
+index 0000000..1260252
+--- /dev/null
++++ b/mcp/learning/conversation-question.test.mjs
+@@ -0,0 +1,114 @@
++import assert from "node:assert/strict";
++import test from "node:test";
++
++import {
++  buildConversationLearningQuestion,
++  parseLearningFrameReferences,
++} from "./conversation-question.mjs";
++
++function fixtureSnapshot() {
++  return {
++    schema: { schemaVersion: 2 },
++    store: {
++      "page:page": { id: "page:page", typeName: "page", name: "Page 1", index: "a1", meta: {} },
++      "asset:image": {
++        id: "asset:image",
++        typeName: "asset",
++        type: "image",
++        props: { src: "/page-assets/page-page/source.png", w: 600, h: 400 },
++      },
++      "shape:image": {
++        id: "shape:image",
++        typeName: "shape",
++        type: "image",
++        parentId: "page:page",
++        x: 0,
++        y: 0,
++        rotation: 0,
++        props: { assetId: "asset:image", w: 600, h: 400 },
++        meta: {},
++      },
++      "shape:frame-one": {
++        id: "shape:frame-one",
++        typeName: "shape",
++        type: "geo",
++        parentId: "page:page",
++        x: 40,
++        y: 50,
++        rotation: 0,
++        props: { geo: "rectangle", w: 180, h: 120 },
++        meta: {
++          cowartLearningFrame: true,
++          cowartLearningFrameNumber: 1,
++          cowartLearningKind: "frame",
++          cowartLearningBounds: { x: 0, y: 0, w: 180, h: 120 },
++        },
++      },
++      "shape:frame-two": {
++        id: "shape:frame-two",
++        typeName: "shape",
++        type: "geo",
++        parentId: "page:page",
++        x: 250,
++        y: 80,
++        rotation: 0,
++        props: { geo: "rectangle", w: 200, h: 140 },
++        meta: {
++          cowartLearningFrame: true,
++          cowartLearningFrameNumber: 2,
++          cowartLearningKind: "frame",
++          cowartLearningBounds: { x: 0, y: 0, w: 200, h: 140 },
++        },
++      },
++    },
++  };
++}
++
++const selectionState = {
++  version: 2,
++  selectionRevision: 9,
++  currentPageId: "page:page",
++  selectedShapes: [{ id: "shape:frame-two" }],
++  updatedAt: "2026-08-25T00:00:00.000Z",
++};
++
++test("learning frame references cover module labels and joined bare numbers", () => {
++  assert.deepEqual(parseLearningFrameReferences("模块1是什么？"), [1]);
++  assert.deepEqual(parseLearningFrameReferences("1和2一起有什么作用？"), [1, 2]);
++  assert.deepEqual(parseLearningFrameReferences("学习框2、1的信号怎样连接？"), [1, 2]);
++  assert.deepEqual(parseLearningFrameReferences("3.3V和5V电源有什么区别？"), []);
++});
++
++test("explicit frame numbers override the current selection and persist stable references", () => {
++  const built = buildConversationLearningQuestion({
++    canvasSnapshot: fixtureSnapshot(),
++    selectionState,
++    userQuestion: "1和2一起有什么作用？",
++    questionId: "question:numbered-frames",
++    requestedAt: "2026-08-25T00:00:01.000Z",
++  });
++  assert.equal(built.selectionSource, "frame-number-reference");
++  assert.equal(built.question.selection.version, 1);
++  assert.equal(built.question.selection.canvasSelectionVersion, 2);
++  assert.deepEqual(built.question.selection.selectedShapeIds, ["shape:frame-one", "shape:frame-two"]);
++  assert.deepEqual(built.question.selection.selectedFrameNumbers, [1, 2]);
++  assert.deepEqual(built.question.selection.referencedFrameNumbers, [1, 2]);
++  assert.deepEqual(
++    built.question.selection.shapes
++      .filter((shape) => shape.role === "selection-frame")
++      .map((shape) => shape.learningFrameNumber),
++    [1, 2],
++  );
++  assert.ok(built.question.selection.shapes.some((shape) => shape.role === "source-image"));
++});
++
++test("missing numbered frames fail without falling back to another selection", () => {
++  assert.throws(
++    () => buildConversationLearningQuestion({
++      canvasSnapshot: fixtureSnapshot(),
++      selectionState,
++      userQuestion: "模块3是什么？",
++    }),
++    /not found.*3/i,
++  );
++});
+diff --git a/package.json b/package.json
+index e50efe7..f8fe4b4 100644
+--- a/package.json
++++ b/package.json
+@@ -18,7 +18,7 @@
+     "probe:analytics": "node ./scripts/probe-analytics.mjs",
+     "probe:hardware-learning": "node ./scripts/probe-hardware-learning.mjs",
+     "probe:learning-tools": "node ./scripts/probe-learning-tools.mjs",
+-    "test:learning-canvas": "node --test ./src/learning-canvas/model.test.mjs ./src/cowartClient.test.mjs",
++    "test:learning-canvas": "node --test ./src/learning-canvas/model.test.mjs ./src/cowartClient.test.mjs ./mcp/learning/conversation-question.test.mjs",
+     "probe:ga4": "node ./scripts/probe-ga4.mjs",
+     "quality": "npm run check:plugin && npm run check && npm run test:learning-canvas && npm run check:artifacts && npm run probe:hardware-learning && npm run probe:learning-tools && npm run probe:mcp:cold && npm run probe:mcp && npm run probe:analytics && npm run probe:ga4"
+   },
+diff --git a/scripts/probe-learning-tools.mjs b/scripts/probe-learning-tools.mjs
+index 6c0ba6d..425d367 100644
+--- a/scripts/probe-learning-tools.mjs
++++ b/scripts/probe-learning-tools.mjs
+@@ -77,11 +77,29 @@ try {
+         props: { geo: "rectangle", w: 100, h: 80 },
+         meta: {
+           cowartLearningFrame: true,
++          cowartLearningFrameNumber: 1,
+           cowartLearningKind: "frame",
+           cowartHardwareAnnotation: true,
+           cowartLearningBounds: { x: 0, y: 0, w: 100, h: 80 },
+         },
+       },
++      "shape:frame-two": {
++        id: "shape:frame-two",
++        typeName: "shape",
++        type: "geo",
++        parentId: "page:page",
++        x: 170,
++        y: 60,
++        rotation: 0,
++        props: { geo: "rectangle", w: 90, h: 70 },
++        meta: {
++          cowartLearningFrame: true,
++          cowartLearningFrameNumber: 2,
++          cowartLearningKind: "frame",
++          cowartHardwareAnnotation: true,
++          cowartLearningBounds: { x: 0, y: 0, w: 90, h: 70 },
++        },
++      },
+     },
+   };
+   const conversational = buildConversationLearningQuestion({
+@@ -96,9 +114,23 @@ try {
+   assert.deepEqual(conversational.question.selection.selectedShapeIds, ["shape:frame"]);
+   assert.equal(conversational.question.selection.shapes[0].role, "selection-frame");
+   assert.equal(conversational.question.selection.selectionRevision, 7);
++  assert.equal(conversational.question.selection.version, 1);
++  assert.equal(conversational.question.selection.canvasSelectionVersion, 2);
++  assert.deepEqual(conversational.question.selection.selectedFrameNumbers, [1]);
+   assert.ok(conversational.question.selection.shapes.some((shape) => shape.role === "source-image"));
+   assert.equal((await saveLearningQuestion({ projectDir, question: conversational.question })).replayed, false);
+ 
++  const numbered = buildConversationLearningQuestion({
++    canvasSnapshot,
++    selectionState: persistedSelection,
++    userQuestion: "1和2一起有什么作用？",
++    questionId: "question:numbered-conversation-probe",
++    requestedAt: "2026-08-24T00:00:03.000Z",
++  });
++  assert.equal(numbered.selectionSource, "frame-number-reference");
++  assert.deepEqual(numbered.question.selection.selectedShapeIds, ["shape:frame", "shape:frame-two"]);
++  assert.deepEqual(numbered.question.selection.referencedFrameNumbers, [1, 2]);
++
+   const operationId = "operation:probe";
+   const pageId = "page:probe";
+   const commands = [{
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index 5fd6364..3d04219 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -146,7 +146,7 @@ function noteTextLines(text) {
+   return lines.slice(0, 10)
+ }
+ 
+-function LearningShape({ shape, snapshot, assetSources, editing, selected, onPointerDown, onDoubleClick }) {
++function LearningShape({ shape, snapshot, assetSources, cameraZoom = 1, editing, selected, onPointerDown, onDoubleClick }) {
+   const common = {
+     'data-shape-id': shape.id,
+     onDoubleClick: (event) => onDoubleClick(event, shape),
+@@ -225,6 +225,11 @@ function LearningShape({ shape, snapshot, assetSources, editing, selected, onPoi
+       : shape.props?.fill === 'solid' ? 0.92 : 0.22
+     const strokeWidth = strokeWidthForSize(shape.props?.size, frame ? 4 : 3)
+     const geometry = shape.props?.geo === 'ellipse' ? 'ellipse' : 'rectangle'
++    const frameNumber = frame && Number.isSafeInteger(shape.meta?.cowartLearningFrameNumber) && shape.meta.cowartLearningFrameNumber > 0
++      ? shape.meta.cowartLearningFrameNumber
++      : null
++    const badgeWidth = frameNumber === null ? 0 : Math.max(30, String(frameNumber).length * 9 + 18)
++    const badgeScale = 1 / Math.max(0.05, Number(cameraZoom) || 1)
+     return (
+       <g {...common} className={selected ? 'is-selected' : ''}>
+         {textOnly && (
+@@ -262,6 +267,23 @@ function LearningShape({ shape, snapshot, assetSources, editing, selected, onPoi
+             strokeWidth={strokeWidth}
+           />
+         )}
++        {frameNumber !== null && (
++          <g className="learning-frame-number" pointerEvents="none" transform={`translate(7 7) scale(${badgeScale})`}>
++            <rect fill={stroke} height="28" rx="14" stroke="#ffffff" strokeWidth="2" width={badgeWidth} />
++            <text
++              dominantBaseline="middle"
++              fill="#ffffff"
++              fontFamily="system-ui, sans-serif"
++              fontSize="15"
++              fontWeight="700"
++              textAnchor="middle"
++              x={badgeWidth / 2}
++              y="14"
++            >
++              {frameNumber}
++            </text>
++          </g>
++        )}
+         {!editing && (note || textOnly) && (
+           <text className="learning-note-text" fill={textOnly ? stroke : undefined} x="14" y="8">
+             {noteTextLines(text).map((line, index) => (
+@@ -1253,6 +1275,7 @@ export default function HardwareLearningCanvas() {
+               {visibleShapes.map((shape) => (
+                 <LearningShape
+                   assetSources={assetSources}
++                  cameraZoom={camera.z}
+                   editing={noteDraft?.shapeId === shape.id}
+                   key={shape.id}
+                   onDoubleClick={handleShapeDoubleClick}
+diff --git a/src/learning-canvas/export.js b/src/learning-canvas/export.js
+index 2b88910..34d48aa 100644
+--- a/src/learning-canvas/export.js
++++ b/src/learning-canvas/export.js
+@@ -106,6 +106,13 @@ function shapeSvg(shape, snapshot, assetSources) {
+     const strokeWidth = strokeWidthForSize(shape.props?.size, frame ? 4 : 3)
+     const dash = dashArrayForStyle(shape.props?.dash, strokeWidth)
+     const text = shape.meta?.cowartLearningText || ''
++    const frameNumber = frame && Number.isSafeInteger(shape.meta?.cowartLearningFrameNumber) && shape.meta.cowartLearningFrameNumber > 0
++      ? shape.meta.cowartLearningFrameNumber
++      : null
++    const badgeWidth = frameNumber === null ? 0 : Math.max(30, String(frameNumber).length * 9 + 18)
++    const frameBadge = frameNumber === null
++      ? ''
++      : `<g class="learning-frame-number"><rect x="7" y="7" width="${badgeWidth}" height="28" rx="14" fill="${stroke}" stroke="#ffffff" stroke-width="2"/><text x="${7 + badgeWidth / 2}" y="21" dominant-baseline="middle" text-anchor="middle" font-family="system-ui,sans-serif" font-size="15" font-weight="700" fill="#ffffff">${frameNumber}</text></g>`
+     const textSvg = noteLines(text).map((line, index) =>
+       `<tspan x="14" dy="${index === 0 ? 24 : 20}">${escapeXml(line)}</tspan>`
+     ).join('')
+@@ -114,7 +121,7 @@ function shapeSvg(shape, snapshot, assetSources) {
+       : textOnly
+         ? ''
+         : `<rect width="${width}" height="${height}" rx="${note ? 10 : 3}" fill="${fill}" fill-opacity="${fillOpacity}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dash}"/>`
+-    return `<g data-shape-id="${escapeXml(shape.id)}" transform="${transform}" opacity="${opacity}">${geometry}<text font-family="system-ui,sans-serif" font-size="15" fill="${textOnly ? stroke : '#1f2937'}">${textSvg}</text></g>`
++    return `<g data-shape-id="${escapeXml(shape.id)}" transform="${transform}" opacity="${opacity}">${geometry}${frameBadge}<text font-family="system-ui,sans-serif" font-size="15" fill="${textOnly ? stroke : '#1f2937'}">${textSvg}</text></g>`
+   }
+   const bounds = localBoundsForShape(shape)
+   return `<rect data-shape-id="${escapeXml(shape.id)}" x="${bounds.x}" y="${bounds.y}" width="${bounds.w}" height="${bounds.h}" transform="${transform}" fill="none" stroke="#94a3b8" stroke-width="2"/>`
+diff --git a/src/learning-canvas/model.js b/src/learning-canvas/model.js
+index 50ef5b3..0e54c1f 100644
+--- a/src/learning-canvas/model.js
++++ b/src/learning-canvas/model.js
+@@ -22,6 +22,7 @@ const LEARNING_COLORS = new Set([
+ const LEARNING_FILLS = new Set(['none', 'semi', 'solid'])
+ const LEARNING_DASHES = new Set(['draw', 'dashed', 'dotted', 'solid'])
+ const LEARNING_SIZES = new Set(['s', 'm', 'l', 'xl'])
++const NEXT_FRAME_NUMBER_META = 'cowartLearningNextFrameNumber'
+ 
+ export function normalizeLearningStyle(style = {}) {
+   return {
+@@ -111,6 +112,35 @@ export function shapesForPage(snapshot, pageId) {
+   return shapes.sort((left, right) => String(left.index ?? '').localeCompare(String(right.index ?? '')))
+ }
+ 
++function positiveInteger(value) {
++  return Number.isSafeInteger(value) && value > 0 ? value : null
++}
++
++export function learningFrameNumber(shape) {
++  if (shape?.meta?.cowartLearningFrame !== true) return null
++  return positiveInteger(shape.meta.cowartLearningFrameNumber)
++}
++
++export function nextLearningFrameNumber(snapshot, pageId) {
++  const page = snapshot?.store?.[pageId]
++  const storedNext = positiveInteger(page?.meta?.[NEXT_FRAME_NUMBER_META]) ?? 1
++  const highestExisting = shapesForPage(snapshot, pageId)
++    .filter((shape) => shape.meta?.cowartLearningFrame === true)
++    .reduce((highest, shape) => Math.max(highest, learningFrameNumber(shape) ?? 0), 0)
++  return Math.max(storedNext, highestExisting + 1)
++}
++
++function reserveLearningFrameNumber(snapshot, pageId, frameNumber) {
++  const number = positiveInteger(frameNumber)
++  const page = snapshot?.store?.[pageId]
++  if (!number || page?.typeName !== 'page') return
++  const current = positiveInteger(page.meta?.[NEXT_FRAME_NUMBER_META]) ?? 1
++  page.meta = {
++    ...page.meta,
++    [NEXT_FRAME_NUMBER_META]: Math.max(current, number + 1)
++  }
++}
++
+ export function nextShapeIndex(snapshot, pageId) {
+   const indexes = shapesForPage(snapshot, pageId)
+     .map((shape) => shape.index)
+@@ -167,7 +197,7 @@ function rectangleProps(bounds, {
+   }
+ }
+ 
+-export function createFrameShape({ snapshot, pageId, bounds, style, id, index } = {}) {
++export function createFrameShape({ snapshot, pageId, bounds, style, frameNumber, id, index } = {}) {
+   const normalizedStyle = normalizeLearningStyle(style ?? {
+     color: 'violet',
+     fill: 'none',
+@@ -175,6 +205,7 @@ export function createFrameShape({ snapshot, pageId, bounds, style, id, index }
+     size: 's',
+     opacity: 1
+   })
++  const resolvedFrameNumber = positiveInteger(frameNumber) ?? nextLearningFrameNumber(snapshot, pageId)
+   return baseShape({
+     id,
+     pageId,
+@@ -185,6 +216,7 @@ export function createFrameShape({ snapshot, pageId, bounds, style, id, index }
+     opacity: normalizedStyle.opacity,
+     meta: learningMeta(FRAME_KIND, {
+       cowartLearningFrame: true,
++      cowartLearningFrameNumber: resolvedFrameNumber,
+       cowartLearningBounds: { x: 0, y: 0, w: bounds.w, h: bounds.h }
+     }),
+     props: rectangleProps(bounds, normalizedStyle)
+@@ -429,9 +461,11 @@ export function shapeForAnnotationCommand(snapshot, command) {
+ }
+ 
+ export function migrateLegacyLearningFrames(snapshot) {
+-  if (!snapshot?.store) return { snapshot, changed: false, migratedShapeIds: [], repairedStrokeIds: [] }
++  if (!snapshot?.store) return { snapshot, changed: false, migratedShapeIds: [], numberedFrameIds: [], updatedFrameNumberPageIds: [], repairedStrokeIds: [] }
+   const next = cloneSnapshot(snapshot)
+   const migratedShapeIds = []
++  const numberedFrameIds = []
++  const updatedFrameNumberPageIds = []
+   const repairedStrokeIds = []
+   for (const shape of Object.values(next.store)) {
+     if (
+@@ -467,11 +501,46 @@ export function migrateLegacyLearningFrames(snapshot) {
+     })
+     migratedShapeIds.push(shape.id)
+   }
+-  const changed = migratedShapeIds.length > 0 || repairedStrokeIds.length > 0
++  for (const page of pageRecords(next)) {
++    const frames = shapesForPage(next, page.id)
++      .filter((shape) => shape.meta?.cowartLearningFrame === true)
++    const used = new Set()
++    const needsNumber = []
++    for (const frame of frames) {
++      const number = learningFrameNumber(frame)
++      if (number && !used.has(number)) {
++        used.add(number)
++      } else {
++        needsNumber.push(frame)
++      }
++    }
++    let candidate = 1
++    for (const frame of needsNumber) {
++      while (used.has(candidate)) candidate += 1
++      frame.meta = {
++        ...frame.meta,
++        cowartLearningFrameNumber: candidate
++      }
++      used.add(candidate)
++      numberedFrameIds.push(frame.id)
++      candidate += 1
++    }
++    const nextNumber = Math.max(
++      positiveInteger(page.meta?.[NEXT_FRAME_NUMBER_META]) ?? 1,
++      ...[...used].map((number) => number + 1)
++    )
++    if (page.meta?.[NEXT_FRAME_NUMBER_META] !== nextNumber) {
++      page.meta = { ...page.meta, [NEXT_FRAME_NUMBER_META]: nextNumber }
++      updatedFrameNumberPageIds.push(page.id)
++    }
++  }
++  const changed = migratedShapeIds.length > 0 || numberedFrameIds.length > 0 || updatedFrameNumberPageIds.length > 0 || repairedStrokeIds.length > 0
+   return {
+     snapshot: changed ? next : snapshot,
+     changed,
+     migratedShapeIds,
++    numberedFrameIds,
++    updatedFrameNumberPageIds,
+     repairedStrokeIds
+   }
+ }
+@@ -625,7 +694,14 @@ export function selectionState(snapshot, pageId, selectedShapeIds, revision, upd
+ 
+ export function addShape(snapshot, shape) {
+   const next = cloneSnapshot(snapshot)
+-  next.store[shape.id] = shape
++  const inserted = cloneSnapshot(shape)
++  if (inserted.meta?.cowartLearningFrame === true) {
++    const pageId = pageIdForShape(next.store, inserted) ?? inserted.parentId
++    const frameNumber = learningFrameNumber(inserted) ?? nextLearningFrameNumber(next, pageId)
++    inserted.meta = { ...inserted.meta, cowartLearningFrameNumber: frameNumber }
++    reserveLearningFrameNumber(next, pageId, frameNumber)
++  }
++  next.store[inserted.id] = inserted
+   return next
+ }
+ 
+@@ -686,6 +762,12 @@ export function duplicateLearningShapes(snapshot, shapeIds, offset = { x: 28, y:
+     copy.x = finite(source.x) + finite(offset.x, 28)
+     copy.y = finite(source.y) + finite(offset.y, 28)
+     copy.meta = { ...copy.meta, cowartDuplicatedFrom: source.id }
++    if (source.meta?.cowartLearningFrame === true) {
++      const pageId = pageIdForShape(next.store, source)
++      const frameNumber = nextLearningFrameNumber(next, pageId)
++      copy.meta.cowartLearningFrameNumber = frameNumber
++      reserveLearningFrameNumber(next, pageId, frameNumber)
++    }
+     next.store[copy.id] = copy
+     duplicated.push(copy.id)
+   }
+diff --git a/src/learning-canvas/model.test.mjs b/src/learning-canvas/model.test.mjs
+index 63628fd..9ecc045 100644
+--- a/src/learning-canvas/model.test.mjs
++++ b/src/learning-canvas/model.test.mjs
+@@ -13,8 +13,11 @@ import {
+   createRectangleShape,
+   createStrokeShape,
+   createTextShape,
++  deleteLearningShapes,
+   duplicateLearningShapes,
++  learningFrameNumber,
+   migrateLegacyLearningFrames,
++  nextLearningFrameNumber,
+   pageBoundsForShape,
+   selectionState,
+   setImageLockState,
+@@ -62,6 +65,8 @@ test('learning frame has explicit semantics and selection revision', () => {
+   })
+   const snapshot = addShape(initial, frame)
+   assert.equal(frame.meta.cowartLearningFrame, true)
++  assert.equal(learningFrameNumber(frame), 1)
++  assert.equal(snapshot.store['page:page'].meta.cowartLearningNextFrameNumber, 2)
+   assert.equal(shapeRole(frame), 'selection-frame')
+   const selected = selectionState(snapshot, 'page:page', [frame.id], 42, '2026-08-25T00:00:00.000Z')
+   assert.equal(selected.version, 2)
+@@ -89,6 +94,42 @@ test('ordinary rectangle is not a learning frame', () => {
+   assert.equal(shapeRole(shape), 'other')
+ })
+ 
++test('learning frame numbers stay monotonic after delete and duplicate', () => {
++  let snapshot = fixtureSnapshot()
++  const first = createFrameShape({
++    snapshot,
++    pageId: 'page:page',
++    bounds: { x: 20, y: 30, w: 100, h: 80 },
++    id: 'shape:frame-one'
++  })
++  snapshot = addShape(snapshot, first)
++  const second = createFrameShape({
++    snapshot,
++    pageId: 'page:page',
++    bounds: { x: 160, y: 30, w: 100, h: 80 },
++    id: 'shape:frame-two'
++  })
++  snapshot = addShape(snapshot, second)
++  assert.equal(learningFrameNumber(snapshot.store[first.id]), 1)
++  assert.equal(learningFrameNumber(snapshot.store[second.id]), 2)
++  assert.equal(nextLearningFrameNumber(snapshot, 'page:page'), 3)
++
++  snapshot = deleteLearningShapes(snapshot, [first.id]).snapshot
++  const third = createFrameShape({
++    snapshot,
++    pageId: 'page:page',
++    bounds: { x: 300, y: 30, w: 100, h: 80 },
++    id: 'shape:frame-three'
++  })
++  snapshot = addShape(snapshot, third)
++  assert.equal(learningFrameNumber(snapshot.store[third.id]), 3)
++
++  const duplicated = duplicateLearningShapes(snapshot, [second.id])
++  const copy = duplicated.snapshot.store[duplicated.duplicated[0]]
++  assert.equal(learningFrameNumber(copy), 4)
++  assert.equal(duplicated.snapshot.store['page:page'].meta.cowartLearningNextFrameNumber, 5)
++})
++
+ test('legacy violet hand-drawn rectangle migrates once', () => {
+   const snapshot = fixtureSnapshot()
+   snapshot.store['shape:legacy'] = {
+@@ -100,6 +141,9 @@ test('legacy violet hand-drawn rectangle migrates once', () => {
+   assert.equal(migrated.changed, true)
+   assert.deepEqual(migrated.migratedShapeIds, ['shape:legacy'])
+   assert.equal(migrated.snapshot.store['shape:legacy'].meta.cowartLearningFrame, true)
++  assert.equal(migrated.snapshot.store['shape:legacy'].meta.cowartLearningFrameNumber, 1)
++  assert.deepEqual(migrated.numberedFrameIds, ['shape:legacy'])
++  assert.deepEqual(migrated.updatedFrameNumberPageIds, ['page:page'])
+   assert.equal(migrateLegacyLearningFrames(migrated.snapshot).changed, false)
+ })
+ 
+@@ -215,6 +259,8 @@ test('standalone SVG export contains the selected evidence and no tldraw waterma
+   })
+   assert.match(result.svg, /data:image\/png;base64,AA==/)
+   assert.match(result.svg, /shape:frame/)
++  assert.match(result.svg, /learning-frame-number/)
++  assert.match(result.svg, />1<\/text>/)
+   assert.doesNotMatch(result.svg, /tldraw|tl-watermark/i)
+ })
+ 
+-- 
+2.55.0.windows.3
+

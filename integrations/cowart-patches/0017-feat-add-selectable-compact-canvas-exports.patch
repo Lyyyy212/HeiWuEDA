@@ -1,0 +1,625 @@
+From a63ef23e09c12fdaa379df9984bbc932067c80ad Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Tue, 25 Aug 2026 14:13:39 +0800
+Subject: [PATCH] feat: add selectable compact canvas exports
+
+---
+ mcp/server.mjs                                | 176 ++++++++++++++++--
+ scripts/probe-mcp.mjs                         |  11 ++
+ src/cowartClient.js                           |  11 ++
+ src/cowartClient.test.mjs                     |  37 +++-
+ .../HardwareLearningCanvas.jsx                |  82 +++++++-
+ src/learning-canvas/styles.css                |  53 +++---
+ 6 files changed, 324 insertions(+), 46 deletions(-)
+
+diff --git a/mcp/server.mjs b/mcp/server.mjs
+index 1f9389b..df27177 100644
+--- a/mcp/server.mjs
++++ b/mcp/server.mjs
+@@ -62,6 +62,7 @@ const TOOL_INSERT_IMAGE = "insert_cowart_image";
+ const TOOL_INSERT_HTML_DRAFT = "insert_cowart_html_draft";
+ const TOOL_SAVE_REFERENCE_IMAGE = "save_cowart_reference_image";
+ const TOOL_READ_PAGE_ASSET = "read_cowart_page_asset";
++const TOOL_CHOOSE_EXPORT_DIRECTORY = "choose_cowart_export_directory";
+ const TOOL_DOWNLOAD_FILE = "download_cowart_file";
+ const TOOL_COPY_IMAGE_TO_CLIPBOARD = "copy_cowart_image_to_clipboard";
+ const TOOL_TRACK_ANALYTICS = "track_cowart_analytics_event";
+@@ -129,9 +130,12 @@ const HARDWARE_LEARNING_MODE = "hardware-learning";
+ const hardwareLearningCanvasDirs = new Set();
+ const activeCowartDownloads = new Map();
+ const completedCowartDownloads = new Map();
++const approvedCowartExportDirectories = new Map();
+ const MAX_CHUNKED_DOWNLOAD_BYTES = 128 * 1024 * 1024;
+ const MAX_DOWNLOAD_CHUNK_BYTES = 1024 * 1024;
+ const MAX_COMPLETED_DOWNLOAD_RESULTS = 64;
++const MAX_APPROVED_EXPORT_DIRECTORIES = 64;
++const EXPORT_DIRECTORY_TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
+ const LEARNING_EVIDENCE_SOURCES = new Set([
+   "user-provided-local-image",
+   "official-easyeda-export",
+@@ -159,7 +163,7 @@ const server = new McpServer(
+   },
+   {
+     instructions:
+-      "cowart_mcp is Cowart's core canvas MCP server. Use render_cowart_canvas_widget when the user asks to open, reopen, or explicitly refresh the native canvas. When a Cowart widget is already open, reuse it and use get_cowart_selection for persisted widget selection, save_cowart_reference_image for widget-provided reference images, read_cowart_page_asset for lazy widget asset loading, download_cowart_file to save widget-requested files into the user's Downloads folder, insert_cowart_image to place or replace bitmap assets, and insert_cowart_html_draft to save and embed HTML drafts without rendering another widget tab.",
++      "cowart_mcp is Cowart's core canvas MCP server. Use render_cowart_canvas_widget when the user asks to open, reopen, or explicitly refresh the native canvas. When a Cowart widget is already open, reuse it and use get_cowart_selection for persisted widget selection, save_cowart_reference_image for widget-provided reference images, read_cowart_page_asset for lazy widget asset loading, choose_cowart_export_directory plus download_cowart_file for user-directed local exports, insert_cowart_image to place or replace bitmap assets, and insert_cowart_html_draft to save and embed HTML drafts without rendering another widget tab.",
+   },
+ );
+ 
+@@ -199,6 +203,108 @@ function sanitizeDirectoryName(name, fallbackName = "Cowart Export") {
+     .slice(0, 120) || fallbackName;
+ }
+ 
++function pruneApprovedExportDirectories(now = Date.now()) {
++  for (const [token, record] of approvedCowartExportDirectories) {
++    if (record.expiresAt <= now) approvedCowartExportDirectories.delete(token);
++  }
++  while (approvedCowartExportDirectories.size > MAX_APPROVED_EXPORT_DIRECTORIES) {
++    approvedCowartExportDirectories.delete(approvedCowartExportDirectories.keys().next().value);
++  }
++}
++
++function exportDirectoryStorageKey(args = {}) {
++  return resolveCanvasDir(args);
++}
++
++function approvedExportDirectory(args = {}) {
++  const token = nonEmptyString(args.directoryToken);
++  if (!token) return null;
++  pruneApprovedExportDirectories();
++  const record = approvedCowartExportDirectories.get(token);
++  if (!record || record.storageKey !== exportDirectoryStorageKey(args)) {
++    throw new Error("Cowart 导出位置已失效，请重新选择文件夹。");
++  }
++  return record;
++}
++
++async function chooseCowartExportDirectory(args = {}) {
++  const defaultDirectoryPath = join(homedir(), "Downloads", "Cowart学习画板");
++  await mkdir(defaultDirectoryPath, { recursive: true });
++  const directoryPath = await showSystemDirectoryPicker(defaultDirectoryPath);
++  if (!directoryPath) {
++    return { ok: true, canceled: true, defaultDirectoryPath };
++  }
++  const selectedPath = resolve(directoryPath);
++  const selectedStats = await stat(selectedPath);
++  if (!selectedStats.isDirectory()) throw new Error("选择的 Cowart 导出位置不是文件夹。");
++  const directoryToken = randomUUID();
++  const expiresAt = Date.now() + EXPORT_DIRECTORY_TOKEN_TTL_MS;
++  approvedCowartExportDirectories.set(directoryToken, {
++    directoryPath: selectedPath,
++    expiresAt,
++    storageKey: exportDirectoryStorageKey(args),
++  });
++  pruneApprovedExportDirectories();
++  return {
++    ok: true,
++    canceled: false,
++    directoryName: basename(selectedPath),
++    directoryPath: selectedPath,
++    directoryToken,
++    expiresAt: new Date(expiresAt).toISOString(),
++  };
++}
++
++async function showSystemDirectoryPicker(defaultDirectoryPath) {
++  const systemPlatform = platform();
++  if (systemPlatform === "win32") {
++    const script = [
++      "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()",
++      "Add-Type -AssemblyName System.Windows.Forms",
++      "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
++      "$dialog.Description = '选择 Cowart 导出位置'",
++      "$dialog.ShowNewFolderButton = $true",
++      "$dialog.SelectedPath = $env:COWART_EXPORT_DEFAULT_PATH",
++      "try { if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($dialog.SelectedPath)) } } finally { $dialog.Dispose() }",
++    ].join("; ");
++    const { stdout } = await execFileAsync(
++      "powershell.exe",
++      ["-NoProfile", "-STA", "-Command", script],
++      {
++        env: { ...process.env, COWART_EXPORT_DEFAULT_PATH: defaultDirectoryPath },
++        timeout: 60_000,
++        windowsHide: true,
++      },
++    );
++    const encodedPath = stdout.trim();
++    return encodedPath ? Buffer.from(encodedPath, "base64").toString("utf8") : null;
++  }
++  if (systemPlatform === "darwin") {
++    try {
++      const { stdout } = await execFileAsync(
++        "/usr/bin/osascript",
++        ["-e", "POSIX path of (choose folder with prompt \"选择 Cowart 导出位置\")"],
++        { timeout: 60_000 },
++      );
++      return stdout.trim() || null;
++    } catch (error) {
++      if (/User canceled|(-128)/iu.test(String(error?.stderr || error?.message))) return null;
++      throw error;
++    }
++  }
++  try {
++    const { stdout } = await execFileAsync(
++      "zenity",
++      ["--file-selection", "--directory", "--title=选择 Cowart 导出位置", `--filename=${defaultDirectoryPath}${sep}`],
++      { timeout: 60_000 },
++    );
++    return stdout.trim() || null;
++  } catch (error) {
++    if (Number(error?.code) === 1) return null;
++    throw new Error(`当前系统无法打开 Cowart 文件夹选择器：${error instanceof Error ? error.message : String(error)}`);
++  }
++}
++
+ function sanitizeHtmlFileName(name, fallbackName = "draft.html") {
+   const safeName = sanitizeFileName(name, fallbackName);
+   return /\.html?$/i.test(safeName) ? safeName : `${safeName.replace(/\.[^.]+$/, "")}.html`;
+@@ -968,17 +1074,20 @@ async function downloadCowartFileDirect(args = {}) {
+   if (!buffer.length) throw new Error("Cowart download data is empty.");
+ 
+   const downloadsDir = join(homedir(), "Downloads");
++  const approvedDirectory = approvedExportDirectory(args);
+   const requestedName = sanitizeFileName(
+     nonEmptyString(args.fileName) || sourceFileName,
+     `cowart-download-${Date.now()}.png`,
+   );
+   const requestedDirectoryName = nonEmptyString(args.directoryName);
+   const requestedSubdirectory = nonEmptyString(args.subdirectory);
+-  let directoryName = requestedDirectoryName
+-    ? sanitizeDirectoryName(requestedDirectoryName)
+-    : null;
+-  let exportRoot = directoryName ? join(downloadsDir, directoryName) : downloadsDir;
+-  if (directoryName && args.uniqueDirectory === true) {
++  let directoryName = approvedDirectory
++    ? basename(approvedDirectory.directoryPath)
++    : requestedDirectoryName
++      ? sanitizeDirectoryName(requestedDirectoryName)
++      : null;
++  let exportRoot = approvedDirectory?.directoryPath || (directoryName ? join(downloadsDir, directoryName) : downloadsDir);
++  if (!approvedDirectory && directoryName && args.uniqueDirectory === true) {
+     const uniqueDirectory = await uniqueDirectoryPath(downloadsDir, directoryName);
+     directoryName = uniqueDirectory.directoryName;
+     exportRoot = uniqueDirectory.directoryPath;
+@@ -986,7 +1095,7 @@ async function downloadCowartFileDirect(args = {}) {
+   const targetDir = requestedSubdirectory
+     ? join(exportRoot, sanitizeDirectoryName(requestedSubdirectory, "pages"))
+     : exportRoot;
+-  if (!isSafeChildPath(downloadsDir, targetDir) && targetDir !== downloadsDir) {
++  if (!isSafeChildPath(exportRoot, targetDir) && targetDir !== exportRoot) {
+     throw new Error("Invalid Cowart download directory.");
+   }
+   await mkdir(targetDir, { recursive: true });
+@@ -1030,12 +1139,17 @@ async function beginChunkedCowartDownload(args = {}) {
+   }
+ 
+   const downloadsDir = join(homedir(), "Downloads");
++  const approvedDirectory = approvedExportDirectory(args);
+   const requestedName = sanitizeFileName(nonEmptyString(args.fileName), `cowart-download-${Date.now()}.bin`);
+   const requestedDirectoryName = nonEmptyString(args.directoryName);
+   const requestedSubdirectory = nonEmptyString(args.subdirectory);
+-  let directoryName = requestedDirectoryName ? sanitizeDirectoryName(requestedDirectoryName) : null;
+-  let exportRoot = directoryName ? join(downloadsDir, directoryName) : downloadsDir;
+-  if (directoryName && args.uniqueDirectory === true) {
++  let directoryName = approvedDirectory
++    ? basename(approvedDirectory.directoryPath)
++    : requestedDirectoryName
++      ? sanitizeDirectoryName(requestedDirectoryName)
++      : null;
++  let exportRoot = approvedDirectory?.directoryPath || (directoryName ? join(downloadsDir, directoryName) : downloadsDir);
++  if (!approvedDirectory && directoryName && args.uniqueDirectory === true) {
+     const uniqueDirectory = await uniqueDirectoryPath(downloadsDir, directoryName);
+     directoryName = uniqueDirectory.directoryName;
+     exportRoot = uniqueDirectory.directoryPath;
+@@ -1043,7 +1157,7 @@ async function beginChunkedCowartDownload(args = {}) {
+   const targetDir = requestedSubdirectory
+     ? join(exportRoot, sanitizeDirectoryName(requestedSubdirectory, "pages"))
+     : exportRoot;
+-  if (!isSafeChildPath(downloadsDir, targetDir) && targetDir !== downloadsDir) {
++  if (!isSafeChildPath(exportRoot, targetDir) && targetDir !== exportRoot) {
+     throw new Error("Invalid Cowart download directory.");
+   }
+   await mkdir(targetDir, { recursive: true });
+@@ -1759,13 +1873,50 @@ function registerCowartImageTools(mcpServer) {
+     },
+   );
+ 
++  registerAppTool(
++    mcpServer,
++    TOOL_CHOOSE_EXPORT_DIRECTORY,
++    {
++      title: "Choose Cowart Export Directory",
++      description:
++        "Open the system folder picker for a user-initiated Cowart export and return a short-lived directory token bound to the current canvas.",
++      inputSchema: {
++        ...projectArgsSchema,
++      },
++      annotations: {
++        readOnlyHint: false,
++        destructiveHint: false,
++        idempotentHint: false,
++        openWorldHint: false,
++      },
++      _meta: {
++        ui: { visibility: ["app"] },
++        "openai/widgetAccessible": true,
++      },
++    },
++    async (input = {}) => {
++      const result = await chooseCowartExportDirectory(input);
++      return {
++        content: [
++          {
++            type: "text",
++            text: result.canceled
++              ? "Cowart export directory selection was canceled."
++              : `Cowart export directory selected: ${result.directoryPath}.`,
++          },
++        ],
++        structuredContent: result,
++      };
++    },
++  );
++
+   registerAppTool(
+     mcpServer,
+     TOOL_DOWNLOAD_FILE,
+     {
+       title: "Download Cowart File",
+       description:
+-        "Save an image, HTML draft, or exported Slides package file requested by the Cowart widget into the user's system Downloads folder.",
++        "Save a Cowart export into the default Downloads location or a user-approved directory token returned by choose_cowart_export_directory.",
+       inputSchema: {
+         ...projectArgsSchema,
+         assetUrl: z.string().trim().optional(),
+@@ -1773,6 +1924,7 @@ function registerCowartImageTools(mcpServer) {
+         dataUrl: z.string().optional(),
+         dataBase64: z.string().optional(),
+         mimeType: z.string().trim().optional(),
++        directoryToken: z.string().uuid().optional(),
+         directoryName: z.string().trim().optional(),
+         subdirectory: z.string().trim().optional(),
+         overwrite: z.boolean().optional(),
+diff --git a/scripts/probe-mcp.mjs b/scripts/probe-mcp.mjs
+index e4e657c..19561f6 100644
+--- a/scripts/probe-mcp.mjs
++++ b/scripts/probe-mcp.mjs
+@@ -60,6 +60,7 @@ try {
+     "save_cowart_view_state",
+     "save_cowart_reference_image",
+     "read_cowart_page_asset",
++    "choose_cowart_export_directory",
+     "download_cowart_file",
+     "copy_cowart_image_to_clipboard",
+     "get_cowart_selection",
+@@ -89,6 +90,16 @@ try {
+   if (!downloadTool?._meta?.["openai/widgetAccessible"] || !downloadTool?._meta?.ui?.visibility?.includes("app")) {
+     throw new Error("Cowart download tool should be callable from the widget app.");
+   }
++  if (!downloadTool?.inputSchema?.properties?.directoryToken) {
++    throw new Error("Cowart download tool should accept a user-approved directory token.");
++  }
++  const chooseExportDirectoryTool = tools.tools.find((tool) => tool.name === "choose_cowart_export_directory");
++  if (
++    JSON.stringify(chooseExportDirectoryTool?._meta?.ui?.visibility) !== JSON.stringify(["app"]) ||
++    chooseExportDirectoryTool?._meta?.["openai/widgetAccessible"] !== true
++  ) {
++    throw new Error("Cowart export directory chooser should only be callable from the widget app.");
++  }
+ 
+   projectDir = await mkdtemp(path.join(tmpdir(), "cowart-widget-probe-"));
+   const renderResult = await client.callTool({
+diff --git a/src/cowartClient.js b/src/cowartClient.js
+index 2a2bc83..cc2382b 100644
+--- a/src/cowartClient.js
++++ b/src/cowartClient.js
+@@ -8,6 +8,7 @@ const TOOL_SAVE_SELECTION_STATE = 'save_cowart_selection_state'
+ const TOOL_SAVE_VIEW_STATE = 'save_cowart_view_state'
+ const TOOL_SAVE_REFERENCE_IMAGE = 'save_cowart_reference_image'
+ const TOOL_READ_PAGE_ASSET = 'read_cowart_page_asset'
++const TOOL_CHOOSE_EXPORT_DIRECTORY = 'choose_cowart_export_directory'
+ const TOOL_DOWNLOAD_FILE = 'download_cowart_file'
+ const TOOL_COPY_IMAGE_TO_CLIPBOARD = 'copy_cowart_image_to_clipboard'
+ const TOOL_INSERT_HTML_DRAFT = 'insert_cowart_html_draft'
+@@ -217,6 +218,15 @@ export async function acknowledgeCowartLearningAnnotations(operationId, commands
+   })
+ }
+ 
++export async function chooseCowartExportDirectory() {
++  if (!hasCowartWidgetBridge()) {
++    throw new Error('当前预览环境不支持系统文件夹选择；请在 Codex 画板中使用。')
++  }
++  return callCowartServerTool(TOOL_CHOOSE_EXPORT_DIRECTORY, {}, {
++    timeoutMs: 65_000
++  })
++}
++
+ export async function downloadCowartFile(download) {
+   const { onProgress, ...downloadArgs } = download || {}
+   if (!hasCowartWidgetBridge()) {
+@@ -240,6 +250,7 @@ export async function downloadCowartFile(download) {
+       downloadId: downloadId || undefined,
+       fileName: downloadArgs.fileName,
+       mimeType: downloadArgs.mimeType || payload.mimeType,
++      directoryToken: downloadArgs.directoryToken,
+       directoryName: downloadArgs.directoryName,
+       subdirectory: downloadArgs.subdirectory,
+       overwrite: downloadArgs.overwrite,
+diff --git a/src/cowartClient.test.mjs b/src/cowartClient.test.mjs
+index 51a9be9..5f7fcd0 100644
+--- a/src/cowartClient.test.mjs
++++ b/src/cowartClient.test.mjs
+@@ -1,7 +1,7 @@
+ import assert from 'node:assert/strict'
+ import test from 'node:test'
+ 
+-import { downloadCowartFile } from './cowartClient.js'
++import { chooseCowartExportDirectory, downloadCowartFile } from './cowartClient.js'
+ 
+ test('large Cowart widget exports use ordered chunked Bridge calls', async () => {
+   const calls = []
+@@ -23,14 +23,14 @@ test('large Cowart widget exports use ordered chunked Bridge calls', async () =>
+     const dataBase64 = 'QUJD'.repeat(200_000)
+     const result = await downloadCowartFile({
+       dataBase64,
+-      directoryName: 'Cowart学习画板',
++      directoryToken: '58b830c4-9aa2-43d4-90cd-92912557ea62',
+       fileName: 'fixture.png',
+       mimeType: 'image/png',
+       onProgress: (event) => progress.push(event)
+     })
+     assert.equal(result.ok, true)
+     assert.equal(calls[0].arguments.action, 'begin')
+-    assert.equal(calls[0].arguments.directoryName, 'Cowart学习画板')
++    assert.equal(calls[0].arguments.directoryToken, '58b830c4-9aa2-43d4-90cd-92912557ea62')
+     assert.equal(calls.at(-1).arguments.action, 'finish')
+     const appendCalls = calls.filter((call) => call.arguments.action === 'append')
+     assert.ok(appendCalls.length > 1)
+@@ -45,6 +45,37 @@ test('large Cowart widget exports use ordered chunked Bridge calls', async () =>
+   }
+ })
+ 
++test('Cowart export directory selection stays app-driven and canvas-bound', async () => {
++  const calls = []
++  globalThis.window = {
++    openai: { toolOutput: { projectDir: 'D:\\fixture' } },
++    cowartMcp: {
++      async callServerTool(request, options) {
++        calls.push({ request, options })
++        return {
++          structuredContent: {
++            ok: true,
++            canceled: false,
++            directoryPath: 'D:\\Exports',
++            directoryToken: '58b830c4-9aa2-43d4-90cd-92912557ea62'
++          }
++        }
++      }
++    }
++  }
++
++  try {
++    const result = await chooseCowartExportDirectory()
++    assert.equal(result.directoryPath, 'D:\\Exports')
++    assert.equal(calls.length, 1)
++    assert.equal(calls[0].request.name, 'choose_cowart_export_directory')
++    assert.equal(calls[0].request.arguments.projectDir, 'D:\\fixture')
++    assert.equal(calls[0].options.timeoutMs, 65_000)
++  } finally {
++    delete globalThis.window
++  }
++})
++
+ test('Cowart chunk Bridge retries a transient host failure with the same session and chunk', async () => {
+   const calls = []
+   let failedOnce = false
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index fdf9a36..5fd6364 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -9,6 +9,7 @@ import {
+   Copy,
+   Download,
+   Eraser,
++  FolderOpen,
+   Hand,
+   Highlighter,
+   LoaderCircle,
+@@ -36,6 +37,7 @@ import { flushSync } from 'react-dom'
+ 
+ import {
+   acknowledgeCowartLearningAnnotations,
++  chooseCowartExportDirectory,
+   copyCowartImageToClipboard,
+   downloadCowartFile,
+   loadCowartCanvasState,
+@@ -117,6 +119,7 @@ const STYLE_COLORS = [
+ const FILL_OPTIONS = [['none', '无'], ['semi', '浅色'], ['solid', '实色']]
+ const DASH_OPTIONS = [['draw', '手绘'], ['dashed', '虚线'], ['dotted', '点线'], ['solid', '实线']]
+ const SIZE_OPTIONS = [['s', '小'], ['m', '中'], ['l', '大'], ['xl', '特大']]
++const DEFAULT_EXPORT_DIRECTORY_LABEL = '默认：下载/Cowart学习画板'
+ 
+ const DEFAULT_CAMERA = { x: 0, y: 0, z: 1 }
+ const EMPTY_VIEW_STATE = { version: 1, currentPageId: null, camera: DEFAULT_CAMERA }
+@@ -426,6 +429,11 @@ export default function HardwareLearningCanvas() {
+   const [noteDraft, setNoteDraft] = useState(null)
+   const [openMenu, setOpenMenu] = useState(null)
+   const [exporting, setExporting] = useState(false)
++  const [choosingExportDirectory, setChoosingExportDirectory] = useState(false)
++  const [exportDirectory, setExportDirectory] = useState({
++    directoryPath: DEFAULT_EXPORT_DIRECTORY_LABEL,
++    directoryToken: null
++  })
+   const [lastExport, setLastExport] = useState(null)
+   const [minimapOpen, setMinimapOpen] = useState(false)
+ 
+@@ -1089,7 +1097,9 @@ export default function HardwareLearningCanvas() {
+     let lastReportedProgress = -1
+     const downloadExportFile = (args) => downloadCowartFile({
+       ...args,
+-      directoryName: 'Cowart学习画板',
++      ...(exportDirectory.directoryToken
++        ? { directoryToken: exportDirectory.directoryToken }
++        : { directoryName: 'Cowart学习画板' }),
+       onProgress: ({ sentBytes, totalBytes }) => {
+         if (!totalBytes) return
+         const progress = Math.min(100, Math.floor(sentBytes * 100 / totalBytes))
+@@ -1157,6 +1167,39 @@ export default function HardwareLearningCanvas() {
+     }
+   }
+ 
++  async function chooseExportDirectory() {
++    if (choosingExportDirectory || exporting) return
++    setChoosingExportDirectory(true)
++    setStatus({ kind: 'saving', text: '正在选择导出位置…' })
++    try {
++      const result = await chooseCowartExportDirectory()
++      if (result?.canceled) {
++        setStatus({ kind: 'saved', text: '已取消选择，保留原导出位置' })
++        return
++      }
++      if (!result?.directoryToken || !result?.directoryPath) {
++        throw new Error('目录选择服务没有返回可用位置。')
++      }
++      setExportDirectory({
++        directoryPath: result.directoryPath,
++        directoryToken: result.directoryToken
++      })
++      setStatus({ kind: 'saved', text: `导出位置：${result.directoryPath}` })
++    } catch (error) {
++      console.error(error)
++      setStatus({ kind: 'error', text: `无法选择导出位置：${error.message}` })
++    } finally {
++      setChoosingExportDirectory(false)
++      setOpenMenu('export')
++    }
++  }
++
++  function resetExportDirectory() {
++    setExportDirectory({ directoryPath: DEFAULT_EXPORT_DIRECTORY_LABEL, directoryToken: null })
++    setStatus({ kind: 'saved', text: '已恢复默认导出位置' })
++    setOpenMenu('export')
++  }
++
+   async function copyLastExportPath() {
+     if (!lastExport?.filePath) return
+     try {
+@@ -1318,14 +1361,37 @@ export default function HardwareLearningCanvas() {
+           )}
+         </div>
+ 
+-        <div aria-label="一键导出" className="cowart-direct-export-actions">
+-          <button className="cowart-export-button" data-testid="learning-export-page-png" disabled={exporting} onClick={() => exportCanvas('png')} title="导出当前图页 PNG" type="button">
+-            {exporting ? <LoaderCircle className="is-spinning" size={15} /> : <Download size={15} />}图页 PNG
++        <div className="cowart-popover-anchor">
++          <button
++            aria-expanded={openMenu === 'export'}
++            className="cowart-export-button"
++            data-testid="learning-export"
++            disabled={exporting || choosingExportDirectory}
++            onClick={() => setOpenMenu(openMenu === 'export' ? null : 'export')}
++            title="导出"
++            type="button"
++          >
++            {exporting || choosingExportDirectory ? <LoaderCircle className="is-spinning" size={15} /> : <Download size={15} />}
++            导出 <ChevronDown size={12} />
+           </button>
+-          <button className="cowart-export-button" data-testid="learning-export-selection-png" disabled={exporting || !selectedIds.length} onClick={() => exportCanvas('png', true)} title="导出当前选区 PNG" type="button">选区 PNG</button>
+-          <button className="cowart-export-button" data-testid="learning-export-page-svg" disabled={exporting} onClick={() => exportCanvas('svg')} title="导出当前图页 SVG" type="button">SVG</button>
+-          <button className="cowart-export-button" data-testid="learning-export-canvas-json" disabled={exporting} onClick={() => exportCanvas('json')} title="导出完整画布备份" type="button">备份 JSON</button>
+-          <button className="cowart-export-button cowart-export-copy-button" data-testid="learning-copy-selection-png" disabled={exporting || !selectedIds.length} onClick={() => exportCanvas('clipboard', true)} title="复制选区 PNG 到剪贴板" type="button"><Clipboard size={14} /></button>
++          {openMenu === 'export' && (
++            <div className="cowart-menu cowart-export-menu" role="menu">
++              <div className="cowart-export-location" data-testid="learning-export-location">
++                <span>保存位置</span>
++                <code title={exportDirectory.directoryPath}>{exportDirectory.directoryPath}</code>
++              </div>
++              <button data-testid="learning-choose-export-directory" onClick={chooseExportDirectory} role="menuitem" type="button"><FolderOpen size={14} />选择文件夹…</button>
++              {exportDirectory.directoryToken && (
++                <button data-testid="learning-reset-export-directory" onClick={resetExportDirectory} role="menuitem" type="button">恢复默认位置</button>
++              )}
++              <span className="cowart-menu-separator" />
++              <button data-testid="learning-export-page-png" onClick={() => exportCanvas('png')} role="menuitem" type="button">当前图页 PNG</button>
++              <button data-testid="learning-export-page-svg" onClick={() => exportCanvas('svg')} role="menuitem" type="button">当前图页 SVG</button>
++              <button data-testid="learning-export-selection-png" disabled={!selectedIds.length} onClick={() => exportCanvas('png', true)} role="menuitem" type="button">当前选区 PNG</button>
++              <button data-testid="learning-copy-selection-png" disabled={!selectedIds.length} onClick={() => exportCanvas('clipboard', true)} role="menuitem" type="button"><Clipboard size={14} />复制选区 PNG</button>
++              <button data-testid="learning-export-canvas-json" onClick={() => exportCanvas('json')} role="menuitem" type="button">画布备份 JSON</button>
++            </div>
++          )}
+         </div>
+       </nav>
+ 
+diff --git a/src/learning-canvas/styles.css b/src/learning-canvas/styles.css
+index da1cdd6..7bd965e 100644
+--- a/src/learning-canvas/styles.css
++++ b/src/learning-canvas/styles.css
+@@ -222,28 +222,6 @@ textarea:focus-visible {
+   color: #2767b0;
+ }
+ 
+-.cowart-direct-export-actions {
+-  display: flex;
+-  height: 34px;
+-  margin-left: 2px;
+-  padding-left: 3px;
+-  gap: 1px;
+-  align-items: center;
+-  border-left: 1px solid #d9dce1;
+-}
+-
+-.cowart-direct-export-actions .cowart-export-button {
+-  padding: 0 7px;
+-  font-size: 11px;
+-  font-weight: 600;
+-  white-space: nowrap;
+-}
+-
+-.cowart-direct-export-actions .cowart-export-copy-button {
+-  width: 30px;
+-  padding: 0;
+-}
+-
+ .cowart-popover-anchor { position: relative; display: flex; }
+ 
+ .cowart-menu,
+@@ -296,7 +274,36 @@ textarea:focus-visible {
+   font-size: 11px;
+ }
+ 
+-.cowart-export-menu { width: 190px; }
++.cowart-export-menu { width: 280px; }
++
++.cowart-export-location {
++  display: grid;
++  min-width: 0;
++  padding: 7px 9px 6px;
++  gap: 3px;
++}
++
++.cowart-export-location span {
++  color: #7b818a;
++  font-size: 10px;
++  font-weight: 600;
++}
++
++.cowart-export-location code {
++  overflow: hidden;
++  color: #30343a;
++  font: 11px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++  user-select: text;
++}
++
++.cowart-menu-separator {
++  display: block;
++  height: 1px;
++  margin: 4px 5px;
++  background: #e5e7eb;
++}
+ 
+ .cowart-style-panel {
+   position: fixed;
+-- 
+2.55.0.windows.3
+

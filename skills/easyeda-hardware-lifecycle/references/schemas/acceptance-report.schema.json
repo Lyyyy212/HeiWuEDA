@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "easyeda.hardware-lifecycle.acceptance-report.v1",
+  "type": "object",
+  "required": ["schemaVersion", "status", "restorationVerified", "protectedFieldsVerified", "scope"],
+  "properties": {
+    "schemaVersion": { "const": "easyeda.hardware-lifecycle.acceptance-report.v1" },
+    "status": { "const": "PASSED" },
+    "restorationVerified": { "const": true },
+    "protectedFieldsVerified": { "const": true },
+    "scope": { "type": "object" },
+    "evidence": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  },
+  "additionalProperties": false
+}

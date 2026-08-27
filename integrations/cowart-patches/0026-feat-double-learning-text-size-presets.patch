@@ -1,0 +1,234 @@
+From dfc64ba15c3c50da728df724d3e0e2b77a31910a Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Tue, 25 Aug 2026 20:23:34 +0800
+Subject: [PATCH] feat: double learning text size presets
+
+---
+ scripts/probe-hardware-learning.mjs | 12 ++++++
+ src/learning-canvas/model.js        | 37 ++++++++++++----
+ src/learning-canvas/model.test.mjs  | 65 +++++++++++++++++++++++++++--
+ 3 files changed, 102 insertions(+), 12 deletions(-)
+
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index 1125cc5..6b5a32b 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -85,6 +85,18 @@ assert.match(inlineEditorSource, /保持文本工具/);
+ assert.match(learningCanvasSource, /toolAfterInlineTextEdit/);
+ assert.doesNotMatch(inlineEditorSource, /<foreignObject/);
+ 
++const modelSource = await readFile(
++  new URL("../src/learning-canvas/model.js", import.meta.url),
++  "utf8",
++);
++const learningShapeSource = await readFile(
++  new URL("../src/learning-canvas/LearningShape.jsx", import.meta.url),
++  "utf8",
++);
++assert.match(modelSource, /fontSize: 26, lineHeight: 36/);
++assert.match(modelSource, /fontSize: 56, lineHeight: 72/);
++assert.match(learningShapeSource, /fontSize="15"/);
++
+ const historySource = await readFile(
+   new URL("../src/learning-canvas/history.js", import.meta.url),
+   "utf8",
+diff --git a/src/learning-canvas/model.js b/src/learning-canvas/model.js
+index 2cfa0ae..8da635e 100644
+--- a/src/learning-canvas/model.js
++++ b/src/learning-canvas/model.js
+@@ -23,11 +23,12 @@ const LEARNING_FILLS = new Set(['none', 'semi', 'solid'])
+ const LEARNING_DASHES = new Set(['draw', 'dashed', 'dotted', 'solid'])
+ const LEARNING_SIZES = new Set(['s', 'm', 'l', 'xl'])
+ const NEXT_FRAME_NUMBER_META = 'cowartLearningNextFrameNumber'
++const LEARNING_TEXT_METRICS_VERSION = 2
+ const LEARNING_TEXT_METRICS = Object.freeze({
+-  s: Object.freeze({ fontSize: 13, lineHeight: 18 }),
+-  m: Object.freeze({ fontSize: 15, lineHeight: 20 }),
+-  l: Object.freeze({ fontSize: 20, lineHeight: 27 }),
+-  xl: Object.freeze({ fontSize: 28, lineHeight: 36 })
++  s: Object.freeze({ fontSize: 26, lineHeight: 36 }),
++  m: Object.freeze({ fontSize: 30, lineHeight: 40 }),
++  l: Object.freeze({ fontSize: 40, lineHeight: 54 }),
++  xl: Object.freeze({ fontSize: 56, lineHeight: 72 })
+ })
+ 
+ export function normalizeLearningStyle(style = {}) {
+@@ -126,7 +127,7 @@ export function learningTextBoundsForContent({
+   const defaultWidth = note ? 260 : 320
+   const maxWidth = 720
+   const minHeight = note ? 120 : 54
+-  const maxHeight = 960
++  const maxHeight = 4096
+   const hardLineWidth = Math.max(
+     0,
+     ...String(text || '').split(/\r?\n/u).map((line) => estimateLearningTextLineWidth(line, normalizedStyle.size))
+@@ -422,7 +423,11 @@ export function createTextShape({ snapshot, pageId, point, text, style, bounds,
+   })
+   return {
+     ...shape,
+-    meta: { ...shape.meta, cowartLearningTextAutoSize: autoSize }
++    meta: {
++      ...shape.meta,
++      cowartLearningTextAutoSize: autoSize,
++      cowartLearningTextMetricsVersion: LEARNING_TEXT_METRICS_VERSION
++    }
+   }
+ }
+ 
+@@ -460,6 +465,7 @@ export function createNoteShape({ snapshot, pageId, point, text, bounds, command
+     meta: learningMeta('note', {
+       cowartLearningText: noteText,
+       cowartLearningTextAutoSize: autoSize,
++      cowartLearningTextMetricsVersion: LEARNING_TEXT_METRICS_VERSION,
+       cowartLearningBounds: { x: 0, y: 0, w: noteBounds.w, h: noteBounds.h },
+       ...commandMeta(command)
+     }),
+@@ -497,6 +503,7 @@ export function updateLearningTextShapeContent(shape, text, style) {
+     meta: {
+       ...shape.meta,
+       cowartLearningText: String(text || ''),
++      cowartLearningTextMetricsVersion: LEARNING_TEXT_METRICS_VERSION,
+       cowartLearningBounds: { x: 0, y: 0, w: dimensions.w, h: dimensions.h }
+     },
+     props: {
+@@ -646,13 +653,24 @@ export function shapeForAnnotationCommand(snapshot, command) {
+ }
+ 
+ export function migrateLegacyLearningFrames(snapshot) {
+-  if (!snapshot?.store) return { snapshot, changed: false, migratedShapeIds: [], numberedFrameIds: [], updatedFrameNumberPageIds: [], repairedStrokeIds: [] }
++  if (!snapshot?.store) return { snapshot, changed: false, migratedShapeIds: [], numberedFrameIds: [], updatedFrameNumberPageIds: [], repairedStrokeIds: [], reflowedTextShapeIds: [] }
+   const next = cloneSnapshot(snapshot)
+   const migratedShapeIds = []
+   const numberedFrameIds = []
+   const updatedFrameNumberPageIds = []
+   const repairedStrokeIds = []
++  const reflowedTextShapeIds = []
+   for (const shape of Object.values(next.store)) {
++    if (
++      shape?.typeName === 'shape' &&
++      ['text', 'note'].includes(shape.meta?.cowartLearningKind) &&
++      shape.meta?.cowartLearningTextMetricsVersion !== LEARNING_TEXT_METRICS_VERSION
++    ) {
++      const updated = updateLearningTextShapeContent(shape, shape.meta?.cowartLearningText || '')
++      next.store[shape.id] = updated
++      reflowedTextShapeIds.push(shape.id)
++      continue
++    }
+     if (
+       shape?.typeName === 'shape' &&
+       (shape.type === 'draw' || shape.type === 'highlight') &&
+@@ -719,14 +737,15 @@ export function migrateLegacyLearningFrames(snapshot) {
+       updatedFrameNumberPageIds.push(page.id)
+     }
+   }
+-  const changed = migratedShapeIds.length > 0 || numberedFrameIds.length > 0 || updatedFrameNumberPageIds.length > 0 || repairedStrokeIds.length > 0
++  const changed = migratedShapeIds.length > 0 || numberedFrameIds.length > 0 || updatedFrameNumberPageIds.length > 0 || repairedStrokeIds.length > 0 || reflowedTextShapeIds.length > 0
+   return {
+     snapshot: changed ? next : snapshot,
+     changed,
+     migratedShapeIds,
+     numberedFrameIds,
+     updatedFrameNumberPageIds,
+-    repairedStrokeIds
++    repairedStrokeIds,
++    reflowedTextShapeIds
+   }
+ }
+ 
+diff --git a/src/learning-canvas/model.test.mjs b/src/learning-canvas/model.test.mjs
+index cc1d243..201a76e 100644
+--- a/src/learning-canvas/model.test.mjs
++++ b/src/learning-canvas/model.test.mjs
+@@ -17,6 +17,7 @@ import {
+   duplicateLearningShapes,
+   layoutLearningText,
+   learningTextBoundsForContent,
++  learningTextMetricsForSize,
+   learningFrameNumber,
+   migrateLegacyLearningFrames,
+   nextLearningFrameNumber,
+@@ -228,8 +229,8 @@ test('text size is preserved in the standalone SVG export', () => {
+   })
+   snapshot = addShape(snapshot, text)
+   const result = buildLearningCanvasSvg({ snapshot, pageId: 'page:page' })
+-  assert.match(result.svg, /font-size="28"/u)
+-  assert.match(result.svg, /dy="37">可调字号<\/tspan>/u)
++  assert.match(result.svg, /font-size="56"/u)
++  assert.match(result.svg, /dy="65">可调字号<\/tspan>/u)
+ })
+ 
+ test('text and notes derive visible bounds from their full content', () => {
+@@ -293,11 +294,69 @@ test('font size changes grow notes so persisted and exported text is not clipped
+   assert.equal(styled.snapshot.store[note.id].props.size, 'xl')
+   assert.ok(styled.snapshot.store[note.id].props.h > note.props.h)
+   const result = buildLearningCanvasSvg({ snapshot: styled.snapshot, pageId: 'page:page' })
+-  assert.match(result.svg, /font-size="28"/u)
++  assert.match(result.svg, /font-size="56"/u)
+   const exportedText = [...result.svg.matchAll(/<tspan[^>]*>(.*?)<\/tspan>/gu)].map((match) => match[1]).join('')
+   assert.equal(exportedText, noteText)
+ })
+ 
++test('text size controls use doubled metrics without changing learning frame bounds', () => {
++  assert.deepEqual(learningTextMetricsForSize('s'), { fontSize: 26, lineHeight: 36 })
++  assert.deepEqual(learningTextMetricsForSize('m'), { fontSize: 30, lineHeight: 40 })
++  assert.deepEqual(learningTextMetricsForSize('l'), { fontSize: 40, lineHeight: 54 })
++  assert.deepEqual(learningTextMetricsForSize('xl'), { fontSize: 56, lineHeight: 72 })
++
++  let snapshot = fixtureSnapshot()
++  const frame = createFrameShape({
++    snapshot,
++    pageId: 'page:page',
++    bounds: { x: 120, y: 100, w: 200, h: 140 },
++    id: 'shape:fixed-frame'
++  })
++  snapshot = addShape(snapshot, frame)
++  const before = structuredClone(snapshot.store[frame.id])
++  const styled = styleLearningShapes(snapshot, [frame.id], { size: 'xl' })
++  const after = styled.snapshot.store[frame.id]
++
++  assert.deepEqual({ x: after.x, y: after.y, w: after.props.w, h: after.props.h }, {
++    x: before.x,
++    y: before.y,
++    w: before.props.w,
++    h: before.props.h
++  })
++  assert.deepEqual(after.meta.cowartLearningBounds, before.meta.cowartLearningBounds)
++  assert.equal(after.meta.cowartLearningFrameNumber, before.meta.cowartLearningFrameNumber)
++})
++
++test('legacy text reflows once for doubled metrics while frames remain untouched', () => {
++  let snapshot = fixtureSnapshot()
++  const frame = createFrameShape({
++    snapshot,
++    pageId: 'page:page',
++    bounds: { x: 20, y: 30, w: 180, h: 110 },
++    id: 'shape:migration-frame'
++  })
++  snapshot = addShape(snapshot, frame)
++  const note = createNoteShape({
++    snapshot,
++    pageId: 'page:page',
++    point: { x: 240, y: 30 },
++    text: '字号迁移后仍需完整显示'.repeat(12),
++    style: { size: 'm' },
++    id: 'shape:legacy-font-note'
++  })
++  delete note.meta.cowartLearningTextMetricsVersion
++  note.props.h = 120
++  note.meta.cowartLearningBounds.h = 120
++  snapshot = addShape(snapshot, note)
++  const frameBefore = structuredClone(snapshot.store[frame.id])
++
++  const migrated = migrateLegacyLearningFrames(snapshot)
++  assert.deepEqual(migrated.reflowedTextShapeIds, [note.id])
++  assert.ok(migrated.snapshot.store[note.id].props.h > 120)
++  assert.deepEqual(migrated.snapshot.store[frame.id], frameBefore)
++  assert.equal(migrateLegacyLearningFrames(migrated.snapshot).changed, false)
++})
++
+ test('schematic evidence lock state is explicit and does not affect annotations', () => {
+   const initial = fixtureSnapshot()
+   const frame = createFrameShape({
+-- 
+2.55.0.windows.3
+

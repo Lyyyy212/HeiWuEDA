@@ -1,0 +1,114 @@
+From 1c242a6ce56a6c1bcaa51435b0a047c46c5f96fb Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Wed, 26 Aug 2026 13:28:39 +0800
+Subject: [PATCH] fix: stop fullscreen resize feedback loops
+
+---
+ mcp/lib/widget-resource.mjs      | 20 ++++++++++++++++++--
+ mcp/lib/widget-resource.test.mjs | 27 +++++++++++++++++++++++++++
+ package.json                     |  2 +-
+ 3 files changed, 46 insertions(+), 3 deletions(-)
+ create mode 100644 mcp/lib/widget-resource.test.mjs
+
+diff --git a/mcp/lib/widget-resource.mjs b/mcp/lib/widget-resource.mjs
+index 8d2e3ee..d6d49f7 100644
+--- a/mcp/lib/widget-resource.mjs
++++ b/mcp/lib/widget-resource.mjs
+@@ -115,6 +115,8 @@ function mcpHostBridgeScript(appVersion) {
+   if (!apps || typeof apps.App !== "function") return;
+ 
+   let mcpApp = null;
++  let hostDisplayMode = window.__COWART_INITIAL_DISPLAY_MODE__ || "";
++  let lastReportedSize = null;
+ 
+   function publishHostGlobals(globals) {
+     window.openai = Object.assign(window.openai || {}, globals);
+@@ -125,6 +127,7 @@ function mcpHostBridgeScript(appVersion) {
+ 
+   function applyHostContext(context) {
+     if (!context) return;
++    if (context.displayMode) hostDisplayMode = context.displayMode;
+     try {
+       if (context.theme && typeof apps.applyDocumentTheme === "function") {
+         apps.applyDocumentTheme(context.theme);
+@@ -188,8 +191,18 @@ function mcpHostBridgeScript(appVersion) {
+ 
+   function sendCurrentSize() {
+     if (!mcpApp || typeof mcpApp.sendSizeChanged !== "function") return;
++    // A fullscreen canvas is sized by Codex. Reporting that same size back to
++    // the host creates a ResizeObserver feedback loop while the user resizes
++    // the panel and can leave Chromium's widget surface blank.
++    const displayMode = hostDisplayMode || window.openai?.displayMode || "";
++    if (displayMode === "fullscreen") return;
+     try {
+-      mcpApp.sendSizeChanged(currentSize());
++      const size = currentSize();
++      if (size.width <= 0 || size.height <= 0) return;
++      if (lastReportedSize?.width === size.width && lastReportedSize?.height === size.height) return;
++      lastReportedSize = size;
++      const pending = mcpApp.sendSizeChanged(size);
++      if (pending && typeof pending.catch === "function") pending.catch(() => {});
+     } catch (_error) {
+       // Hosts without size notifications can keep the default widget size.
+     }
+@@ -294,7 +307,10 @@ function mcpHostBridgeScript(appVersion) {
+     mcpApp = new apps.App(
+       { name: "cowart", version: ${JSON.stringify(appVersion)} },
+       { availableDisplayModes: ["inline", "fullscreen"] },
+-      { autoResize: true },
++      // The canvas fills the host-provided viewport. The ext-apps automatic
++      // document/body ResizeObserver mutates document height while measuring,
++      // which can feed back into Codex's container sizing during panel resize.
++      { autoResize: false },
+     );
+     globalThis.__COWART_MCP_APP__ = mcpApp;
+     installCowartApi(mcpApp);
+diff --git a/mcp/lib/widget-resource.test.mjs b/mcp/lib/widget-resource.test.mjs
+new file mode 100644
+index 0000000..54fb143
+--- /dev/null
++++ b/mcp/lib/widget-resource.test.mjs
+@@ -0,0 +1,27 @@
++import assert from "node:assert/strict";
++import test from "node:test";
++
++import { inlineWidget } from "./widget-resource.mjs";
++
++function renderBridge(initialDisplayMode) {
++  return inlineWidget({
++    html: "<!doctype html><html><head></head><body><main id=\"root\"></main></body></html>",
++    appVersion: "0.1.27+codex.resize-test",
++    initialDisplayMode,
++  });
++}
++
++test("Cowart disables the ext-apps ResizeObserver feedback loop", () => {
++  const html = renderBridge("fullscreen");
++
++  assert.match(html, /\{ autoResize: false \}/);
++  assert.doesNotMatch(html, /\{ autoResize: true \}/);
++});
++
++test("fullscreen canvases do not report their host-owned size back to Codex", () => {
++  const html = renderBridge("fullscreen");
++
++  assert.match(html, /if \(displayMode === "fullscreen"\) return;/);
++  assert.match(html, /lastReportedSize\?\.width === size\.width/);
++  assert.match(html, /lastReportedSize\?\.height === size\.height/);
++});
+diff --git a/package.json b/package.json
+index cf90688..a161633 100644
+--- a/package.json
++++ b/package.json
+@@ -18,7 +18,7 @@
+     "probe:analytics": "node ./scripts/probe-analytics.mjs",
+     "probe:hardware-learning": "node ./scripts/probe-hardware-learning.mjs",
+     "probe:learning-tools": "node ./scripts/probe-learning-tools.mjs",
+-    "test:learning-canvas": "node --test ./src/learning-canvas/model.test.mjs ./src/learning-canvas/history.test.mjs ./src/learning-canvas/interaction.test.mjs ./src/learning-canvas/textEditing.test.mjs ./src/cowartClient.test.mjs ./mcp/learning/conversation-question.test.mjs",
++    "test:learning-canvas": "node --test ./src/learning-canvas/model.test.mjs ./src/learning-canvas/history.test.mjs ./src/learning-canvas/interaction.test.mjs ./src/learning-canvas/textEditing.test.mjs ./src/cowartClient.test.mjs ./mcp/learning/conversation-question.test.mjs ./mcp/lib/widget-resource.test.mjs",
+     "probe:ga4": "node ./scripts/probe-ga4.mjs",
+     "quality": "npm run check:plugin && npm run check && npm run test:learning-canvas && npm run check:artifacts && npm run probe:hardware-learning && npm run probe:learning-tools && npm run probe:mcp:cold && npm run probe:mcp && npm run probe:analytics && npm run probe:ga4"
+   },
+-- 
+2.55.0.windows.3
+

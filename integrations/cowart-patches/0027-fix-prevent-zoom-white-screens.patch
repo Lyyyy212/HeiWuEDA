@@ -1,0 +1,271 @@
+From 7758171fa760a18569249c41e8da0bc4517c9484 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Tue, 25 Aug 2026 20:39:28 +0800
+Subject: [PATCH] fix: prevent zoom white screens
+
+---
+ scripts/probe-hardware-learning.mjs           |  5 +++
+ .../HardwareLearningCanvas.jsx                | 17 +++++---
+ src/learning-canvas/interaction.js            |  4 +-
+ src/learning-canvas/interaction.test.mjs      | 18 +++++++++
+ src/learning-canvas/model.js                  | 39 +++++++++++++++----
+ src/learning-canvas/model.test.mjs            | 23 ++++++++++-
+ 6 files changed, 91 insertions(+), 15 deletions(-)
+
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index 6b5a32b..0417f3a 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -65,6 +65,9 @@ assert.match(learningCanvasSource, /selectionRevisionRef/);
+ assert.match(learningCanvasSource, /buildLearningCanvasSvg/);
+ assert.match(learningCanvasSource, /createHistoryManager/);
+ assert.match(learningCanvasSource, /cameraAfterWheel/);
++assert.match(learningCanvasSource, /className="learning-canvas-grid"/);
++assert.match(learningCanvasSource, /normalizeCamera\(loaded\.viewState\?\.camera/);
++assert.doesNotMatch(learningCanvasSource, /height=\{100000\}|width=\{100000\}|x=\{-50000\}|y=\{-50000\}/);
+ assert.match(learningCanvasSource, /selectionForShapePointerDown/);
+ assert.match(learningCanvasSource, /translateCanvasSelection/);
+ assert.match(learningCanvasSource, /onPointerCancel=\{handlePointerCancel\}/);
+@@ -95,6 +98,8 @@ const learningShapeSource = await readFile(
+ );
+ assert.match(modelSource, /fontSize: 26, lineHeight: 36/);
+ assert.match(modelSource, /fontSize: 56, lineHeight: 72/);
++assert.match(modelSource, /MAX_CAMERA_ZOOM = 4/);
++assert.match(modelSource, /MIN_CAMERA_ZOOM = 0\.08/);
+ assert.match(learningShapeSource, /fontSize="15"/);
+ 
+ const historySource = await readFile(
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index 10b4c5c..9a18467 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -64,6 +64,7 @@ import {
+   duplicateLearningShapes,
+   fitCamera,
+   migrateLegacyLearningFrames,
++  normalizeCamera,
+   normalizeBounds,
+   normalizeLearningStyle,
+   pageBoundsForShape,
+@@ -293,8 +294,9 @@ export default function HardwareLearningCanvas() {
+   const setViewState = useCallback((updater) => {
+     setView((current) => {
+       const next = typeof updater === 'function' ? updater(current) : updater
+-      viewRef.current = next
+-      return next
++      const normalized = { ...next, camera: normalizeCamera(next.camera) }
++      viewRef.current = normalized
++      return normalized
+     })
+   }, [])
+ 
+@@ -313,7 +315,7 @@ export default function HardwareLearningCanvas() {
+         const loadedView = {
+           version: 1,
+           currentPageId,
+-          camera: loaded.viewState?.camera || DEFAULT_CAMERA
++          camera: normalizeCamera(loaded.viewState?.camera || DEFAULT_CAMERA)
+         }
+         snapshotRef.current = migration.snapshot
+         historyRef.current.clear()
+@@ -1159,6 +1161,9 @@ export default function HardwareLearningCanvas() {
+     h: rootRef.current.clientHeight / camera.z
+   } : null
+   const panelStyle = noteDraft?.style ? normalizeLearningStyle(noteDraft.style) : style
++  const gridStep = Math.max(2, 28 * camera.z)
++  const gridOriginX = ((camera.x % gridStep) + gridStep) % gridStep
++  const gridOriginY = ((camera.y % gridStep) + gridStep) % gridStep
+ 
+   return (
+     <main className="learning-canvas-shell" data-engine="cowart-learning-canvas-v2">
+@@ -1175,15 +1180,15 @@ export default function HardwareLearningCanvas() {
+         {snapshot && pageId ? (
+           <svg aria-label="硬件学习画布" className="learning-canvas-svg" data-testid="learning-canvas-svg">
+             <defs>
+-              <pattern height="28" id="learning-grid-small" patternUnits="userSpaceOnUse" width="28">
+-                <circle cx="1" cy="1" fill="#d7dce3" r="1" />
++              <pattern height={gridStep} id="learning-grid-small" patternUnits="userSpaceOnUse" width={gridStep} x={gridOriginX} y={gridOriginY}>
++                {gridStep >= 6 && <circle cx="1" cy="1" fill="#d7dce3" r="1" />}
+               </pattern>
+               <marker id="learning-arrow" markerHeight="10" markerWidth="10" orient="auto" refX="8" refY="3">
+                 <path d="M0,0 L0,6 L9,3 z" fill="context-stroke" />
+               </marker>
+             </defs>
++            <rect className="learning-canvas-grid" fill="url(#learning-grid-small)" height="100%" pointerEvents="none" width="100%" />
+             <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.z})`}>
+-              <rect fill="url(#learning-grid-small)" height={100000} pointerEvents="none" width={100000} x={-50000} y={-50000} />
+               {visibleShapes.map((shape) => (
+                 <LearningShape
+                   assetSources={assetSources}
+diff --git a/src/learning-canvas/interaction.js b/src/learning-canvas/interaction.js
+index c81eff7..e642e89 100644
+--- a/src/learning-canvas/interaction.js
++++ b/src/learning-canvas/interaction.js
+@@ -1,6 +1,7 @@
+ import { translateShape, updateShapes, zoomCameraAt } from './model.js'
+ 
+ const LINE_DELTA_PIXELS = 16
++const MAX_WHEEL_ZOOM_DELTA = 160
+ 
+ export function isTextEditingTarget(target) {
+   const tagName = String(target?.tagName || '').toUpperCase()
+@@ -71,8 +72,9 @@ export function cameraAfterWheel(camera, wheel, screenPoint, viewport = {}) {
+     }
+   }
+ 
++  const boundedDeltaY = Math.min(MAX_WHEEL_ZOOM_DELTA, Math.max(-MAX_WHEEL_ZOOM_DELTA, deltaY))
+   return {
+-    camera: zoomCameraAt(camera, screenPoint, camera.z * Math.exp(-deltaY * 0.002)),
++    camera: zoomCameraAt(camera, screenPoint, camera.z * Math.exp(-boundedDeltaY * 0.002)),
+     kind: 'zoom'
+   }
+ }
+diff --git a/src/learning-canvas/interaction.test.mjs b/src/learning-canvas/interaction.test.mjs
+index 48b5c84..7c69a13 100644
+--- a/src/learning-canvas/interaction.test.mjs
++++ b/src/learning-canvas/interaction.test.mjs
+@@ -67,6 +67,24 @@ test('wheel zooms at the pointer, shift pans horizontally, and ctrl remains zoom
+   assert.ok(ctrlZoomed.camera.z < 1)
+ })
+ 
++test('extreme wheel input stays finite and approaches safe zoom limits gradually', () => {
++  const pointer = { x: 400, y: 300 }
++  const zoomedIn = cameraAfterWheel(
++    { x: 0, y: 0, z: 1 },
++    { deltaX: 0, deltaY: Number.NEGATIVE_INFINITY, deltaMode: 0 },
++    pointer
++  ).camera
++  const zoomedOut = cameraAfterWheel(
++    { x: 0, y: 0, z: 1 },
++    { deltaX: 0, deltaY: Number.POSITIVE_INFINITY, deltaMode: 0 },
++    pointer
++  ).camera
++  assert.ok(zoomedIn.z > 1 && zoomedIn.z < 4)
++  assert.ok(zoomedOut.z < 1 && zoomedOut.z > 0.08)
++  assert.ok(Object.values(zoomedIn).every(Number.isFinite))
++  assert.ok(Object.values(zoomedOut).every(Number.isFinite))
++})
++
+ test('keyboard helpers implement nudge and layered Escape', () => {
+   assert.deepEqual(nudgeDeltaForKey('ArrowLeft'), { x: -1, y: 0 })
+   assert.deepEqual(nudgeDeltaForKey('ArrowDown', { shiftKey: true }), { x: 0, y: 10 })
+diff --git a/src/learning-canvas/model.js b/src/learning-canvas/model.js
+index 8da635e..9697f70 100644
+--- a/src/learning-canvas/model.js
++++ b/src/learning-canvas/model.js
+@@ -1050,23 +1050,48 @@ export function resizeRectangleShape(shape, bounds) {
+   }
+ }
+ 
++export const MIN_CAMERA_ZOOM = 0.08
++export const MAX_CAMERA_ZOOM = 4
++
++export function normalizeCamera(camera = {}) {
++  const rawZoom = Number(camera?.z)
++  const z = Number.isFinite(rawZoom) && rawZoom > 0
++    ? Math.min(MAX_CAMERA_ZOOM, Math.max(MIN_CAMERA_ZOOM, rawZoom))
++    : 1
++  return {
++    x: Number.isFinite(Number(camera?.x)) ? Number(camera.x) : 0,
++    y: Number.isFinite(Number(camera?.y)) ? Number(camera.y) : 0,
++    z
++  }
++}
++
+ export function pageToScreen(point, camera) {
++  const safeCamera = normalizeCamera(camera)
+   return {
+-    x: point.x * camera.z + camera.x,
+-    y: point.y * camera.z + camera.y
++    x: point.x * safeCamera.z + safeCamera.x,
++    y: point.y * safeCamera.z + safeCamera.y
+   }
+ }
+ 
+ export function screenToPage(point, camera) {
++  const safeCamera = normalizeCamera(camera)
+   return {
+-    x: (point.x - camera.x) / camera.z,
+-    y: (point.y - camera.y) / camera.z
++    x: (point.x - safeCamera.x) / safeCamera.z,
++    y: (point.y - safeCamera.y) / safeCamera.z
+   }
+ }
+ 
+ export function zoomCameraAt(camera, screenPoint, zoom) {
+-  const nextZoom = Math.min(8, Math.max(0.08, zoom))
+-  const pagePoint = screenToPage(screenPoint, camera)
++  const safeCamera = normalizeCamera(camera)
++  const requestedZoom = Number(zoom)
++  const nextZoom = Number.isFinite(requestedZoom)
++    ? Math.min(MAX_CAMERA_ZOOM, Math.max(MIN_CAMERA_ZOOM, requestedZoom))
++    : requestedZoom === Number.POSITIVE_INFINITY
++      ? MAX_CAMERA_ZOOM
++      : requestedZoom === Number.NEGATIVE_INFINITY
++        ? MIN_CAMERA_ZOOM
++        : safeCamera.z
++  const pagePoint = screenToPage(screenPoint, safeCamera)
+   return {
+     x: screenPoint.x - pagePoint.x * nextZoom,
+     y: screenPoint.y - pagePoint.y * nextZoom,
+@@ -1078,7 +1103,7 @@ export function fitCamera(bounds, viewport, padding = 72) {
+   if (!bounds || viewport.width <= 0 || viewport.height <= 0) return { x: 0, y: 0, z: 1 }
+   const availableWidth = Math.max(1, viewport.width - padding * 2)
+   const availableHeight = Math.max(1, viewport.height - padding * 2)
+-  const z = Math.min(4, Math.max(0.08, Math.min(availableWidth / bounds.w, availableHeight / bounds.h)))
++  const z = Math.min(MAX_CAMERA_ZOOM, Math.max(MIN_CAMERA_ZOOM, Math.min(availableWidth / bounds.w, availableHeight / bounds.h)))
+   return {
+     x: (viewport.width - bounds.w * z) / 2 - bounds.x * z,
+     y: (viewport.height - bounds.h * z) / 2 - bounds.y * z,
+diff --git a/src/learning-canvas/model.test.mjs b/src/learning-canvas/model.test.mjs
+index 201a76e..0f8de7a 100644
+--- a/src/learning-canvas/model.test.mjs
++++ b/src/learning-canvas/model.test.mjs
+@@ -19,15 +19,20 @@ import {
+   learningTextBoundsForContent,
+   learningTextMetricsForSize,
+   learningFrameNumber,
++  MAX_CAMERA_ZOOM,
+   migrateLegacyLearningFrames,
++  MIN_CAMERA_ZOOM,
+   nextLearningFrameNumber,
++  normalizeCamera,
+   pageBoundsForShape,
+   resizeRectangleShape,
++  screenToPage,
+   selectionState,
+   setImageLockState,
+   shapeRole,
+   styleLearningShapes,
+-  updateLearningTextShapeContent
++  updateLearningTextShapeContent,
++  zoomCameraAt
+ } from './model.js'
+ 
+ function fixtureSnapshot() {
+@@ -60,6 +65,22 @@ function fixtureSnapshot() {
+   }
+ }
+ 
++test('camera normalization repairs invalid state and zoom remains within render-safe bounds', () => {
++  assert.deepEqual(normalizeCamera({ x: Number.NaN, y: Number.POSITIVE_INFINITY, z: 0 }), { x: 0, y: 0, z: 1 })
++  assert.deepEqual(normalizeCamera({ x: 12, y: -8, z: 100 }), { x: 12, y: -8, z: MAX_CAMERA_ZOOM })
++
++  const anchor = { x: 320, y: 240 }
++  const camera = { x: -120, y: 35, z: 1.5 }
++  const pageBefore = screenToPage(anchor, camera)
++  const zoomedIn = zoomCameraAt(camera, anchor, Number.POSITIVE_INFINITY)
++  const zoomedOut = zoomCameraAt(camera, anchor, Number.NEGATIVE_INFINITY)
++  assert.equal(zoomedIn.z, MAX_CAMERA_ZOOM)
++  assert.equal(zoomedOut.z, MIN_CAMERA_ZOOM)
++  assert.deepEqual(screenToPage(anchor, zoomedIn), pageBefore)
++  assert.ok(Object.values(zoomedIn).every(Number.isFinite))
++  assert.ok(Object.values(zoomedOut).every(Number.isFinite))
++})
++
+ test('learning frame has explicit semantics and selection revision', () => {
+   const initial = fixtureSnapshot()
+   const frame = createFrameShape({
+-- 
+2.55.0.windows.3
+

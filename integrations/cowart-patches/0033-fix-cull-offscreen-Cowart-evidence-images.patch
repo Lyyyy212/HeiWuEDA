@@ -1,0 +1,387 @@
+From 83a48511975fccea341e438d6b02449582738253 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Wed, 26 Aug 2026 14:03:24 +0800
+Subject: [PATCH] fix: cull offscreen Cowart evidence images
+
+---
+ scripts/probe-hardware-learning.mjs           |   8 +
+ .../HardwareLearningCanvas.jsx                | 159 ++++++++++++------
+ src/learning-canvas/model.js                  |  14 ++
+ src/learning-canvas/model.test.mjs            |  19 +++
+ src/learning-canvas/styles.css                |   3 +-
+ 5 files changed, 149 insertions(+), 54 deletions(-)
+
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index f6e2d38..0263e0d 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -66,6 +66,11 @@ assert.match(learningCanvasSource, /buildLearningCanvasSvg/);
+ assert.match(learningCanvasSource, /createHistoryManager/);
+ assert.match(learningCanvasSource, /cameraAfterWheel/);
+ assert.match(learningCanvasSource, /className="learning-canvas-grid"/);
++assert.match(learningCanvasSource, /shapeIntersectsViewport/);
++assert.match(learningCanvasSource, /data-rendered-image-count/);
++assert.match(learningCanvasSource, /learning-canvas-viewport-clip/);
++assert.match(learningCanvasSource, /addEventListener\('wheel', handleWheel, \{ passive: false \}\)/);
++assert.doesNotMatch(learningCanvasSource, /onWheel=\{handleWheel\}/);
+ assert.match(learningCanvasSource, /normalizeCamera\(loaded\.viewState\?\.camera/);
+ assert.doesNotMatch(learningCanvasSource, /height=\{100000\}|width=\{100000\}|x=\{-50000\}|y=\{-50000\}/);
+ assert.match(learningCanvasSource, /shouldBeginTextEditFromPointerDown/);
+@@ -104,6 +109,7 @@ assert.match(modelSource, /fontSize: 26, lineHeight: 36/);
+ assert.match(modelSource, /fontSize: 56, lineHeight: 72/);
+ assert.match(modelSource, /MAX_CAMERA_ZOOM = 4/);
+ assert.match(modelSource, /MIN_CAMERA_ZOOM = 0\.08/);
++assert.match(modelSource, /export function shapeIntersectsViewport/);
+ assert.match(learningShapeSource, /fontSize="15"/);
+ 
+ const historySource = await readFile(
+@@ -131,6 +137,8 @@ const learningStylesSource = await readFile(
+   "utf8",
+ );
+ assert.match(learningStylesSource, /\.learning-inline-editor/);
++assert.match(learningStylesSource, /\.learning-canvas-viewport \{[\s\S]*?contain: strict;/);
++assert.match(learningStylesSource, /\.learning-canvas-svg \{[\s\S]*?overflow: hidden;/);
+ assert.doesNotMatch(learningStylesSource, /\.learning-note-dialog|\.learning-dialog-backdrop/);
+ 
+ const viteSource = await readFile(new URL("../vite.config.js", import.meta.url), "utf8");
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index fbe23b4..c537ea3 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -73,6 +73,7 @@ import {
+   screenToPage,
+   selectionState,
+   setImageLockState,
++  shapeIntersectsViewport,
+   shapesForPage,
+   styleLearningShapes,
+   translateShape,
+@@ -139,6 +140,7 @@ const FILL_OPTIONS = [['none', '无'], ['semi', '浅色'], ['solid', '实色']]
+ const DASH_OPTIONS = [['draw', '手绘'], ['dashed', '虚线'], ['dotted', '点线'], ['solid', '实线']]
+ const SIZE_OPTIONS = [['s', '小'], ['m', '中'], ['l', '大'], ['xl', '特大']]
+ const DEFAULT_EXPORT_DIRECTORY_LABEL = '默认：下载/Cowart学习画板'
++const VIEWPORT_IMAGE_OVERSCAN_PX = 512
+ 
+ const DEFAULT_CAMERA = { x: 0, y: 0, z: 1 }
+ const EMPTY_VIEW_STATE = { version: 1, currentPageId: null, camera: DEFAULT_CAMERA }
+@@ -243,6 +245,7 @@ export default function HardwareLearningCanvas() {
+   const [lastExport, setLastExport] = useState(null)
+   const [minimapOpen, setMinimapOpen] = useState(false)
+   const [spacePanActive, setSpacePanActive] = useState(false)
++  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 })
+ 
+   const pages = useMemo(() => pageRecords(snapshot), [snapshot])
+   const pageId = view.currentPageId || pages[0]?.id || null
+@@ -251,6 +254,42 @@ export default function HardwareLearningCanvas() {
+     () => pageId && snapshot ? shapesForPage(snapshot, pageId) : [],
+     [snapshot, pageId]
+   )
++  const viewportBounds = useMemo(() => {
++    if (viewportSize.width <= 0 || viewportSize.height <= 0) return null
++    return {
++      x: -camera.x / camera.z,
++      y: -camera.y / camera.z,
++      w: viewportSize.width / camera.z,
++      h: viewportSize.height / camera.z
++    }
++  }, [camera, viewportSize])
++  const viewportImageShapes = useMemo(() => {
++    if (!snapshot || !viewportBounds) return []
++    const margin = VIEWPORT_IMAGE_OVERSCAN_PX / camera.z
++    return pageShapes.filter((shape) => shape.type === 'image' &&
++      shapeIntersectsViewport(snapshot.store, shape, viewportBounds, margin))
++  }, [snapshot, pageShapes, viewportBounds, camera.z])
++
++  useEffect(() => {
++    let animationFrame = 0
++    const measureViewport = () => {
++      window.cancelAnimationFrame(animationFrame)
++      animationFrame = window.requestAnimationFrame(() => {
++        const bounds = rootRef.current?.getBoundingClientRect()
++        const next = {
++          width: Math.max(0, Math.round(bounds?.width || window.innerWidth || 0)),
++          height: Math.max(0, Math.round(bounds?.height || window.innerHeight || 0))
++        }
++        setViewportSize((current) => current.width === next.width && current.height === next.height ? current : next)
++      })
++    }
++    measureViewport()
++    window.addEventListener('resize', measureViewport)
++    return () => {
++      window.removeEventListener('resize', measureViewport)
++      window.cancelAnimationFrame(animationFrame)
++    }
++  }, [])
+ 
+   useEffect(() => {
+     if (selectedIds.length !== 1 || !snapshot) return
+@@ -344,11 +383,12 @@ export default function HardwareLearningCanvas() {
+     return () => controller.abort()
+   }, [persistSnapshot])
+ 
+-  const ensureAssetSources = useCallback(async (targetPageId, { signal, strict = false } = {}) => {
++  const ensureAssetSources = useCallback(async (targetPageId, { signal, strict = false, shapes } = {}) => {
+     const currentSnapshot = snapshotRef.current
+     if (!currentSnapshot || !targetPageId) return assetSourcesRef.current
+     const missing = []
+-    for (const shape of shapesForPage(currentSnapshot, targetPageId)) {
++    const candidates = shapes || shapesForPage(currentSnapshot, targetPageId)
++    for (const shape of candidates) {
+       if (shape.type !== 'image') continue
+       const asset = currentSnapshot.store[shape.props?.assetId]
+       const source = asset?.props?.src
+@@ -378,11 +418,11 @@ export default function HardwareLearningCanvas() {
+   useEffect(() => {
+     if (!snapshot || !pageId) return
+     const controller = new AbortController()
+-    ensureAssetSources(pageId, { signal: controller.signal }).catch((error) => {
++    ensureAssetSources(pageId, { signal: controller.signal, shapes: viewportImageShapes }).catch((error) => {
+       if (error.name !== 'AbortError') console.error(error)
+     })
+     return () => controller.abort()
+-  }, [snapshot, pageId, pageShapes, ensureAssetSources])
++  }, [snapshot, pageId, viewportImageShapes, ensureAssetSources])
+ 
+   useEffect(() => {
+     if (!snapshot || !pageId) return
+@@ -982,7 +1022,7 @@ export default function HardwareLearningCanvas() {
+     setDraftShapes([])
+   }
+ 
+-  function handleWheel(event) {
++  const handleWheel = useCallback((event) => {
+     if (!rootRef.current) return
+     event.preventDefault()
+     const screen = pointerPosition(event, rootRef.current)
+@@ -1002,7 +1042,14 @@ export default function HardwareLearningCanvas() {
+       ...current,
+       camera: cameraAfterWheel(current.camera, wheel, screen, viewport).camera
+     }))
+-  }
++  }, [setViewState])
++
++  useEffect(() => {
++    const viewport = rootRef.current
++    if (!viewport) return undefined
++    viewport.addEventListener('wheel', handleWheel, { passive: false })
++    return () => viewport.removeEventListener('wheel', handleWheel)
++  }, [handleWheel])
+ 
+   function handlePointerCancel(event) {
+     if (!gesture || gesture.pointerId !== event.pointerId) return
+@@ -1225,16 +1272,13 @@ export default function HardwareLearningCanvas() {
+     .map((shape) => pageBoundsForShape(snapshot.store, shape)))
+   const visibleShapes = pageShapes.map((shape) => previewById.get(shape.id) || shape)
+   if (draftShape && !snapshot?.store?.[draftShape.id]) visibleShapes.push(draftShape)
++  const viewportMargin = viewportBounds ? VIEWPORT_IMAGE_OVERSCAN_PX / camera.z : 0
++  const renderedShapes = visibleShapes.filter((shape) => shape.type !== 'image' ||
++    (viewportBounds && shapeIntersectsViewport(snapshot.store, shape, viewportBounds, viewportMargin)))
+   const canUndo = historyVersion >= 0 && historyRef.current.canUndo
+   const canRedo = historyVersion >= 0 && historyRef.current.canRedo
+   const effectiveTool = spacePanActive ? 'hand' : tool
+   const contentBounds = snapshot && unionBounds(pageShapes.map((shape) => pageBoundsForShape(snapshot.store, shape)))
+-  const viewportBounds = rootRef.current ? {
+-    x: -camera.x / camera.z,
+-    y: -camera.y / camera.z,
+-    w: rootRef.current.clientWidth / camera.z,
+-    h: rootRef.current.clientHeight / camera.z
+-  } : null
+   const panelStyle = noteDraft?.style ? normalizeLearningStyle(noteDraft.style) : style
+   const gridStep = Math.max(2, 28 * camera.z)
+   const gridOriginX = ((camera.x % gridStep) + gridStep) % gridStep
+@@ -1249,11 +1293,15 @@ export default function HardwareLearningCanvas() {
+         onPointerMove={handlePointerMove}
+         onPointerUp={finishGesture}
+         onPointerCancel={handlePointerCancel}
+-        onWheel={handleWheel}
+         ref={rootRef}
+       >
+         {snapshot && pageId ? (
+-          <svg aria-label="硬件学习画布" className="learning-canvas-svg" data-testid="learning-canvas-svg">
++          <svg
++            aria-label="硬件学习画布"
++            className="learning-canvas-svg"
++            data-rendered-image-count={renderedShapes.filter((shape) => shape.type === 'image').length}
++            data-testid="learning-canvas-svg"
++          >
+             <defs>
+               <pattern height={gridStep} id="learning-grid-small" patternUnits="userSpaceOnUse" width={gridStep} x={gridOriginX} y={gridOriginY}>
+                 {gridStep >= 6 && <circle cx="1" cy="1" fill="#d7dce3" r="1" />}
+@@ -1261,47 +1309,52 @@ export default function HardwareLearningCanvas() {
+               <marker id="learning-arrow" markerHeight="10" markerWidth="10" orient="auto" refX="8" refY="3">
+                 <path d="M0,0 L0,6 L9,3 z" fill="context-stroke" />
+               </marker>
++              <clipPath clipPathUnits="userSpaceOnUse" id="learning-canvas-viewport-clip">
++                <rect height="100%" width="100%" x="0" y="0" />
++              </clipPath>
+             </defs>
+             <rect className="learning-canvas-grid" fill="url(#learning-grid-small)" height="100%" pointerEvents="none" width="100%" />
+-            <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.z})`}>
+-              {visibleShapes.map((shape) => (
+-                <LearningShape
+-                  assetSources={assetSources}
+-                  cameraZoom={camera.z}
+-                  editing={noteDraft?.shapeId === shape.id}
+-                  key={shape.id}
+-                  onDoubleClick={handleShapeDoubleClick}
+-                  onPointerDown={handleShapePointerDown}
+-                  selected={selectedIds.includes(shape.id)}
+-                  shape={shape}
+-                  snapshot={snapshot}
+-                />
+-              ))}
+-              {selectionBounds && (
+-                <g className="learning-selection-overlay">
+-                  <rect fill="none" height={selectionBounds.h} pointerEvents="none" stroke="#2563eb" strokeDasharray="6 4" strokeWidth={2 / camera.z} width={selectionBounds.w} x={selectionBounds.x} y={selectionBounds.y} />
+-                  {selectedBounds && selectedShape?.type === 'geo' && ['nw', 'ne', 'sw', 'se'].map((handle) => {
+-                    const x = handle.endsWith('w') ? selectedBounds.x : selectedBounds.x + selectedBounds.w
+-                    const y = handle.startsWith('n') ? selectedBounds.y : selectedBounds.y + selectedBounds.h
+-                    return <circle key={handle} cx={x} cy={y} onPointerDown={(event) => handleResizePointerDown(event, selectedShape, handle)} r={7 / camera.z} />
+-                  })}
+-                </g>
+-              )}
+-              {marqueeBounds && (
+-                <rect
+-                  className="learning-marquee"
+-                  fill="#3b82f6"
+-                  fillOpacity="0.08"
+-                  height={marqueeBounds.h}
+-                  pointerEvents="none"
+-                  stroke="#2563eb"
+-                  strokeDasharray="5 4"
+-                  strokeWidth={1.5 / camera.z}
+-                  width={marqueeBounds.w}
+-                  x={marqueeBounds.x}
+-                  y={marqueeBounds.y}
+-                />
+-              )}
++            <g clipPath="url(#learning-canvas-viewport-clip)">
++              <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.z})`}>
++                {renderedShapes.map((shape) => (
++                  <LearningShape
++                    assetSources={assetSources}
++                    cameraZoom={camera.z}
++                    editing={noteDraft?.shapeId === shape.id}
++                    key={shape.id}
++                    onDoubleClick={handleShapeDoubleClick}
++                    onPointerDown={handleShapePointerDown}
++                    selected={selectedIds.includes(shape.id)}
++                    shape={shape}
++                    snapshot={snapshot}
++                  />
++                ))}
++                {selectionBounds && (
++                  <g className="learning-selection-overlay">
++                    <rect fill="none" height={selectionBounds.h} pointerEvents="none" stroke="#2563eb" strokeDasharray="6 4" strokeWidth={2 / camera.z} width={selectionBounds.w} x={selectionBounds.x} y={selectionBounds.y} />
++                    {selectedBounds && selectedShape?.type === 'geo' && ['nw', 'ne', 'sw', 'se'].map((handle) => {
++                      const x = handle.endsWith('w') ? selectedBounds.x : selectedBounds.x + selectedBounds.w
++                      const y = handle.startsWith('n') ? selectedBounds.y : selectedBounds.y + selectedBounds.h
++                      return <circle key={handle} cx={x} cy={y} onPointerDown={(event) => handleResizePointerDown(event, selectedShape, handle)} r={7 / camera.z} />
++                    })}
++                  </g>
++                )}
++                {marqueeBounds && (
++                  <rect
++                    className="learning-marquee"
++                    fill="#3b82f6"
++                    fillOpacity="0.08"
++                    height={marqueeBounds.h}
++                    pointerEvents="none"
++                    stroke="#2563eb"
++                    strokeDasharray="5 4"
++                    strokeWidth={1.5 / camera.z}
++                    width={marqueeBounds.w}
++                    x={marqueeBounds.x}
++                    y={marqueeBounds.y}
++                  />
++                )}
++              </g>
+             </g>
+           </svg>
+         ) : (
+diff --git a/src/learning-canvas/model.js b/src/learning-canvas/model.js
+index 9697f70..19357c9 100644
+--- a/src/learning-canvas/model.js
++++ b/src/learning-canvas/model.js
+@@ -835,6 +835,20 @@ export function pageBoundsForShape(store, shape) {
+   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
+ }
+ 
++export function shapeIntersectsViewport(store, shape, viewport, margin = 0) {
++  if (!viewport || !shape) return false
++  const values = [viewport.x, viewport.y, viewport.w, viewport.h]
++  if (!values.every((value) => Number.isFinite(Number(value))) || viewport.w <= 0 || viewport.h <= 0) {
++    return false
++  }
++  const padding = Math.max(0, Number.isFinite(Number(margin)) ? Number(margin) : 0)
++  const bounds = pageBoundsForShape(store, shape)
++  return bounds.x + bounds.w >= viewport.x - padding &&
++    bounds.y + bounds.h >= viewport.y - padding &&
++    bounds.x <= viewport.x + viewport.w + padding &&
++    bounds.y <= viewport.y + viewport.h + padding
++}
++
+ export function unionBounds(bounds) {
+   const valid = bounds.filter(Boolean)
+   if (!valid.length) return null
+diff --git a/src/learning-canvas/model.test.mjs b/src/learning-canvas/model.test.mjs
+index 0f8de7a..2c50bcf 100644
+--- a/src/learning-canvas/model.test.mjs
++++ b/src/learning-canvas/model.test.mjs
+@@ -29,6 +29,7 @@ import {
+   screenToPage,
+   selectionState,
+   setImageLockState,
++  shapeIntersectsViewport,
+   shapeRole,
+   styleLearningShapes,
+   updateLearningTextShapeContent,
+@@ -81,6 +82,24 @@ test('camera normalization repairs invalid state and zoom remains within render-
+   assert.ok(Object.values(zoomedOut).every(Number.isFinite))
+ })
+ 
++test('viewport intersection culls distant high-resolution evidence without changing records', () => {
++  const snapshot = fixtureSnapshot()
++  const source = snapshot.store['shape:source']
++  const distant = {
++    ...source,
++    id: 'shape:distant-source',
++    x: 12_000,
++    props: { ...source.props, assetId: 'asset:source' }
++  }
++  const viewport = { x: 0, y: 0, w: 1600, h: 900 }
++
++  assert.equal(shapeIntersectsViewport(snapshot.store, source, viewport, 256), true)
++  assert.equal(shapeIntersectsViewport(snapshot.store, distant, viewport, 256), false)
++  assert.equal(shapeIntersectsViewport(snapshot.store, distant, { x: 10_500, y: 0, w: 1600, h: 900 }, 256), true)
++  assert.equal(shapeIntersectsViewport(snapshot.store, distant, null, 256), false)
++  assert.equal(snapshot.store['shape:source'].x, 100)
++})
++
+ test('learning frame has explicit semantics and selection revision', () => {
+   const initial = fixtureSnapshot()
+   const frame = createFrameShape({
+diff --git a/src/learning-canvas/styles.css b/src/learning-canvas/styles.css
+index e96e4c6..6929443 100644
+--- a/src/learning-canvas/styles.css
++++ b/src/learning-canvas/styles.css
+@@ -33,6 +33,7 @@ textarea:focus-visible {
+   overflow: hidden;
+   touch-action: none;
+   background: #f8f9fa;
++  contain: strict;
+ }
+ 
+ .learning-canvas-viewport.tool-select { cursor: default; }
+@@ -53,7 +54,7 @@ textarea:focus-visible {
+   display: block;
+   width: 100%;
+   height: 100%;
+-  overflow: visible;
++  overflow: hidden;
+ }
+ 
+ .learning-canvas-svg image,
+-- 
+2.55.0.windows.3
+

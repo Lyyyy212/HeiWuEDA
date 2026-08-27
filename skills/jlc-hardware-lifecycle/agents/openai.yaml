@@ -1,0 +1,4 @@
+interface:
+  display_name: "JLC Hardware Lifecycle"
+  short_description: "JLC EasyEDA design, review, learning, and BOM workflow"
+  default_prompt: "Use $jlc-hardware-lifecycle to run the staged EasyEDA hardware workflow for this project."

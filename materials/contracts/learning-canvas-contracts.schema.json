@@ -1,0 +1,383 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.easyeda-workbench.invalid/schemas/learning-canvas-contracts.v1.json",
+  "title": "EasyEDA Hardware Workbench Learning Canvas Contracts",
+  "description": "Versioned contracts exchanged by JLC Hardware LearningLearningUI, LearningCanvasAdapter, OfficialEasyedaEvidenceProvider, HardwareTutorEngine and CanvasAnswerPresenter.",
+  "oneOf": [
+    { "$ref": "#/$defs/LearningQuestion" },
+    { "$ref": "#/$defs/EvidenceBundle" },
+    { "$ref": "#/$defs/TutorAnswer" },
+    { "$ref": "#/$defs/LearningSession" }
+  ],
+  "$defs": {
+    "Sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "IsoTimestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "CanvasBounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height", "coordinateSpace"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "rotation": { "type": "number", "default": 0 },
+        "coordinateSpace": {
+          "type": "string",
+          "enum": ["hardware-learning-page", "asset-pixel", "easyeda-schematic"]
+        }
+      }
+    },
+    "CanvasShapeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shapeId", "shapeType", "pageBounds"],
+      "properties": {
+        "shapeId": { "type": "string", "minLength": 1 },
+        "shapeType": { "type": "string", "minLength": 1 },
+        "role": {
+          "type": "string",
+          "enum": ["source-image", "selection-frame", "annotation", "question-note", "other"]
+        },
+        "pageBounds": { "$ref": "#/$defs/CanvasBounds" },
+        "parentShapeId": { "type": ["string", "null"] },
+        "assetUrl": { "type": ["string", "null"] },
+        "text": { "type": ["string", "null"] },
+        "learningFrameNumber": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "contextualForSelectedShapeIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string" }
+        },
+        "meta": { "type": "object" }
+      }
+    },
+    "CanvasSelectionEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "canvasPageId",
+        "selectedShapeIds",
+        "shapes",
+        "unionBounds",
+        "capturedAt",
+        "canvasSnapshotSha256"
+      ],
+      "properties": {
+        "version": { "const": 1 },
+        "canvasSelectionVersion": { "type": "integer", "minimum": 1 },
+        "selectionRevision": { "type": ["integer", "null"], "minimum": 0 },
+        "canvasPageId": { "type": "string", "minLength": 1 },
+        "selectedShapeIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string" }
+        },
+        "shapes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/CanvasShapeRef" }
+        },
+        "selectedFrameNumbers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1 }
+        },
+        "referencedFrameNumbers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1 }
+        },
+        "selectionSource": {
+          "type": "string",
+          "enum": ["current", "last-non-empty", "frame-number-reference", "legacy-widget-envelope"]
+        },
+        "unionBounds": { "$ref": "#/$defs/CanvasBounds" },
+        "selectionScreenshotAssetUrl": { "type": ["string", "null"] },
+        "selectionScreenshotSha256": {
+          "oneOf": [
+            { "$ref": "#/$defs/Sha256" },
+            { "type": "null" }
+          ]
+        },
+        "capturedAt": { "$ref": "#/$defs/IsoTimestamp" },
+        "canvasSnapshotSha256": { "$ref": "#/$defs/Sha256" }
+      }
+    },
+    "EasyedaContextRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "capturedAt"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["live-verified", "offline-artifact"] },
+        "projectUuid": { "type": ["string", "null"] },
+        "documentUuid": { "type": ["string", "null"] },
+        "documentType": { "type": ["string", "null"] },
+        "schematicPageUuid": { "type": ["string", "null"] },
+        "windowId": { "type": ["string", "null"] },
+        "capturedAt": { "$ref": "#/$defs/IsoTimestamp" },
+        "artifactSha256": {
+          "oneOf": [
+            { "$ref": "#/$defs/Sha256" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "live-verified" } } },
+          "then": {
+            "required": ["projectUuid", "documentUuid", "documentType", "schematicPageUuid"]
+          }
+        }
+      ]
+    },
+    "LearningQuestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "questionId",
+        "sessionId",
+        "intent",
+        "userQuestion",
+        "learningLevel",
+        "selection",
+        "easyedaContext",
+        "requestedAt"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "learning.question.v1" },
+        "questionId": { "type": "string", "pattern": "^question:" },
+        "sessionId": { "type": "string", "pattern": "^learning:" },
+        "intent": {
+          "type": "string",
+          "enum": [
+            "explain-selection",
+            "trace-signal",
+            "explain-component",
+            "power-path",
+            "review-concept",
+            "compare-options"
+          ]
+        },
+        "userQuestion": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "learningLevel": {
+          "type": "string",
+          "enum": ["beginner", "intermediate", "advanced"]
+        },
+        "selection": { "$ref": "#/$defs/CanvasSelectionEnvelope" },
+        "easyedaContext": { "$ref": "#/$defs/EasyedaContextRef" },
+        "requestedAt": { "$ref": "#/$defs/IsoTimestamp" }
+      }
+    },
+    "IdentitySnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectUuid", "documentUuid", "documentType", "capturedAt"],
+      "properties": {
+        "projectUuid": { "type": "string", "minLength": 1 },
+        "documentUuid": { "type": "string", "minLength": 1 },
+        "documentType": { "type": "string", "minLength": 1 },
+        "schematicPageUuid": { "type": ["string", "null"] },
+        "capturedAt": { "$ref": "#/$defs/IsoTimestamp" }
+      }
+    },
+    "EvidenceItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceId", "kind", "source", "scope", "payload", "sha256", "capturedAt"],
+      "properties": {
+        "evidenceId": { "type": "string", "pattern": "^evidence:" },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "schematic-image",
+            "schematic-primitive",
+            "component",
+            "component-pin",
+            "net",
+            "wire",
+            "netlist",
+            "library-device",
+            "datasheet",
+            "user-annotation"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "enum": ["hardware-learning", "easyeda-official-api", "user-file", "official-datasheet"]
+        },
+        "scope": {
+          "type": "object",
+          "required": ["projectUuid", "documentUuid"],
+          "properties": {
+            "projectUuid": { "type": ["string", "null"] },
+            "documentUuid": { "type": ["string", "null"] },
+            "primitiveIds": { "type": "array", "items": { "type": "string" } },
+            "netNames": { "type": "array", "items": { "type": "string" } },
+            "shapeIds": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "payload": {},
+        "sha256": { "$ref": "#/$defs/Sha256" },
+        "capturedAt": { "$ref": "#/$defs/IsoTimestamp" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "EvidenceBundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "bundleId",
+        "questionId",
+        "status",
+        "identityBefore",
+        "identityAfter",
+        "items",
+        "createdAt"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "learning.evidence-bundle.v1" },
+        "bundleId": { "type": "string", "pattern": "^bundle:" },
+        "questionId": { "type": "string", "pattern": "^question:" },
+        "status": {
+          "type": "string",
+          "enum": ["verified", "partial", "stale", "offline"]
+        },
+        "identityBefore": {
+          "oneOf": [
+            { "$ref": "#/$defs/IdentitySnapshot" },
+            { "type": "null" }
+          ]
+        },
+        "identityAfter": {
+          "oneOf": [
+            { "$ref": "#/$defs/IdentitySnapshot" },
+            { "type": "null" }
+          ]
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/EvidenceItem" }
+        },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "$ref": "#/$defs/IsoTimestamp" }
+      }
+    },
+    "EvidenceClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claimId", "text", "evidenceIds", "confidence"],
+      "properties": {
+        "claimId": { "type": "string", "pattern": "^claim:" },
+        "text": { "type": "string", "minLength": 1 },
+        "evidenceIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^evidence:" }
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "CanvasAnnotationCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commandId", "operationId", "kind", "pageId", "anchorShapeId"],
+      "properties": {
+        "commandId": { "type": "string", "pattern": "^annotation-command:" },
+        "operationId": { "type": "string", "pattern": "^operation:" },
+        "kind": {
+          "type": "string",
+          "enum": ["note", "highlight", "rectangle", "arrow"]
+        },
+        "pageId": { "type": "string", "minLength": 1 },
+        "anchorShapeId": { "type": "string", "minLength": 1 },
+        "text": { "type": ["string", "null"], "maxLength": 4000 },
+        "bounds": {
+          "oneOf": [
+            { "$ref": "#/$defs/CanvasBounds" },
+            { "type": "null" }
+          ]
+        },
+        "targetShapeIds": { "type": "array", "items": { "type": "string" } },
+        "style": {
+          "type": "object",
+          "properties": {
+            "color": { "type": "string" },
+            "fill": { "type": "string" },
+            "dash": { "type": "string" },
+            "size": { "type": "string" }
+          }
+        }
+      }
+    },
+    "TutorAnswer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "answerId",
+        "questionId",
+        "summary",
+        "explanation",
+        "claims",
+        "assumptions",
+        "unknowns",
+        "safetyNotes",
+        "canvasAnnotations",
+        "createdAt"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "learning.tutor-answer.v1" },
+        "answerId": { "type": "string", "pattern": "^answer:" },
+        "questionId": { "type": "string", "pattern": "^question:" },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "explanation": { "type": "string", "minLength": 1 },
+        "claims": { "type": "array", "items": { "$ref": "#/$defs/EvidenceClaim" } },
+        "assumptions": { "type": "array", "items": { "type": "string" } },
+        "unknowns": { "type": "array", "items": { "type": "string" } },
+        "safetyNotes": { "type": "array", "items": { "type": "string" } },
+        "nextQuestions": { "type": "array", "items": { "type": "string" } },
+        "canvasAnnotations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CanvasAnnotationCommand" }
+        },
+        "createdAt": { "$ref": "#/$defs/IsoTimestamp" }
+      }
+    },
+    "LearningSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "sessionId", "canvasPageId", "learningLevel", "questionIds", "createdAt", "updatedAt"],
+      "properties": {
+        "schemaVersion": { "const": "learning.session.v1" },
+        "sessionId": { "type": "string", "pattern": "^learning:" },
+        "canvasPageId": { "type": "string", "minLength": 1 },
+        "learningLevel": {
+          "type": "string",
+          "enum": ["beginner", "intermediate", "advanced"]
+        },
+        "projectUuid": { "type": ["string", "null"] },
+        "documentUuid": { "type": ["string", "null"] },
+        "questionIds": { "type": "array", "items": { "type": "string", "pattern": "^question:" } },
+        "createdAt": { "$ref": "#/$defs/IsoTimestamp" },
+        "updatedAt": { "$ref": "#/$defs/IsoTimestamp" }
+      }
+    }
+  }
+}

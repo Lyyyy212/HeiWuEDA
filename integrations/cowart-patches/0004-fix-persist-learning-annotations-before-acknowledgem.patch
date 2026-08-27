@@ -1,0 +1,61 @@
+From 71b92bfd02b91b28ec0835435e28a6674169b82b Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Mon, 24 Aug 2026 14:38:19 +0800
+Subject: [PATCH] fix: persist learning annotations before acknowledgement
+
+---
+ scripts/probe-learning-tools.mjs    | 7 ++++++-
+ src/learning/learningAnnotations.js | 5 +++--
+ 2 files changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/scripts/probe-learning-tools.mjs b/scripts/probe-learning-tools.mjs
+index 2f9dbc3..bdee69f 100644
+--- a/scripts/probe-learning-tools.mjs
++++ b/scripts/probe-learning-tools.mjs
+@@ -61,10 +61,15 @@ try {
+   assert.doesNotMatch(panelSource, /imagegen|insert_cowart_image|insert_cowart_html_draft/);
+   const annotationSource = await readFile(new URL("../src/learning/learningAnnotations.js", import.meta.url), "utf8");
+   assert.match(annotationSource, /cowartLearningOperationId/);
++  assert.match(annotationSource, /await saveCowartCanvasSnapshot\(/);
++  assert.ok(
++    annotationSource.indexOf("await saveCowartCanvasSnapshot(") <
++      annotationSource.indexOf("await acknowledgeCowartLearningAnnotations("),
++    "learning annotations must persist the canvas before acknowledging the operation",
++  );
+   assert.doesNotMatch(annotationSource, /type: ['"]image['"]|type: ['"]embed['"]/);
+ 
+   console.log("Cowart learning question and annotation tools probe passed.");
+ } finally {
+   await rm(projectDir, { recursive: true, force: true });
+ }
+-
+diff --git a/src/learning/learningAnnotations.js b/src/learning/learningAnnotations.js
+index 6290d20..8ea81dd 100644
+--- a/src/learning/learningAnnotations.js
++++ b/src/learning/learningAnnotations.js
+@@ -2,7 +2,8 @@ import { createShapeId, toRichText } from 'tldraw'
+ 
+ import {
+   acknowledgeCowartLearningAnnotations,
+-  pullCowartLearningAnnotations
++  pullCowartLearningAnnotations,
++  saveCowartCanvasSnapshot
+ } from '../cowartClient.js'
+ 
+ const ALLOWED_KINDS = new Set(['note', 'highlight', 'rectangle', 'arrow'])
+@@ -57,6 +58,7 @@ export async function applyPendingLearningAnnotations(editor) {
+     const commands = operation.commands || []
+     const missing = commands.filter((command) => !alreadyApplied(editor, command))
+     if (missing.length > 0) editor.createShapes(missing.map(shapeForCommand))
++    await saveCowartCanvasSnapshot(editor.store.getStoreSnapshot(), { protectImageRecords: true })
+     await acknowledgeCowartLearningAnnotations(operation.operationId, operation.commandsSha256)
+   }
+ }
+@@ -78,4 +80,3 @@ export function startLearningAnnotationPolling(editor) {
+   const timer = window.setInterval(poll, 1500)
+   return () => window.clearInterval(timer)
+ }
+-
+-- 
+2.55.0.windows.3
+

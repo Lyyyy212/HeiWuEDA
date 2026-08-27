@@ -1,0 +1,54 @@
+[submodule "materials/sources/core/easyeda-api-i18n"]
+	path = materials/sources/core/easyeda-api-i18n
+	url = https://github.com/easyeda/easyeda-api-i18n.git
+[submodule "materials/sources/core/easyeda-api-skill"]
+	path = materials/sources/core/easyeda-api-skill
+	url = https://github.com/easyeda/easyeda-api-skill.git
+[submodule "materials/sources/core/eext-run-api-gateway"]
+	path = materials/sources/core/eext-run-api-gateway
+	url = https://github.com/easyeda/eext-run-api-gateway.git
+[submodule "materials/sources/core/pro-api-sdk"]
+	path = materials/sources/core/pro-api-sdk
+	url = https://github.com/easyeda/pro-api-sdk.git
+[submodule "materials/sources/examples/eext-ai-device-standardization"]
+	path = materials/sources/examples/eext-ai-device-standardization
+	url = https://github.com/easyeda/eext-ai-device-standardization.git
+[submodule "materials/sources/examples/eext-api-test-tool"]
+	path = materials/sources/examples/eext-api-test-tool
+	url = https://github.com/easyeda/eext-api-test-tool.git
+[submodule "materials/sources/examples/eext-bom-compare"]
+	path = materials/sources/examples/eext-bom-compare
+	url = https://github.com/easyeda/eext-bom-compare.git
+[submodule "materials/sources/examples/eext-datasheet-helper"]
+	path = materials/sources/examples/eext-datasheet-helper
+	url = https://github.com/easyeda/eext-datasheet-helper.git
+[submodule "materials/sources/examples/eext-excalidraw"]
+	path = materials/sources/examples/eext-excalidraw
+	url = https://github.com/easyeda/eext-excalidraw.git
+[submodule "materials/sources/examples/eext-export-design-report"]
+	path = materials/sources/examples/eext-export-design-report
+	url = https://github.com/easyeda/eext-export-design-report.git
+[submodule "materials/sources/examples/eext-extension-demo"]
+	path = materials/sources/examples/eext-extension-demo
+	url = https://github.com/easyeda/eext-extension-demo.git
+[submodule "materials/sources/examples/eext-generate-schematic-from-netlist"]
+	path = materials/sources/examples/eext-generate-schematic-from-netlist
+	url = https://github.com/easyeda/eext-generate-schematic-from-netlist.git
+[submodule "materials/sources/examples/eext-interactive-html-bom"]
+	path = materials/sources/examples/eext-interactive-html-bom
+	url = https://github.com/easyeda/eext-interactive-html-bom.git
+[submodule "materials/sources/examples/eext-netlist-explorer"]
+	path = materials/sources/examples/eext-netlist-explorer
+	url = https://github.com/easyeda/eext-netlist-explorer.git
+[submodule "materials/sources/integrations/cowart"]
+	path = materials/sources/integrations/cowart
+	url = https://github.com/zhongerxin/Cowart.git
+[submodule "materials/sources/examples/eext-jlc-order-dfm-checker"]
+	path = materials/sources/examples/eext-jlc-order-dfm-checker
+	url = https://github.com/easyeda/eext-jlc-order-dfm-checker.git
+[submodule "materials/sources/examples/eext-export-pcb-to-svg"]
+	path = materials/sources/examples/eext-export-pcb-to-svg
+	url = https://github.com/easyeda/eext-export-pcb-to-svg.git
+[submodule "materials/sources/examples/eext-export-gencad"]
+	path = materials/sources/examples/eext-export-gencad
+	url = https://github.com/easyeda/eext-export-gencad.git

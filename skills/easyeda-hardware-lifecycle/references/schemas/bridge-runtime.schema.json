@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "easyeda.gateway.bridge-runtime.v1",
+  "type": "object",
+  "required": ["schemaVersion", "service", "bridgeUrl", "gatewayVersion", "pid", "scriptPath", "scriptSha256", "startedAt"],
+  "properties": {
+    "schemaVersion": { "const": "easyeda.gateway.bridge-runtime.v1" },
+    "service": { "const": "easyeda-bridge" },
+    "bridgeUrl": { "type": "string", "pattern": "^http://(127\\.0\\.0\\.1|localhost|\\[::1\\]):[0-9]+$" },
+    "gatewayVersion": { "type": "string", "minLength": 1 },
+    "pid": { "type": "integer", "minimum": 1 },
+    "scriptPath": { "type": "string", "minLength": 1 },
+    "scriptSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "startedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

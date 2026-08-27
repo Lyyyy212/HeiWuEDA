@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.easyeda-workbench.invalid/schemas/lark-learning-note-binding.schema.json",
+  "title": "JLC Hardware Learning to Feishu learning-note binding",
+  "type": "object",
+  "required": ["schemaVersion", "bindingId", "source", "target", "ownership", "sync"],
+  "properties": {
+    "schemaVersion": { "const": "learning.lark-binding.v1" },
+    "bindingId": { "type": "string", "pattern": "^lark-learning-binding:" },
+    "source": {
+      "type": "object",
+      "required": ["canvasPageId"],
+      "properties": {
+        "canvasPageId": { "type": "string", "pattern": "^page:" },
+        "projectUuid": { "type": ["string", "null"] },
+        "documentUuid": { "type": ["string", "null"] },
+        "documentType": { "type": ["integer", "string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "target": {
+      "type": "object",
+      "required": ["docToken", "boardToken"],
+      "properties": {
+        "docToken": { "type": "string", "minLength": 1 },
+        "boardToken": { "type": "string", "minLength": 1 },
+        "moduleIndexBoardToken": { "type": ["string", "null"], "minLength": 1 },
+        "docUrl": { "type": ["string", "null"] },
+        "docSectionBlockId": { "type": ["string", "null"] },
+        "moduleIndexSectionBlockId": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "ownership": {
+      "type": "object",
+      "required": ["synchronizedBoard", "freeNotes"],
+      "properties": {
+        "synchronizedBoard": { "const": "tool-managed" },
+        "freeNotes": { "const": "user-managed-never-overwrite" }
+      },
+      "additionalProperties": false
+    },
+    "sync": {
+      "type": "object",
+      "required": ["lastContentSha256", "idempotencyToken", "lastSyncedAt"],
+      "properties": {
+        "lastContentSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "renderedSceneSha256": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+        "idempotencyToken": { "type": "string", "minLength": 10 },
+        "lastSyncedAt": { "type": "string" },
+        "lastVerifiedPreviewSha256": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+        "learningFrameMarkerStyle": { "$ref": "#/$defs/learningFrameMarkerStyle" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "learningFrameMarkerStyle": {
+      "type": "object",
+      "required": ["colorOpacityPercent", "numberOpacityPercent", "borderWidthScale", "preserveBounds", "numberBadgeStyle"],
+      "properties": {
+        "colorOpacityPercent": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "numberOpacityPercent": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "borderWidthScale": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "preserveBounds": { "const": true },
+        "numberBadgeStyle": { "$ref": "#/$defs/numberBadgeStyle" }
+      },
+      "additionalProperties": false
+    },
+    "numberBadgeStyle": {
+      "type": "object",
+      "required": ["shape", "width", "height", "fontSize", "anchor", "offsetX", "offsetY", "colorMode"],
+      "properties": {
+        "shape": { "const": "round_rect" },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "fontSize": { "type": "number", "exclusiveMinimum": 0 },
+        "anchor": { "const": "frame-top-left" },
+        "offsetX": { "type": "number" },
+        "offsetY": { "type": "number" },
+        "colorMode": { "const": "follow-frame" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

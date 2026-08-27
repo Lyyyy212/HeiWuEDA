@@ -1,0 +1,342 @@
+import {
+  RESOURCE_MIME_TYPE,
+  registerAppResource,
+} from "@modelcontextprotocol/ext-apps/server";
+import { MCP_APPS_GLOBAL_SCRIPT } from "../generated/mcp-apps-global-script.mjs";
+
+export function inlineWidget({
+  html,
+  css = "",
+  js = "",
+  appVersion,
+  initialDisplayMode = "",
+  cssPlaceholder = "/* __JLC_HARDWARE_LEARNING_WIDGET_CSS__ */",
+  jsPlaceholder = "/* __JLC_HARDWARE_LEARNING_WIDGET_JS__ */",
+}) {
+  return injectMcpHostBridge(
+    html.replace(cssPlaceholder, () => css).replace(jsPlaceholder, () => js),
+    { appVersion, initialDisplayMode },
+  );
+}
+
+export function registerWidgetResource(
+  server,
+  {
+    name,
+    uri,
+    title,
+    description,
+    html,
+    prefersBorder = false,
+    connectDomains = [],
+    resourceDomains = [],
+    frameDomains = [],
+  },
+) {
+  const csp = {
+    connectDomains,
+    resourceDomains,
+  };
+  if (frameDomains.length > 0) csp.frameDomains = frameDomains;
+
+  const openAiCsp = {
+    connect_domains: connectDomains,
+    resource_domains: resourceDomains,
+  };
+  if (frameDomains.length > 0) openAiCsp.frame_domains = frameDomains;
+
+  const metadata = {
+    ui: {
+      prefersBorder,
+      csp,
+    },
+    "openai/widgetDescription": description,
+    "openai/widgetPrefersBorder": prefersBorder,
+    "openai/widgetCSP": openAiCsp,
+  };
+
+  registerAppResource(
+    server,
+    name,
+    uri,
+    {
+      title,
+      description,
+      _meta: metadata,
+    },
+    async () => {
+      const text = typeof html === "function" ? await html() : html;
+      return {
+        contents: [
+          {
+            uri,
+            mimeType: RESOURCE_MIME_TYPE,
+            text,
+            _meta: metadata,
+          },
+        ],
+      };
+    },
+  );
+}
+
+function injectMcpHostBridge(html, { appVersion, initialDisplayMode = "" } = {}) {
+  const bridge = [
+    '<script id="jlcHardwareLearningInitialDisplayMode">',
+    `window.__JLC_HARDWARE_LEARNING_INITIAL_DISPLAY_MODE__=${JSON.stringify(initialDisplayMode)};`,
+    "</script>",
+    '<script id="hardwareLearningMcpAppsBundle">',
+    escapeInlineScript(MCP_APPS_GLOBAL_SCRIPT),
+    "</script>",
+    '<script id="hardwareLearningMcpHostBridge">',
+    mcpHostBridgeScript(appVersion),
+    "</script>",
+  ].join("\n");
+
+  if (html.includes("</head>")) {
+    return html.replace("</head>", () => `${bridge}\n</head>`);
+  }
+  return `${bridge}\n${html}`;
+}
+
+function escapeInlineScript(source) {
+  return source.replaceAll("</script", "<\\/script").replaceAll("</SCRIPT", "<\\/SCRIPT");
+}
+
+function mcpHostBridgeScript(appVersion) {
+  if (typeof appVersion !== "string" || !appVersion.trim()) {
+    throw new Error("JLC Hardware Learning widget bridge requires the plugin version.");
+  }
+
+  return `(() => {
+  "use strict";
+
+  const apps = globalThis.__JLC_HARDWARE_LEARNING_MCP_APPS__;
+  if (!apps || typeof apps.App !== "function") return;
+
+  let mcpApp = null;
+  let hostDisplayMode = window.__JLC_HARDWARE_LEARNING_INITIAL_DISPLAY_MODE__ || "";
+  let lastReportedSize = null;
+
+  function publishHostGlobals(globals) {
+    window.openai = Object.assign(window.openai || {}, globals);
+    window.dispatchEvent(new CustomEvent("openai:set_globals", {
+      detail: { globals: window.openai },
+    }));
+  }
+
+  function applyHostContext(context) {
+    if (!context) return;
+    if (context.displayMode) hostDisplayMode = context.displayMode;
+    try {
+      if (context.theme && typeof apps.applyDocumentTheme === "function") {
+        apps.applyDocumentTheme(context.theme);
+      }
+      if (context.styles?.variables && typeof apps.applyHostStyleVariables === "function") {
+        apps.applyHostStyleVariables(context.styles.variables);
+      }
+      if (context.styles?.css?.fonts && typeof apps.applyHostFonts === "function") {
+        apps.applyHostFonts(context.styles.css.fonts);
+      }
+    } catch (_error) {
+      // Host styling is a progressive enhancement.
+    }
+
+    publishHostGlobals({
+      hostContext: context,
+      displayMode: context.displayMode,
+      availableDisplayModes: context.availableDisplayModes,
+      widgetInstanceId: context.widgetInstanceId || context.widgetId,
+    });
+  }
+
+  function promptFromMessage(message) {
+    if (typeof message === "string") return message;
+    if (message?.prompt) return String(message.prompt);
+    if (typeof message?.content === "string") return message.content;
+    return "";
+  }
+
+  function contentFromMessage(message, prompt) {
+    if (message && Array.isArray(message.content)) return message.content;
+    return [{ type: "text", text: prompt }];
+  }
+
+  function withTimeout(promise, ms, label) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(label)), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  }
+
+  function toBridgeError(error) {
+    if (error instanceof Error) return error;
+    return new Error(String(error || "JLC Hardware Learning host bridge is unavailable."));
+  }
+
+  function currentSize() {
+    const root = document.documentElement;
+    const body = document.body;
+    return {
+      width: Math.ceil(window.innerWidth || root.clientWidth || 0),
+      height: Math.ceil(Math.max(
+        root.scrollHeight || 0,
+        root.offsetHeight || 0,
+        body?.scrollHeight || 0,
+        body?.offsetHeight || 0,
+      )),
+    };
+  }
+
+  function sendCurrentSize() {
+    if (!mcpApp || typeof mcpApp.sendSizeChanged !== "function") return;
+    // A fullscreen canvas is sized by Codex. Reporting that same size back to
+    // the host creates a ResizeObserver feedback loop while the user resizes
+    // the panel and can leave Chromium's widget surface blank.
+    const displayMode = hostDisplayMode || window.openai?.displayMode || "";
+    if (displayMode === "fullscreen") return;
+    try {
+      const size = currentSize();
+      if (size.width <= 0 || size.height <= 0) return;
+      if (lastReportedSize?.width === size.width && lastReportedSize?.height === size.height) return;
+      lastReportedSize = size;
+      const pending = mcpApp.sendSizeChanged(size);
+      if (pending && typeof pending.catch === "function") pending.catch(() => {});
+    } catch (_error) {
+      // Hosts without size notifications can keep the default widget size.
+    }
+  }
+
+  async function waitForReady(app) {
+    if (app?.ready) {
+      await withTimeout(app.ready, 4000, "JLC Hardware Learning host bridge did not become ready.");
+    }
+    if (globalThis.__JLC_HARDWARE_LEARNING_MCP_HOST_ERROR__) {
+      throw toBridgeError(globalThis.__JLC_HARDWARE_LEARNING_MCP_HOST_ERROR__);
+    }
+  }
+
+  function installHardwareLearningApi(app) {
+    const api = window.hardwareLearningMcp || {};
+    window.hardwareLearningMcp = api;
+
+    api.sendFollowUpMessage = async (message) => {
+      try {
+        const prompt = promptFromMessage(message);
+        if (!prompt) throw new Error("Missing follow-up prompt.");
+        if (!app || typeof app.sendMessage !== "function") throw new Error("Host bridge is unavailable.");
+        await waitForReady(app);
+        const result = await withTimeout(app.sendMessage({
+          role: "user",
+          content: contentFromMessage(message, prompt),
+        }), 8000, "Host did not accept the follow-up message.");
+        if (result?.isError) throw new Error("Host rejected the follow-up message.");
+        return result || {};
+      } catch (error) {
+        throw toBridgeError(error);
+      }
+    };
+
+    api.callServerTool = async (request, options) => {
+      try {
+        if (!app || typeof app.callServerTool !== "function") throw new Error("Host tool bridge is unavailable.");
+        await waitForReady(app);
+        return await withTimeout(
+          app.callServerTool(request, options),
+          options?.timeoutMs || 30000,
+          "JLC Hardware Learning server tool call timed out.",
+        );
+      } catch (error) {
+        throw toBridgeError(error);
+      }
+    };
+
+    api.getHostCapabilities = () => {
+      try {
+        return typeof app?.getHostCapabilities === "function" ? app.getHostCapabilities() : null;
+      } catch (_error) {
+        return null;
+      }
+    };
+
+    api.updateModelContext = async (payload, options) => {
+      try {
+        if (!app || typeof app.updateModelContext !== "function") return {};
+        await waitForReady(app);
+        return await app.updateModelContext(payload, options);
+      } catch (error) {
+        throw toBridgeError(error);
+      }
+    };
+
+    api.requestDisplayMode = async (modeOrRequest) => {
+      if (!app || typeof app.requestDisplayMode !== "function") return {};
+      const request = typeof modeOrRequest === "string" ? { mode: modeOrRequest } : (modeOrRequest || { mode: "inline" });
+      await waitForReady(app);
+      return app.requestDisplayMode(request);
+    };
+
+    api.notifyResize = sendCurrentSize;
+  }
+
+  function payloadFromToolResult(result) {
+    const metadata = result && typeof result === "object" ? result._meta || {} : {};
+    const payload = metadata.widgetData || result?.structuredContent || result || {};
+    return { metadata, payload };
+  }
+
+  function handleToolResult(result) {
+    const { metadata, payload } = payloadFromToolResult(result);
+    publishHostGlobals({
+      rawToolResult: result,
+      toolOutput: payload,
+      toolResponseMetadata: metadata,
+    });
+    sendCurrentSize();
+  }
+
+  window.addEventListener("message", (event) => {
+    const result = event.data?.params?.result;
+    if (event.data?.method === "ui/notifications/tool-result" && result) {
+      handleToolResult(result);
+    }
+  });
+
+  try {
+    mcpApp = new apps.App(
+      { name: "jlc-hardware-learning", version: ${JSON.stringify(appVersion)} },
+      { availableDisplayModes: ["inline", "fullscreen"] },
+      // The canvas fills the host-provided viewport. The ext-apps automatic
+      // document/body ResizeObserver mutates document height while measuring,
+      // which can feed back into Codex's container sizing during panel resize.
+      { autoResize: false },
+    );
+    globalThis.__JLC_HARDWARE_LEARNING_MCP_APP__ = mcpApp;
+    installHardwareLearningApi(mcpApp);
+
+    mcpApp.addEventListener("hostcontextchanged", applyHostContext);
+    mcpApp.addEventListener("toolresult", handleToolResult);
+
+    mcpApp.ready = mcpApp.connect()
+      .then(() => {
+        installHardwareLearningApi(mcpApp);
+        publishHostGlobals({
+          hostCapabilities: mcpApp.getHostCapabilities && mcpApp.getHostCapabilities(),
+          hostInfo: mcpApp.getHostVersion && mcpApp.getHostVersion(),
+        });
+        applyHostContext(mcpApp.getHostContext && mcpApp.getHostContext());
+        const initialMode = window.__JLC_HARDWARE_LEARNING_INITIAL_DISPLAY_MODE__;
+        if (initialMode === "fullscreen" && typeof mcpApp.requestDisplayMode === "function") {
+          mcpApp.requestDisplayMode({ mode: "fullscreen" }).catch(() => {});
+        }
+        sendCurrentSize();
+      })
+      .catch((error) => {
+        globalThis.__JLC_HARDWARE_LEARNING_MCP_HOST_ERROR__ = error;
+      });
+  } catch (error) {
+    globalThis.__JLC_HARDWARE_LEARNING_MCP_HOST_ERROR__ = error;
+  }
+})();`;
+}

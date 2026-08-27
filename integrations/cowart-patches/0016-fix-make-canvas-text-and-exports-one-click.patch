@@ -1,0 +1,314 @@
+From bccb2fdb8bb42f4aa3576dd2195a584a5af2fc08 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Tue, 25 Aug 2026 13:45:23 +0800
+Subject: [PATCH] fix: make canvas text and exports one-click
+
+---
+ src/cowartClient.test.mjs                     |  2 +
+ .../HardwareLearningCanvas.jsx                | 85 +++++++++++++------
+ src/learning-canvas/styles.css                | 67 +++++++++++++++
+ 3 files changed, 126 insertions(+), 28 deletions(-)
+
+diff --git a/src/cowartClient.test.mjs b/src/cowartClient.test.mjs
+index eae04e1..51a9be9 100644
+--- a/src/cowartClient.test.mjs
++++ b/src/cowartClient.test.mjs
+@@ -23,12 +23,14 @@ test('large Cowart widget exports use ordered chunked Bridge calls', async () =>
+     const dataBase64 = 'QUJD'.repeat(200_000)
+     const result = await downloadCowartFile({
+       dataBase64,
++      directoryName: 'Cowart学习画板',
+       fileName: 'fixture.png',
+       mimeType: 'image/png',
+       onProgress: (event) => progress.push(event)
+     })
+     assert.equal(result.ok, true)
+     assert.equal(calls[0].arguments.action, 'begin')
++    assert.equal(calls[0].arguments.directoryName, 'Cowart学习画板')
+     assert.equal(calls.at(-1).arguments.action, 'finish')
+     const appendCalls = calls.filter((call) => call.arguments.action === 'append')
+     assert.ok(appendCalls.length > 1)
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index 48aa1a6..fdf9a36 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -31,7 +31,8 @@ import {
+   ZoomIn,
+   ZoomOut
+ } from 'lucide-react'
+-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
++import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
++import { flushSync } from 'react-dom'
+ 
+ import {
+   acknowledgeCowartLearningAnnotations,
+@@ -284,7 +285,7 @@ function InlineCanvasTextEditor({ camera, draft, shape, style, onCancel, onChang
+   const fillOpacity = editingStyle.fill === 'solid' ? (draft.mode === 'note' ? 0.34 : 0.92) : editingStyle.fill === 'semi' ? 0.18 : 0
+   const background = fillOpacity > 0 ? `${color}${Math.round(fillOpacity * 255).toString(16).padStart(2, '0')}` : 'transparent'
+ 
+-  useEffect(() => {
++  useLayoutEffect(() => {
+     const input = inputRef.current
+     if (!input) return
+     let frame = 0
+@@ -292,7 +293,7 @@ function InlineCanvasTextEditor({ camera, draft, shape, style, onCancel, onChang
+     const focusEditor = () => {
+       attempts += 1
+       input.focus({ preventScroll: true })
+-      if (draft.shapeId) input.select()
++      if (draft.shapeId && attempts === 1) input.select()
+       if (document.activeElement !== input && attempts < 8) {
+         frame = requestAnimationFrame(focusEditor)
+       }
+@@ -320,6 +321,8 @@ function InlineCanvasTextEditor({ camera, draft, shape, style, onCancel, onChang
+       >
+         <textarea
+           aria-label={draft.mode === 'note' ? '便签文字' : '画布文字'}
++          autoFocus
++          data-cowart-inline-editor="true"
+           data-testid="learning-inline-text-editor"
+           maxLength={800}
+           onBlur={onCommit}
+@@ -423,6 +426,7 @@ export default function HardwareLearningCanvas() {
+   const [noteDraft, setNoteDraft] = useState(null)
+   const [openMenu, setOpenMenu] = useState(null)
+   const [exporting, setExporting] = useState(false)
++  const [lastExport, setLastExport] = useState(null)
+   const [minimapOpen, setMinimapOpen] = useState(false)
+ 
+   const pages = useMemo(() => pageRecords(snapshot), [snapshot])
+@@ -816,14 +820,18 @@ export default function HardwareLearningCanvas() {
+       return
+     }
+     if (tool === 'note' || tool === 'text') {
+-      setNoteDraft({
++      event.preventDefault()
++      const draft = {
+         point: page,
+         text: '',
+         mode: tool,
+         style: tool === 'note'
+           ? normalizeLearningStyle({ color: 'yellow', fill: 'solid', dash: 'solid', size: style.size, opacity: style.opacity })
+           : style
+-      })
++      }
++      flushSync(() => setNoteDraft(draft))
++      const input = rootRef.current?.querySelector('[data-cowart-inline-editor="true"]')
++      input?.focus({ preventScroll: true })
+       return
+     }
+     if (['frame', 'arrow', 'line', 'rectangle', 'ellipse'].includes(tool)) {
+@@ -1081,6 +1089,7 @@ export default function HardwareLearningCanvas() {
+     let lastReportedProgress = -1
+     const downloadExportFile = (args) => downloadCowartFile({
+       ...args,
++      directoryName: 'Cowart学习画板',
+       onProgress: ({ sentBytes, totalBytes }) => {
+         if (!totalBytes) return
+         const progress = Math.min(100, Math.floor(sentBytes * 100 / totalBytes))
+@@ -1093,9 +1102,10 @@ export default function HardwareLearningCanvas() {
+       await new Promise((resolve) => requestAnimationFrame(resolve))
+       const selectedShapeIds = selectedOnly ? selectedIds : []
+       const filePart = timestampFilePart()
++      let exportResult = null
+       if (kind === 'json') {
+         const json = `${JSON.stringify(snapshotRef.current, null, 2)}\n`
+-        await downloadExportFile({
++        exportResult = await downloadExportFile({
+           dataBase64: textToBase64(json),
+           fileName: `cowart-learning-canvas-${filePart}.json`,
+           mimeType: 'application/json'
+@@ -1109,7 +1119,7 @@ export default function HardwareLearningCanvas() {
+           selectedShapeIds
+         })
+         if (kind === 'svg') {
+-          await downloadExportFile({
++          exportResult = await downloadExportFile({
+             dataUrl: svgDataUrl(result.svg),
+             fileName: `cowart-learning-${selectedOnly ? 'selection' : 'page'}-${filePart}.svg`,
+             mimeType: 'image/svg+xml'
+@@ -1119,7 +1129,7 @@ export default function HardwareLearningCanvas() {
+           if (kind === 'clipboard') {
+             await copyCowartImageToClipboard({ dataUrl: png.dataUrl, mimeType: 'image/png' })
+           } else {
+-            await downloadExportFile({
++            exportResult = await downloadExportFile({
+               dataUrl: png.dataUrl,
+               fileName: `cowart-learning-${selectedOnly ? 'selection' : 'page'}-${filePart}.png`,
+               mimeType: 'image/png'
+@@ -1127,7 +1137,18 @@ export default function HardwareLearningCanvas() {
+           }
+         }
+       }
+-      setStatus({ kind: 'saved', text: kind === 'clipboard' ? '已复制 PNG 到剪贴板' : '导出完成' })
++      if (kind === 'clipboard') {
++        setStatus({ kind: 'saved', text: '已复制 PNG 到剪贴板' })
++      } else {
++        const filePath = exportResult?.filePath
++        const browserLocation = exportResult?.browserDownload && exportResult?.fileName
++          ? `浏览器下载：${exportResult.fileName}`
++          : null
++        const exportLocation = filePath || browserLocation
++        if (!exportLocation) throw new Error('导出服务没有返回文件保存位置。')
++        setLastExport({ fileName: exportResult.fileName, filePath: exportLocation })
++        setStatus({ kind: 'saved', text: `已导出到：${exportLocation}` })
++      }
+     } catch (error) {
+       console.error(error)
+       setStatus({ kind: 'error', text: `导出失败：${error.message}` })
+@@ -1136,6 +1157,17 @@ export default function HardwareLearningCanvas() {
+     }
+   }
+ 
++  async function copyLastExportPath() {
++    if (!lastExport?.filePath) return
++    try {
++      await navigator.clipboard.writeText(lastExport.filePath)
++      setStatus({ kind: 'saved', text: '导出路径已复制' })
++    } catch (error) {
++      console.error(error)
++      setStatus({ kind: 'error', text: `无法复制路径：${error.message}` })
++    }
++  }
++
+   const selectedShape = selectedIds.length === 1 ? snapshot?.store?.[selectedIds[0]] : null
+   const selectedBounds = selectedShape && pageBoundsForShape(snapshot.store, draftShape?.id === selectedShape.id ? draftShape : selectedShape)
+   const selectionBounds = snapshot && unionBounds(selectedIds
+@@ -1286,26 +1318,14 @@ export default function HardwareLearningCanvas() {
+           )}
+         </div>
+ 
+-        <div className="cowart-popover-anchor">
+-          <button
+-            className="cowart-export-button"
+-            data-testid="learning-export"
+-            disabled={exporting}
+-            onClick={() => setOpenMenu(openMenu === 'export' ? null : 'export')}
+-            type="button"
+-          >
+-            {exporting ? <LoaderCircle className="is-spinning" size={16} /> : <Download size={16} />}
+-            导出 <ChevronDown size={12} />
++        <div aria-label="一键导出" className="cowart-direct-export-actions">
++          <button className="cowart-export-button" data-testid="learning-export-page-png" disabled={exporting} onClick={() => exportCanvas('png')} title="导出当前图页 PNG" type="button">
++            {exporting ? <LoaderCircle className="is-spinning" size={15} /> : <Download size={15} />}图页 PNG
+           </button>
+-          {openMenu === 'export' && (
+-            <div className="cowart-menu cowart-export-menu" role="menu">
+-              <button onClick={() => exportCanvas('png')} role="menuitem" type="button">当前图页 PNG</button>
+-              <button onClick={() => exportCanvas('svg')} role="menuitem" type="button">当前图页 SVG</button>
+-              <button disabled={!selectedIds.length} onClick={() => exportCanvas('png', true)} role="menuitem" type="button">当前选区 PNG</button>
+-              <button disabled={!selectedIds.length} onClick={() => exportCanvas('clipboard', true)} role="menuitem" type="button"><Clipboard size={14} />复制选区 PNG</button>
+-              <button onClick={() => exportCanvas('json')} role="menuitem" type="button">画布备份 JSON</button>
+-            </div>
+-          )}
++          <button className="cowart-export-button" data-testid="learning-export-selection-png" disabled={exporting || !selectedIds.length} onClick={() => exportCanvas('png', true)} title="导出当前选区 PNG" type="button">选区 PNG</button>
++          <button className="cowart-export-button" data-testid="learning-export-page-svg" disabled={exporting} onClick={() => exportCanvas('svg')} title="导出当前图页 SVG" type="button">SVG</button>
++          <button className="cowart-export-button" data-testid="learning-export-canvas-json" disabled={exporting} onClick={() => exportCanvas('json')} title="导出完整画布备份" type="button">备份 JSON</button>
++          <button className="cowart-export-button cowart-export-copy-button" data-testid="learning-copy-selection-png" disabled={exporting || !selectedIds.length} onClick={() => exportCanvas('clipboard', true)} title="复制选区 PNG 到剪贴板" type="button"><Clipboard size={14} /></button>
+         </div>
+       </nav>
+ 
+@@ -1391,6 +1411,15 @@ export default function HardwareLearningCanvas() {
+         {selectedIds.length > 0 && <span>已选 {selectedIds.length} 个对象</span>}
+       </aside>
+ 
++      {lastExport?.filePath && (
++        <aside className="learning-export-result" data-testid="learning-export-result">
++          <Download aria-hidden="true" size={15} />
++          <span>已导出</span>
++          <code title={lastExport.filePath}>{lastExport.filePath}</code>
++          <button onClick={copyLastExportPath} title="复制导出路径" type="button"><Copy aria-hidden="true" size={14} />复制路径</button>
++        </aside>
++      )}
++
+     </main>
+   )
+ }
+diff --git a/src/learning-canvas/styles.css b/src/learning-canvas/styles.css
+index 7fd43bf..da1cdd6 100644
+--- a/src/learning-canvas/styles.css
++++ b/src/learning-canvas/styles.css
+@@ -222,6 +222,28 @@ textarea:focus-visible {
+   color: #2767b0;
+ }
+ 
++.cowart-direct-export-actions {
++  display: flex;
++  height: 34px;
++  margin-left: 2px;
++  padding-left: 3px;
++  gap: 1px;
++  align-items: center;
++  border-left: 1px solid #d9dce1;
++}
++
++.cowart-direct-export-actions .cowart-export-button {
++  padding: 0 7px;
++  font-size: 11px;
++  font-weight: 600;
++  white-space: nowrap;
++}
++
++.cowart-direct-export-actions .cowart-export-copy-button {
++  width: 30px;
++  padding: 0;
++}
++
+ .cowart-popover-anchor { position: relative; display: flex; }
+ 
+ .cowart-menu,
+@@ -479,6 +501,51 @@ textarea:focus-visible {
+ .learning-status[data-kind="error"] { color: #b91c1c; border-color: #fecaca; }
+ .learning-status span + span::before { margin-right: 7px; color: #cbd5e1; content: "·"; }
+ 
++.learning-export-result {
++  position: fixed;
++  z-index: 39;
++  bottom: 110px;
++  left: 16px;
++  display: flex;
++  max-width: min(760px, calc(100vw - 32px));
++  min-height: 38px;
++  padding: 5px 7px 5px 10px;
++  gap: 7px;
++  align-items: center;
++  color: #166534;
++  font-size: 12px;
++  background: rgb(240 253 244 / 96%);
++  border: 1px solid #86efac;
++  border-radius: 8px;
++  box-shadow: 0 7px 24px rgb(15 23 42 / 12%);
++  backdrop-filter: blur(10px);
++}
++
++.learning-export-result code {
++  overflow: hidden;
++  color: #14532d;
++  font: 11px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++  user-select: text;
++}
++
++.learning-export-result button {
++  display: inline-flex;
++  height: 28px;
++  padding: 0 7px;
++  gap: 4px;
++  flex: 0 0 auto;
++  align-items: center;
++  color: #166534;
++  background: #fff;
++  border: 1px solid #bbf7d0;
++  border-radius: 6px;
++  cursor: pointer;
++}
++
++.learning-export-result button:hover { background: #dcfce7; }
++
+ .learning-empty-state {
+   display: grid;
+   width: 100%;
+-- 
+2.55.0.windows.3
+

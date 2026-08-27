@@ -1,0 +1,125 @@
+From 8d5c867b6dfa5ea6675b1b6dc0d2b46aaf2fa3d0 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Wed, 26 Aug 2026 14:49:13 +0800
+Subject: [PATCH] fix: survive staged widget host globals
+
+---
+ scripts/probe-mcp.mjs     | 13 ++++++++--
+ src/cowartClient.js       |  6 ++++-
+ src/cowartClient.test.mjs | 52 ++++++++++++++++++++++++++++++++++++++-
+ 3 files changed, 67 insertions(+), 4 deletions(-)
+
+diff --git a/scripts/probe-mcp.mjs b/scripts/probe-mcp.mjs
+index 86ed852..7886911 100644
+--- a/scripts/probe-mcp.mjs
++++ b/scripts/probe-mcp.mjs
+@@ -311,7 +311,16 @@ try {
+   const resource = await client.readResource({
+     uri: expectedWidgetUri,
+   });
+-  const resourceMeta = resource.contents?.[0]?._meta || {};
++  const resourceItem = resource.contents?.[0] || {};
++  if (resourceItem.uri !== expectedWidgetUri) {
++    throw new Error(`Cowart widget resource returned ${resourceItem.uri || "no URI"}; expected ${expectedWidgetUri}.`);
++  }
++  if (resourceItem.mimeType !== "text/html;profile=mcp-app") {
++    throw new Error(
++      `Cowart widget resource must use text/html;profile=mcp-app, received ${resourceItem.mimeType || "no MIME type"}.`,
++    );
++  }
++  const resourceMeta = resourceItem._meta || {};
+   const widgetCsp = resourceMeta["openai/widgetCSP"] || {};
+   const connectDomains = widgetCsp.connect_domains || [];
+   const requiredAnalyticsConnectDomains = [
+@@ -359,7 +368,7 @@ try {
+     throw new Error(`Cowart widget CSP should allow local data/blob iframes for HTML drafts. Found: ${frameDomains.join(", ")}`);
+   }
+ 
+-  const widgetHtml = resource.contents?.[0]?.text || "";
++  const widgetHtml = resourceItem.text || "";
+   if (!widgetHtml.includes("window.cowartMcp") || !widgetHtml.includes("Cowart Canvas")) {
+     throw new Error("Cowart widget HTML does not include the expected bridge and app shell.");
+   }
+diff --git a/src/cowartClient.js b/src/cowartClient.js
+index cc2382b..c497bcb 100644
+--- a/src/cowartClient.js
++++ b/src/cowartClient.js
+@@ -88,7 +88,11 @@ async function waitForWidgetPayload(signal) {
+       reject(abortError())
+     }
+ 
+-    window.addEventListener('openai:set_globals', handleGlobals, { once: true })
++    // Codex publishes host capabilities/theme before the tool result that
++    // carries projectDir/canvasDir. Keep listening until the storage target is
++    // actually present; a one-shot listener races with that multi-event
++    // handshake and leaves a remounted/resized widget permanently unloaded.
++    window.addEventListener('openai:set_globals', handleGlobals)
+     signal?.addEventListener('abort', handleAbort, { once: true })
+   })
+ }
+diff --git a/src/cowartClient.test.mjs b/src/cowartClient.test.mjs
+index 5f7fcd0..61abd0f 100644
+--- a/src/cowartClient.test.mjs
++++ b/src/cowartClient.test.mjs
+@@ -1,7 +1,57 @@
+ import assert from 'node:assert/strict'
+ import test from 'node:test'
+ 
+-import { chooseCowartExportDirectory, downloadCowartFile } from './cowartClient.js'
++import {
++  chooseCowartExportDirectory,
++  downloadCowartFile,
++  loadCowartCanvasState
++} from './cowartClient.js'
++
++test('Cowart waits through host-only globals until the tool result provides its storage target', async () => {
++  const calls = []
++  const windowTarget = new EventTarget()
++  windowTarget.setTimeout = globalThis.setTimeout.bind(globalThis)
++  windowTarget.clearTimeout = globalThis.clearTimeout.bind(globalThis)
++  windowTarget.openai = {}
++  windowTarget.cowartMcp = {
++    async callServerTool(request) {
++      calls.push(request)
++      return {
++        structuredContent: {
++          snapshot: { store: {}, schema: { schemaVersion: 2, sequences: {} } },
++          viewState: { currentPageId: 'page:page', camera: { x: 1, y: 2, z: 3 } },
++          storage: 'per-page'
++        }
++      }
++    }
++  }
++  globalThis.window = windowTarget
++
++  try {
++    const loading = loadCowartCanvasState()
++
++    windowTarget.openai = { hostCapabilities: { serverTools: {} } }
++    windowTarget.dispatchEvent(new Event('openai:set_globals'))
++    await new Promise((resolve) => setTimeout(resolve, 0))
++    assert.equal(calls.length, 0)
++
++    windowTarget.openai.toolOutput = {
++      projectDir: 'D:\\fixture',
++      canvasDir: 'D:\\fixture\\canvas'
++    }
++    windowTarget.dispatchEvent(new Event('openai:set_globals'))
++
++    const state = await loading
++    assert.equal(state.storage, 'per-page')
++    assert.deepEqual(state.viewState.camera, { x: 1, y: 2, z: 3 })
++    assert.equal(calls.length, 1)
++    assert.equal(calls[0].name, 'get_cowart_canvas_state')
++    assert.equal(calls[0].arguments.projectDir, 'D:\\fixture')
++    assert.equal(calls[0].arguments.canvasDir, 'D:\\fixture\\canvas')
++  } finally {
++    delete globalThis.window
++  }
++})
+ 
+ test('large Cowart widget exports use ordered chunked Bridge calls', async () => {
+   const calls = []
+-- 
+2.55.0.windows.3
+

@@ -1,0 +1,37 @@
+From 1b95c89feee35b9d4c4f9cbacee0092f382a5b33 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Tue, 25 Aug 2026 16:16:15 +0800
+Subject: [PATCH 19/19] fix: resume inline text edits at caret
+
+---
+ src/learning-canvas/HardwareLearningCanvas.jsx | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index 3d04219..047b604 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -318,7 +318,10 @@ function InlineCanvasTextEditor({ camera, draft, shape, style, onCancel, onChang
+     const focusEditor = () => {
+       attempts += 1
+       input.focus({ preventScroll: true })
+-      if (draft.shapeId && attempts === 1) input.select()
++      if (draft.shapeId && attempts === 1) {
++        const caret = input.value.length
++        input.setSelectionRange(caret, caret)
++      }
+       if (document.activeElement !== input && attempts < 8) {
+         frame = requestAnimationFrame(focusEditor)
+       }
+@@ -357,7 +360,7 @@ function InlineCanvasTextEditor({ camera, draft, shape, style, onCancel, onChang
+             if (event.key === 'Escape') {
+               event.preventDefault()
+               onCancel()
+-            } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
++            } else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+               event.preventDefault()
+               onCommit()
+             }
+-- 
+2.55.0.windows.3
+

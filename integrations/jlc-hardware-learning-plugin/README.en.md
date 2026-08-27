@@ -1,0 +1,48 @@
+# JLC Hardware Learning
+
+An independent hardware-learning canvas plugin for Codex. It uses official EasyEDA PNG exports or locally rendered PDF pages as visual evidence, supports schematic-region framing and normal-conversation questions, accepts teaching annotations, switches canvas pages, and exports PNG, SVG, and JSON.
+
+The plugin does not generate images, upload telemetry, or write directly to EasyEDA projects. EasyEDA access remains read-only and is handled by the hardware lifecycle layer through official `eda.*` APIs.
+
+## Components
+
+- Plugin: `jlc-hardware-learning`
+- Skill: `$jlc-hardware-learning`
+- MCP server: `jlc_hardware_learning_mcp`
+- Widget: `JLC Hardware Learning Canvas`
+
+## Development and verification
+
+```powershell
+npm install
+npm run build:artifacts
+npm run quality
+```
+
+Release artifacts are written to `mcp/generated/`. Validate the plugin and skill with the Codex Plugin Creator and Skill Creator validators before publishing.
+
+## Project data
+
+Canvas data is stored in the active project's `canvas/` directory by default:
+
+```text
+canvas/
+  hardware-learning-selection.json
+  hardware-learning-view-state.json
+  pages/
+    manifest.json
+    <page-id>/
+      hardware-learning-canvas.json
+      assets/
+```
+
+Legacy canvas filenames and metadata are accepted only as migration input. The next save writes the new `hardware-learning-*` filenames and `hardwareLearning*` metadata.
+
+## Environment variables
+
+- `JLC_HARDWARE_LEARNING_PLUGIN_ROOT`: plugin root.
+- `JLC_HARDWARE_LEARNING_PROJECT_DIR`: project that owns the canvas.
+- `JLC_HARDWARE_LEARNING_CANVAS_DIR`: canvas directory; defaults to `<projectDir>/canvas`.
+- `JLC_HARDWARE_LEARNING_PORT`: local development server port; defaults to `43217`.
+
+The original MIT license text and Git history remain to satisfy the license of inherited source code. Product naming, tools, skill, and user interface use the JLC Hardware Learning identity.

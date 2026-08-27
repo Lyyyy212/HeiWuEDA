@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "jlc_hardware_learning_mcp": {
+      "title": "JLC Hardware Learning MCP",
+      "description": "Project-local hardware-learning canvas with schematic evidence, selection questions, teaching annotations, and guarded exports.",
+      "command": "node",
+      "args": [
+        "./scripts/start-mcp.mjs"
+      ],
+      "cwd": "."
+    }
+  }
+}

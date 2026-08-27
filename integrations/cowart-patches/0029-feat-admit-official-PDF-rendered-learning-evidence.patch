@@ -1,0 +1,54 @@
+From d6c0c322bfcb4836494887499d3d468213fe03c3 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Wed, 26 Aug 2026 11:09:27 +0800
+Subject: [PATCH] feat: admit official PDF rendered learning evidence
+
+---
+ mcp/server.mjs                      | 4 +++-
+ scripts/probe-hardware-learning.mjs | 1 +
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/mcp/server.mjs b/mcp/server.mjs
+index df27177..542708f 100644
+--- a/mcp/server.mjs
++++ b/mcp/server.mjs
+@@ -139,6 +139,7 @@ const EXPORT_DIRECTORY_TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
+ const LEARNING_EVIDENCE_SOURCES = new Set([
+   "user-provided-local-image",
+   "official-easyeda-export",
++  "official-easyeda-pdf-render",
+   "official-datasheet-figure",
+ ]);
+ 
+@@ -2088,7 +2089,7 @@ function registerCowartImageTools(mcpServer) {
+     {
+       title: "Insert Cowart Image",
+       description:
+-        "Copy a local bitmap into a Cowart page-local assets folder, create a tldraw image asset and shape, replace a targeted AI image holder by default, otherwise place it beside an anchor or clear page area, and save the project-backed Cowart canvas.",
++        "Copy a local bitmap or a locally rendered official EasyEDA PDF page into a Cowart page-local assets folder, create a tldraw image asset and shape, replace a targeted AI image holder by default, otherwise place it beside an anchor or clear page area, and save the project-backed Cowart canvas.",
+       inputSchema: {
+         imagePath: z.string().trim(),
+         projectDir: z.string().trim().optional(),
+@@ -2111,6 +2112,7 @@ function registerCowartImageTools(mcpServer) {
+         evidenceSource: z.enum([
+           "user-provided-local-image",
+           "official-easyeda-export",
++          "official-easyeda-pdf-render",
+           "official-datasheet-figure",
+         ]).optional(),
+         dryRun: z.boolean().optional(),
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index e7d04f3..d2063e9 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -144,6 +144,7 @@ const serverSource = await readFile(new URL("../mcp/server.mjs", import.meta.url
+ assert.match(serverSource, /mode: widgetModeSchema\.optional\(\)/);
+ assert.match(serverSource, /assertLearningGenerationAllowed\(args, "HTML"\)/);
+ assert.match(serverSource, /LEARNING_EVIDENCE_SOURCES\.has\(args\.evidenceSource\)/);
++assert.match(serverSource, /official-easyeda-pdf-render/);
+ assert.match(serverSource, /assetMeta\.evidenceSource = evidenceSource/);
+ assert.match(serverSource, /shapeMeta\.evidenceSource = evidenceSource/);
+ assert.match(serverSource, /does not match the admitted evidenceSource/);
+-- 
+2.55.0.windows.3
+

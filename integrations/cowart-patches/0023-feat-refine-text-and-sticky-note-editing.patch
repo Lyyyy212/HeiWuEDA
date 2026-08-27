@@ -1,0 +1,935 @@
+From 5c32ee7fb6dfb788fbfba55455b2cad24201f0e8 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Tue, 25 Aug 2026 18:37:46 +0800
+Subject: [PATCH] feat: refine text and sticky note editing
+
+---
+ package.json                                  |   4 +-
+ scripts/probe-hardware-learning.mjs           |   3 +
+ .../HardwareLearningCanvas.jsx                |  79 ++++---
+ .../InlineCanvasTextEditor.jsx                |  95 ++++++--
+ src/learning-canvas/model.js                  | 215 ++++++++++++++----
+ src/learning-canvas/model.test.mjs            |  72 +++++-
+ src/learning-canvas/styles.css                |  32 ++-
+ src/learning-canvas/textEditing.js            |  56 +++++
+ src/learning-canvas/textEditing.test.mjs      |  39 ++++
+ 9 files changed, 497 insertions(+), 98 deletions(-)
+ create mode 100644 src/learning-canvas/textEditing.js
+ create mode 100644 src/learning-canvas/textEditing.test.mjs
+
+diff --git a/package.json b/package.json
+index bcf33b6..cf90688 100644
+--- a/package.json
++++ b/package.json
+@@ -5,7 +5,7 @@
+   "type": "module",
+   "scripts": {
+     "check:plugin": "node ./scripts/check-plugin-metadata.mjs && node ./scripts/check-agent-plugin.mjs",
+-    "check": "node --check ./mcp/server.mjs && node --check ./mcp/lib/plugin-root.mjs && node --check ./mcp/lib/widget-resource.mjs && node --check ./mcp/lib/cowart-static-widget.mjs && node --check ./mcp/lib/canvas-storage.mjs && node --check ./mcp/lib/ga4-analytics.mjs && node --check ./mcp/learning/conversation-question.mjs && node --check ./src/analytics.js && node --check ./src/learning-canvas/model.js && node --check ./src/learning-canvas/history.js && node --check ./src/learning-canvas/interaction.js && node --check ./src/learning-canvas/annotations.js && node --check ./src/learning-canvas/export.js && node --check ./scripts/build-release-artifacts.mjs && node --check ./scripts/probe-cold-install.mjs && node --check ./scripts/probe-analytics.mjs && node --check ./scripts/probe-ga4.mjs && node --check ./scripts/probe-mcp.mjs && node --check ./scripts/start-mcp.mjs && node --check ./scripts/vite-build-once.mjs && node --check ./mcp/generated/cowart-mcp.mjs",
++    "check": "node --check ./mcp/server.mjs && node --check ./mcp/lib/plugin-root.mjs && node --check ./mcp/lib/widget-resource.mjs && node --check ./mcp/lib/cowart-static-widget.mjs && node --check ./mcp/lib/canvas-storage.mjs && node --check ./mcp/lib/ga4-analytics.mjs && node --check ./mcp/learning/conversation-question.mjs && node --check ./src/analytics.js && node --check ./src/learning-canvas/model.js && node --check ./src/learning-canvas/history.js && node --check ./src/learning-canvas/interaction.js && node --check ./src/learning-canvas/textEditing.js && node --check ./src/learning-canvas/annotations.js && node --check ./src/learning-canvas/export.js && node --check ./scripts/build-release-artifacts.mjs && node --check ./scripts/probe-cold-install.mjs && node --check ./scripts/probe-analytics.mjs && node --check ./scripts/probe-ga4.mjs && node --check ./scripts/probe-mcp.mjs && node --check ./scripts/start-mcp.mjs && node --check ./scripts/vite-build-once.mjs && node --check ./mcp/generated/cowart-mcp.mjs",
+     "dev": "vite",
+     "build:web": "node ./scripts/vite-build-once.mjs",
+     "build:artifacts": "node ./scripts/build-release-artifacts.mjs",
+@@ -18,7 +18,7 @@
+     "probe:analytics": "node ./scripts/probe-analytics.mjs",
+     "probe:hardware-learning": "node ./scripts/probe-hardware-learning.mjs",
+     "probe:learning-tools": "node ./scripts/probe-learning-tools.mjs",
+-    "test:learning-canvas": "node --test ./src/learning-canvas/model.test.mjs ./src/learning-canvas/history.test.mjs ./src/learning-canvas/interaction.test.mjs ./src/cowartClient.test.mjs ./mcp/learning/conversation-question.test.mjs",
++    "test:learning-canvas": "node --test ./src/learning-canvas/model.test.mjs ./src/learning-canvas/history.test.mjs ./src/learning-canvas/interaction.test.mjs ./src/learning-canvas/textEditing.test.mjs ./src/cowartClient.test.mjs ./mcp/learning/conversation-question.test.mjs",
+     "probe:ga4": "node ./scripts/probe-ga4.mjs",
+     "quality": "npm run check:plugin && npm run check && npm run test:learning-canvas && npm run check:artifacts && npm run probe:hardware-learning && npm run probe:learning-tools && npm run probe:mcp:cold && npm run probe:mcp && npm run probe:analytics && npm run probe:ga4"
+   },
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index a5e131f..971a9bb 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -78,6 +78,9 @@ assert.match(inlineEditorSource, /learning-inline-text-editor/);
+ assert.match(inlineEditorSource, /<div[\s\S]*?className="learning-inline-editor"/);
+ assert.match(inlineEditorSource, /pageToScreen\(point, camera\)/);
+ assert.match(inlineEditorSource, /event\.nativeEvent\.isComposing/);
++assert.match(inlineEditorSource, /data-cowart-preserve-text-editor/);
++assert.match(inlineEditorSource, /learning-inline-editor-hint/);
++assert.match(inlineEditorSource, /indentInlineLearningText/);
+ assert.doesNotMatch(inlineEditorSource, /<foreignObject/);
+ 
+ const historySource = await readFile(
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index 5b0ccd4..585d627 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -76,6 +76,7 @@ import {
+   styleLearningShapes,
+   translateShape,
+   unionBounds,
++  updateLearningTextShapeContent,
+   updateShape,
+   updateShapes,
+   zoomCameraAt
+@@ -100,6 +101,7 @@ import {
+   svgToPngDataUrl,
+   textToBase64
+ } from './export.js'
++import { normalizeInlineLearningText } from './textEditing.js'
+ import './styles.css'
+ 
+ const PRIMARY_TOOLS = [
+@@ -652,6 +654,12 @@ export default function HardwareLearningCanvas() {
+   function applyStyle(stylePatch) {
+     const nextStyle = normalizeLearningStyle({ ...style, ...stylePatch })
+     setStyle(nextStyle)
++    if (noteDraft) {
++      setNoteDraft((current) => current
++        ? { ...current, style: normalizeLearningStyle({ ...current.style, ...stylePatch }) }
++        : current)
++      return
++    }
+     if (!snapshotRef.current || !selectedIds.length) return
+     const result = styleLearningShapes(snapshotRef.current, selectedIds, stylePatch)
+     if (result.updated.length) {
+@@ -964,48 +972,43 @@ export default function HardwareLearningCanvas() {
+     startPointerGesture(event, 'resize', { originalShape: shape, startBounds: bounds, handle })
+   }
+ 
++  function cancelTextEdit() {
++    const wasExisting = Boolean(noteDraft?.shapeId)
++    setNoteDraft(null)
++    setTool('select')
++    setStatus({
++      kind: 'saved',
++      text: wasExisting ? '已取消编辑，保留原文字' : '已取消新建文字'
++    })
++  }
++
+   function saveNote() {
+-    const text = noteDraft?.text?.trim()
+     if (!noteDraft || !snapshotRef.current || !pageId) return
+-    if (!text) {
++    const text = normalizeInlineLearningText(noteDraft.text)
++    if (!text.trim()) {
++      const wasExisting = Boolean(noteDraft.shapeId)
+       setNoteDraft(null)
++      setTool('select')
++      setStatus({
++        kind: 'saved',
++        text: wasExisting ? '内容为空，保留原文字' : '空文字未保存'
++      })
+       return
+     }
+     if (noteDraft.shapeId) {
+       const original = snapshotRef.current.store[noteDraft.shapeId]
+-      const replacement = noteDraft.mode === 'text'
+-        ? createTextShape({
+-            snapshot: snapshotRef.current,
+-            pageId,
+-            point: { x: original.x, y: original.y },
+-            text,
+-            style: noteDraft.style,
+-            id: original.id,
+-            index: original.index
+-          })
+-        : createNoteShape({
+-            snapshot: snapshotRef.current,
+-            pageId,
+-            point: { x: original.x, y: original.y },
+-            bounds: { x: original.x, y: original.y, w: original.props?.w || 260, h: original.props?.h || 120 },
+-            text,
+-            style: noteDraft.style,
+-            id: original.id,
+-            index: original.index
+-          })
+-      const updated = {
+-        ...original,
+-        opacity: replacement.opacity,
+-        meta: { ...original.meta, ...replacement.meta },
+-        props: { ...original.props, ...replacement.props }
+-      }
+-      commitSnapshot(updateShape(snapshotRef.current, updated), { message: '文字标注已更新' })
++      const updated = updateLearningTextShapeContent(original, text, noteDraft.style)
++      commitSnapshot(updateShape(snapshotRef.current, updated), {
++        message: noteDraft.mode === 'note' ? '便签已更新' : '文字已更新'
++      })
+       setSelectedIds([updated.id])
+     } else {
+       const shape = noteDraft.mode === 'text'
+         ? createTextShape({ snapshot: snapshotRef.current, pageId, point: noteDraft.point, text, style: noteDraft.style })
+         : createNoteShape({ snapshot: snapshotRef.current, pageId, point: noteDraft.point, text, style: noteDraft.style })
+-      commitSnapshot(addShape(snapshotRef.current, shape), { message: '文字标注已保存' })
++      commitSnapshot(addShape(snapshotRef.current, shape), {
++        message: noteDraft.mode === 'note' ? '便签已保存' : '文字已保存'
++      })
+       setSelectedIds([shape.id])
+     }
+     setTool('select')
+@@ -1154,6 +1157,7 @@ export default function HardwareLearningCanvas() {
+     w: rootRef.current.clientWidth / camera.z,
+     h: rootRef.current.clientHeight / camera.z
+   } : null
++  const panelStyle = noteDraft?.style ? normalizeLearningStyle(noteDraft.style) : style
+ 
+   return (
+     <main className="learning-canvas-shell" data-engine="cowart-learning-canvas-v2">
+@@ -1226,7 +1230,7 @@ export default function HardwareLearningCanvas() {
+           <InlineCanvasTextEditor
+             camera={camera}
+             draft={noteDraft}
+-            onCancel={() => { setNoteDraft(null); setTool('select') }}
++            onCancel={cancelTextEdit}
+             onChange={(text) => setNoteDraft((current) => current ? { ...current, text } : current)}
+             onCommit={saveNote}
+             shape={noteDraft.shapeId ? snapshot.store[noteDraft.shapeId] : null}
+@@ -1328,6 +1332,7 @@ export default function HardwareLearningCanvas() {
+       <aside
+         aria-label="样式"
+         className="cowart-style-panel"
++        data-cowart-preserve-text-editor="true"
+         data-selection-scope={selectedIds.length && !selectedIds.some((id) => snapshot?.store?.[id]?.type !== 'image') ? 'protected' : 'editable'}
+         title={selectedIds.length && !selectedIds.some((id) => snapshot?.store?.[id]?.type !== 'image') ? '原理图底图受保护；调整项将用于下一项标注' : '调整当前标注或下一项标注的样式'}
+       >
+@@ -1336,7 +1341,7 @@ export default function HardwareLearningCanvas() {
+             <button
+               aria-label={`颜色 ${name}`}
+               className="cowart-color-swatch"
+-              data-active={style.color === name ? 'true' : 'false'}
++              data-active={panelStyle.color === name ? 'true' : 'false'}
+               key={name}
+               onClick={() => applyStyle({ color: name })}
+               style={{ '--swatch': value }}
+@@ -1346,12 +1351,12 @@ export default function HardwareLearningCanvas() {
+           ))}
+         </div>
+         <label className="cowart-opacity-control">
+-          <span>不透明度</span><output>{Math.round(style.opacity * 100)}%</output>
+-          <input max="100" min="10" onInput={(event) => applyStyle({ opacity: Number(event.currentTarget.value) / 100 })} type="range" value={Math.round(style.opacity * 100)} />
++          <span>不透明度</span><output>{Math.round(panelStyle.opacity * 100)}%</output>
++          <input max="100" min="10" onInput={(event) => applyStyle({ opacity: Number(event.currentTarget.value) / 100 })} type="range" value={Math.round(panelStyle.opacity * 100)} />
+         </label>
+-        <StyleOptions label="填充" onChange={(fill) => applyStyle({ fill })} options={FILL_OPTIONS} value={style.fill} />
+-        <StyleOptions label="线条" onChange={(dash) => applyStyle({ dash })} options={DASH_OPTIONS} value={style.dash} />
+-        <StyleOptions label="大小" onChange={(size) => applyStyle({ size })} options={SIZE_OPTIONS} value={style.size} />
++        <StyleOptions label="填充" onChange={(fill) => applyStyle({ fill })} options={FILL_OPTIONS} value={panelStyle.fill} />
++        <StyleOptions label="线条" onChange={(dash) => applyStyle({ dash })} options={DASH_OPTIONS} value={panelStyle.dash} />
++        <StyleOptions label="大小" onChange={(size) => applyStyle({ size })} options={SIZE_OPTIONS} value={panelStyle.size} />
+       </aside>
+ 
+       <nav aria-label="学习画布工具" className="cowart-bottom-toolbar">
+diff --git a/src/learning-canvas/InlineCanvasTextEditor.jsx b/src/learning-canvas/InlineCanvasTextEditor.jsx
+index 3fd7c24..db0805f 100644
+--- a/src/learning-canvas/InlineCanvasTextEditor.jsx
++++ b/src/learning-canvas/InlineCanvasTextEditor.jsx
+@@ -1,23 +1,60 @@
+ import { useLayoutEffect, useRef } from 'react'
+ 
+-import { learningTextMetricsForSize, normalizeLearningStyle, pageToScreen } from './model.js'
++import {
++  learningTextBoundsForContent,
++  learningTextMetricsForSize,
++  normalizeLearningStyle,
++  pageToScreen
++} from './model.js'
+ import { colorValue } from './export.js'
++import {
++  indentInlineLearningText,
++  INLINE_LEARNING_TEXT_LIMIT,
++  inlineEditorActionForKey,
++  normalizeInlineLearningText
++} from './textEditing.js'
+ 
+ export default function InlineCanvasTextEditor({ camera, draft, shape, style, onCancel, onChange, onCommit }) {
+   const inputRef = useRef(null)
+-  const cancelledRef = useRef(false)
++  const composingRef = useRef(false)
++  const finishedRef = useRef(false)
+   const editingStyle = normalizeLearningStyle(draft.style ?? style)
+   const point = shape ? { x: shape.x, y: shape.y } : draft.point
+-  const width = shape?.props?.w || (draft.mode === 'note' ? 260 : 320)
+-  const height = shape?.props?.h || (draft.mode === 'note' ? 120 : 82)
++  const bounds = learningTextBoundsForContent({
++    mode: draft.mode,
++    text: draft.text,
++    style: editingStyle,
++    currentBounds: shape ? { w: shape.props?.w, h: shape.props?.h } : null,
++    autoSize: shape ? shape.meta?.cowartLearningTextAutoSize !== false : true
++  })
+   const screenPoint = pageToScreen(point, camera)
+-  const screenWidth = Math.max(draft.mode === 'note' ? 210 : 240, width * camera.z)
+-  const screenHeight = Math.max(draft.mode === 'note' ? 104 : 74, height * camera.z)
++  const screenWidth = Math.max(draft.mode === 'note' ? 210 : 120, bounds.w * camera.z)
++  const screenHeight = Math.max(draft.mode === 'note' ? 104 : 54, bounds.h * camera.z)
+   const color = colorValue(editingStyle.color, draft.mode === 'note' ? '#eab308' : '#1f2937')
+   const textMetrics = learningTextMetricsForSize(editingStyle.size)
+   const fillOpacity = editingStyle.fill === 'solid' ? (draft.mode === 'note' ? 0.34 : 0.92) : editingStyle.fill === 'semi' ? 0.18 : 0
+   const background = fillOpacity > 0 ? `${color}${Math.round(fillOpacity * 255).toString(16).padStart(2, '0')}` : 'transparent'
+ 
++  function finish(action) {
++    if (finishedRef.current) return
++    finishedRef.current = true
++    action()
++  }
++
++  function keepFocusForStyleInteraction(event) {
++    const nextTarget = event.relatedTarget
++    if (!nextTarget?.closest?.('[data-cowart-preserve-text-editor="true"]')) return false
++    const selectionStart = inputRef.current?.selectionStart ?? 0
++    const selectionEnd = inputRef.current?.selectionEnd ?? selectionStart
++    requestAnimationFrame(() => {
++      const input = inputRef.current
++      if (!input || finishedRef.current) return
++      input.focus({ preventScroll: true })
++      input.setSelectionRange(selectionStart, selectionEnd)
++    })
++    return true
++  }
++
+   useLayoutEffect(() => {
+     const input = inputRef.current
+     if (!input) return
+@@ -60,20 +97,40 @@ export default function InlineCanvasTextEditor({ camera, draft, shape, style, on
+           autoFocus
+           data-cowart-inline-editor="true"
+           data-testid="learning-inline-text-editor"
+-          maxLength={800}
+-          onBlur={() => {
+-            if (!cancelledRef.current) onCommit()
++          dir="auto"
++          maxLength={INLINE_LEARNING_TEXT_LIMIT}
++          onBlur={(event) => {
++            if (keepFocusForStyleInteraction(event)) return
++            finish(onCommit)
+           }}
+-          onChange={(event) => onChange(event.target.value)}
++          onChange={(event) => onChange(normalizeInlineLearningText(event.target.value))}
++          onCompositionEnd={() => { composingRef.current = false }}
++          onCompositionStart={() => { composingRef.current = true }}
+           onKeyDown={(event) => {
+             event.stopPropagation()
+-            if (event.key === 'Escape') {
++            const action = inlineEditorActionForKey({
++              key: event.key,
++              shiftKey: event.shiftKey,
++              isComposing: composingRef.current || event.nativeEvent.isComposing,
++              keyCode: event.nativeEvent.keyCode
++            })
++            if (action === 'cancel') {
+               event.preventDefault()
+-              cancelledRef.current = true
+-              onCancel()
+-            } else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
++              finish(onCancel)
++            } else if (action === 'commit') {
+               event.preventDefault()
+-              onCommit()
++              finish(onCommit)
++            } else if (action === 'indent' || action === 'outdent') {
++              event.preventDefault()
++              const input = event.currentTarget
++              const result = indentInlineLearningText(
++                input.value,
++                input.selectionStart,
++                input.selectionEnd,
++                { outdent: action === 'outdent' }
++              )
++              onChange(result.text)
++              requestAnimationFrame(() => inputRef.current?.setSelectionRange(result.selectionStart, result.selectionEnd))
+             }
+           }}
+           onPointerDown={(event) => event.stopPropagation()}
+@@ -83,11 +140,17 @@ export default function InlineCanvasTextEditor({ camera, draft, shape, style, on
+           spellCheck="false"
+           style={{
+             fontSize: `${textMetrics.fontSize * camera.z}px`,
+-            lineHeight: `${textMetrics.lineHeight * camera.z}px`
++            lineHeight: `${textMetrics.lineHeight * camera.z}px`,
++            overflowY: bounds.overflow ? 'auto' : 'hidden'
+           }}
+           value={draft.text}
++          wrap="soft"
+         />
+       </div>
++      <div className="learning-inline-editor-hint" role="status">
++        <span>Enter 完成 · Shift+Enter 换行 · Esc 取消</span>
++        <span>{draft.text.length}/{INLINE_LEARNING_TEXT_LIMIT}</span>
++      </div>
+     </div>
+   )
+ }
+diff --git a/src/learning-canvas/model.js b/src/learning-canvas/model.js
+index 48e8b63..2cfa0ae 100644
+--- a/src/learning-canvas/model.js
++++ b/src/learning-canvas/model.js
+@@ -52,49 +52,104 @@ function estimatedGlyphWidth(character, fontSize) {
+   return fontSize * 0.62
+ }
+ 
+-export function layoutLearningText(text, {
+-  width = 260,
+-  height = 120,
+-  size = DEFAULT_LEARNING_STYLE.size,
+-  paddingX = 14,
+-  paddingTop = 8,
+-  maxLines = 12
+-} = {}) {
+-  const metrics = learningTextMetricsForSize(size)
+-  const firstBaseline = metrics.fontSize + 9
+-  const lineLimit = Math.max(1, Math.min(
+-    maxLines,
+-    1 + Math.floor(Math.max(0, height - paddingTop - firstBaseline) / metrics.lineHeight)
+-  ))
+-  const availableWidth = Math.max(metrics.fontSize, width - paddingX * 2)
++export function estimateLearningTextLineWidth(text, size = DEFAULT_LEARNING_STYLE.size) {
++  const { fontSize } = learningTextMetricsForSize(size)
++  return Array.from(String(text || '')).reduce(
++    (width, character) => width + estimatedGlyphWidth(character, fontSize),
++    0
++  )
++}
++
++function wrapLearningTextLines(text, { width, size, paddingX }) {
++  const { fontSize } = learningTextMetricsForSize(size)
++  const availableWidth = Math.max(fontSize, width - paddingX * 2)
+   const lines = []
+   for (const source of String(text || '').split(/\r?\n/u)) {
+     if (!source) {
+       lines.push('')
+-      if (lines.length >= lineLimit) break
+       continue
+     }
+     let current = ''
+     let currentWidth = 0
+     for (const character of Array.from(source)) {
+-      const characterWidth = estimatedGlyphWidth(character, metrics.fontSize)
++      const characterWidth = estimatedGlyphWidth(character, fontSize)
+       if (current && currentWidth + characterWidth > availableWidth) {
+         lines.push(current)
+-        if (lines.length >= lineLimit) break
+         current = ''
+         currentWidth = 0
+       }
+       current += character
+       currentWidth += characterWidth
+     }
+-    if (lines.length >= lineLimit) break
+     lines.push(current)
+-    if (lines.length >= lineLimit) break
+   }
++  return lines.length ? lines : ['']
++}
++
++export function layoutLearningText(text, {
++  width = 260,
++  height = 120,
++  size = DEFAULT_LEARNING_STYLE.size,
++  paddingX = 14,
++  paddingTop = 8,
++  maxLines = Number.POSITIVE_INFINITY
++} = {}) {
++  const metrics = learningTextMetricsForSize(size)
++  const firstBaseline = metrics.fontSize + 9
++  const allLines = wrapLearningTextLines(text, { width, size, paddingX })
++  const heightLineLimit = Number.isFinite(height)
++    ? 1 + Math.floor(Math.max(0, height - paddingTop - firstBaseline) / metrics.lineHeight)
++    : Number.POSITIVE_INFINITY
++  const lineLimit = Math.max(1, Math.min(maxLines, heightLineLimit))
++  const lines = allLines.slice(0, lineLimit)
++  const requiredHeight = paddingTop + firstBaseline + Math.max(0, allLines.length - 1) * metrics.lineHeight + 8
+   return {
+     ...metrics,
+     firstBaseline,
+-    lines: lines.slice(0, lineLimit)
++    lines,
++    overflow: allLines.length > lines.length,
++    requiredHeight,
++    visualLineCount: allLines.length
++  }
++}
++
++export function learningTextBoundsForContent({
++  mode = 'text',
++  text = '',
++  style,
++  currentBounds,
++  autoSize = true
++} = {}) {
++  const normalizedStyle = normalizeLearningStyle(style)
++  const note = mode === 'note'
++  const minWidth = note ? 180 : 120
++  const defaultWidth = note ? 260 : 320
++  const maxWidth = 720
++  const minHeight = note ? 120 : 54
++  const maxHeight = 960
++  const hardLineWidth = Math.max(
++    0,
++    ...String(text || '').split(/\r?\n/u).map((line) => estimateLearningTextLineWidth(line, normalizedStyle.size))
++  )
++  const requestedWidth = note || !autoSize
++    ? finite(currentBounds?.w, defaultWidth)
++    : hardLineWidth + 28
++  const width = Math.max(minWidth, Math.min(maxWidth, requestedWidth))
++  const layout = layoutLearningText(text, {
++    width,
++    height: Number.POSITIVE_INFINITY,
++    size: normalizedStyle.size
++  })
++  const contentHeight = Math.max(minHeight, layout.requiredHeight)
++  const requestedHeight = autoSize
++    ? contentHeight
++    : Math.max(finite(currentBounds?.h, minHeight), contentHeight)
++  return {
++    w: width,
++    h: Math.min(maxHeight, requestedHeight),
++    contentHeight,
++    overflow: requestedHeight > maxHeight,
++    visualLineCount: layout.visualLineCount
+   }
+ }
+ 
+@@ -346,27 +401,32 @@ export function createEllipseShape({ snapshot, pageId, bounds, style, id, index
+   return createGeoShape({ snapshot, pageId, bounds, geo: 'ellipse', kind: 'ellipse', style, id, index })
+ }
+ 
+-export function createTextShape({ snapshot, pageId, point, text, style, id, index } = {}) {
++export function createTextShape({ snapshot, pageId, point, text, style, bounds, autoSize = bounds ? false : true, id, index } = {}) {
+   const normalizedStyle = normalizeLearningStyle(style)
+-  const textLines = String(text || '').split(/\r?\n/)
+-  const longestLine = textLines.reduce((length, line) => Math.max(length, line.length), 0)
+-  const metrics = learningTextMetricsForSize(normalizedStyle.size)
+-  const width = Math.max(120, Math.min(720, longestLine * metrics.fontSize + 28))
+-  const height = Math.max(54, Math.min(480, textLines.length * metrics.lineHeight + 28))
+-  return createGeoShape({
++  const dimensions = learningTextBoundsForContent({
++    mode: 'text',
++    text,
++    style: normalizedStyle,
++    currentBounds: bounds,
++    autoSize
++  })
++  const shape = createGeoShape({
+     snapshot,
+     pageId,
+-    bounds: { x: point.x, y: point.y, w: width, h: height },
++    bounds: { x: bounds?.x ?? point.x, y: bounds?.y ?? point.y, w: dimensions.w, h: dimensions.h },
+     kind: 'text',
+     style: { ...normalizedStyle, fill: 'none', dash: 'solid' },
+     text,
+     id,
+     index
+   })
++  return {
++    ...shape,
++    meta: { ...shape.meta, cowartLearningTextAutoSize: autoSize }
++  }
+ }
+ 
+ export function createNoteShape({ snapshot, pageId, point, text, bounds, command, style, id, index } = {}) {
+-  const noteBounds = bounds ?? { x: point.x, y: point.y, w: 260, h: 120 }
+   const normalizedStyle = normalizeLearningStyle(style ?? {
+     color: 'yellow',
+     dash: 'solid',
+@@ -374,6 +434,21 @@ export function createNoteShape({ snapshot, pageId, point, text, bounds, command
+     size: 'm',
+     opacity: 1
+   })
++  const autoSize = !bounds
++  const noteText = String(text || command?.text || '')
++  const dimensions = learningTextBoundsForContent({
++    mode: 'note',
++    text: noteText,
++    style: normalizedStyle,
++    currentBounds: bounds,
++    autoSize
++  })
++  const noteBounds = {
++    x: bounds?.x ?? point.x,
++    y: bounds?.y ?? point.y,
++    w: dimensions.w,
++    h: dimensions.h
++  }
+   return baseShape({
+     id,
+     pageId,
+@@ -383,16 +458,61 @@ export function createNoteShape({ snapshot, pageId, point, text, bounds, command
+     type: 'geo',
+     opacity: normalizedStyle.opacity,
+     meta: learningMeta('note', {
+-      cowartLearningText: String(text || command?.text || ''),
++      cowartLearningText: noteText,
++      cowartLearningTextAutoSize: autoSize,
++      cowartLearningBounds: { x: 0, y: 0, w: noteBounds.w, h: noteBounds.h },
+       ...commandMeta(command)
+     }),
+     props: rectangleProps(noteBounds, {
+       ...normalizedStyle,
+-      text: String(text || command?.text || '')
++      text: noteText
+     })
+   })
+ }
+ 
++export function updateLearningTextShapeContent(shape, text, style) {
++  const mode = shape?.meta?.cowartLearningKind
++  if (!['note', 'text'].includes(mode)) return shape
++  const normalizedStyle = normalizeLearningStyle(style ?? {
++    color: shape.props?.color,
++    fill: shape.props?.fill,
++    dash: shape.props?.dash,
++    size: shape.props?.size,
++    opacity: shape.opacity
++  })
++  const autoSize = shape.meta?.cowartLearningTextAutoSize !== false
++  const dimensions = learningTextBoundsForContent({
++    mode,
++    text,
++    style: normalizedStyle,
++    currentBounds: { w: shape.props?.w, h: shape.props?.h },
++    autoSize
++  })
++  const appliedStyle = mode === 'text'
++    ? { ...normalizedStyle, fill: 'none', dash: 'solid' }
++    : normalizedStyle
++  return {
++    ...shape,
++    opacity: appliedStyle.opacity,
++    meta: {
++      ...shape.meta,
++      cowartLearningText: String(text || ''),
++      cowartLearningBounds: { x: 0, y: 0, w: dimensions.w, h: dimensions.h }
++    },
++    props: {
++      ...shape.props,
++      w: dimensions.w,
++      h: dimensions.h,
++      color: appliedStyle.color,
++      labelColor: appliedStyle.color,
++      fill: appliedStyle.fill,
++      dash: appliedStyle.dash,
++      size: appliedStyle.size,
++      richText: emptyRichText(text)
++    }
++  }
++}
++
+ export function createArrowShape({
+   snapshot, pageId, start, end, command, style, kind = 'arrow', id, index
+ } = {}) {
+@@ -809,12 +929,8 @@ export function styleLearningShapes(snapshot, shapeIds, stylePatch) {
+       dash: style.dash,
+       size: style.size
+     }
+-    if (shape.meta?.cowartLearningKind === 'text' && Object.hasOwn(stylePatch, 'size')) {
+-      const textLines = String(shape.meta?.cowartLearningText || '').split(/\r?\n/u)
+-      const longestLine = textLines.reduce((length, line) => Math.max(length, line.length), 0)
+-      const metrics = learningTextMetricsForSize(style.size)
+-      shape.props.w = Math.max(120, Math.min(720, longestLine * metrics.fontSize + 28))
+-      shape.props.h = Math.max(54, Math.min(480, textLines.length * metrics.lineHeight + 28))
++    if (['text', 'note'].includes(shape.meta?.cowartLearningKind) && Object.hasOwn(stylePatch, 'size')) {
++      next.store[id] = updateLearningTextShapeContent(shape, shape.meta?.cowartLearningText || '', style)
+     }
+     updated.push(id)
+   }
+@@ -882,18 +998,35 @@ export function translateShape(shape, delta) {
+ 
+ export function resizeRectangleShape(shape, bounds) {
+   if (shape?.type !== 'geo') return shape
++  const mode = shape.meta?.cowartLearningKind
++  const textBounds = ['note', 'text'].includes(mode)
++    ? learningTextBoundsForContent({
++        mode,
++        text: shape.meta?.cowartLearningText || '',
++        style: {
++          color: shape.props?.color,
++          fill: shape.props?.fill,
++          dash: shape.props?.dash,
++          size: shape.props?.size,
++          opacity: shape.opacity
++        },
++        currentBounds: bounds,
++        autoSize: false
++      })
++    : bounds
+   return {
+     ...shape,
+     x: bounds.x,
+     y: bounds.y,
+     meta: {
+       ...shape.meta,
+-      cowartLearningBounds: { x: 0, y: 0, w: bounds.w, h: bounds.h }
++      ...(['note', 'text'].includes(mode) ? { cowartLearningTextAutoSize: false } : {}),
++      cowartLearningBounds: { x: 0, y: 0, w: textBounds.w, h: textBounds.h }
+     },
+     props: {
+       ...shape.props,
+-      w: bounds.w,
+-      h: bounds.h
++      w: textBounds.w,
++      h: textBounds.h
+     }
+   }
+ }
+diff --git a/src/learning-canvas/model.test.mjs b/src/learning-canvas/model.test.mjs
+index e5ec0b8..cc1d243 100644
+--- a/src/learning-canvas/model.test.mjs
++++ b/src/learning-canvas/model.test.mjs
+@@ -15,14 +15,18 @@ import {
+   createTextShape,
+   deleteLearningShapes,
+   duplicateLearningShapes,
++  layoutLearningText,
++  learningTextBoundsForContent,
+   learningFrameNumber,
+   migrateLegacyLearningFrames,
+   nextLearningFrameNumber,
+   pageBoundsForShape,
++  resizeRectangleShape,
+   selectionState,
+   setImageLockState,
+   shapeRole,
+-  styleLearningShapes
++  styleLearningShapes,
++  updateLearningTextShapeContent
+ } from './model.js'
+ 
+ function fixtureSnapshot() {
+@@ -228,6 +232,72 @@ test('text size is preserved in the standalone SVG export', () => {
+   assert.match(result.svg, /dy="37">可调字号<\/tspan>/u)
+ })
+ 
++test('text and notes derive visible bounds from their full content', () => {
++  const wrapped = layoutLearningText('电源路径'.repeat(24), { width: 180, height: Number.POSITIVE_INFINITY, size: 'm' })
++  assert.ok(wrapped.visualLineCount > 1)
++  assert.equal(wrapped.overflow, false)
++  assert.ok(wrapped.requiredHeight > 54)
++
++  const textBounds = learningTextBoundsForContent({ mode: 'text', text: '测试1继续补充说明', style: { size: 'l' } })
++  assert.ok(textBounds.w > 120)
++  assert.ok(textBounds.h >= 54)
++
++  const noteBounds = learningTextBoundsForContent({ mode: 'note', text: '电源路径说明'.repeat(40), style: { size: 'm' } })
++  assert.equal(noteBounds.w, 260)
++  assert.ok(noteBounds.h > 120)
++  assert.equal(noteBounds.overflow, false)
++})
++
++test('re-editing extends existing text and keeps manually resized note width', () => {
++  const snapshot = fixtureSnapshot()
++  const originalText = createTextShape({
++    snapshot,
++    pageId: 'page:page',
++    point: { x: 20, y: 30 },
++    text: '测试1',
++    id: 'shape:editable-text'
++  })
++  const updatedText = updateLearningTextShapeContent(originalText, '测试1，继续编写后续说明', { size: 'l', color: 'blue' })
++  assert.equal(updatedText.id, originalText.id)
++  assert.equal(updatedText.meta.cowartLearningText, '测试1，继续编写后续说明')
++  assert.equal(updatedText.props.size, 'l')
++  assert.ok(updatedText.props.w > originalText.props.w)
++
++  const note = createNoteShape({
++    snapshot,
++    pageId: 'page:page',
++    point: { x: 200, y: 220 },
++    text: '短便签',
++    id: 'shape:manual-note'
++  })
++  const resized = resizeRectangleShape(note, { x: 200, y: 220, w: 190, h: 120 })
++  assert.equal(resized.meta.cowartLearningTextAutoSize, false)
++  const edited = updateLearningTextShapeContent(resized, '手动宽度下自动换行的便签内容'.repeat(16), { size: 'm' })
++  assert.equal(edited.props.w, 190)
++  assert.ok(edited.props.h > 120)
++})
++
++test('font size changes grow notes so persisted and exported text is not clipped', () => {
++  let snapshot = fixtureSnapshot()
++  const noteText = '模块作用与信号关系'.repeat(18)
++  const note = createNoteShape({
++    snapshot,
++    pageId: 'page:page',
++    point: { x: 40, y: 50 },
++    text: noteText,
++    style: { size: 's' },
++    id: 'shape:long-note'
++  })
++  snapshot = addShape(snapshot, note)
++  const styled = styleLearningShapes(snapshot, [note.id], { size: 'xl' })
++  assert.equal(styled.snapshot.store[note.id].props.size, 'xl')
++  assert.ok(styled.snapshot.store[note.id].props.h > note.props.h)
++  const result = buildLearningCanvasSvg({ snapshot: styled.snapshot, pageId: 'page:page' })
++  assert.match(result.svg, /font-size="28"/u)
++  const exportedText = [...result.svg.matchAll(/<tspan[^>]*>(.*?)<\/tspan>/gu)].map((match) => match[1]).join('')
++  assert.equal(exportedText, noteText)
++})
++
+ test('schematic evidence lock state is explicit and does not affect annotations', () => {
+   const initial = fixtureSnapshot()
+   const frame = createFrameShape({
+diff --git a/src/learning-canvas/styles.css b/src/learning-canvas/styles.css
+index c4d1ad0..e96e4c6 100644
+--- a/src/learning-canvas/styles.css
++++ b/src/learning-canvas/styles.css
+@@ -94,6 +94,13 @@ textarea:focus-visible {
+   box-shadow: 0 0 0 2px rgb(47 128 237 / 24%);
+ }
+ 
++.learning-inline-editor[data-mode="text"] .learning-inline-editor-surface {
++  background: transparent;
++  border: 1px dashed rgb(47 128 237 / 70%);
++  border-radius: 2px;
++  box-shadow: none;
++}
++
+ .learning-inline-editor[data-mode="note"] .learning-inline-editor-surface {
+   border-radius: 10px;
+   box-shadow: 0 5px 18px rgb(15 23 42 / 16%);
+@@ -103,7 +110,7 @@ textarea:focus-visible {
+   box-sizing: border-box;
+   width: 100%;
+   height: 100%;
+-  padding: 10px 12px;
++  padding: 8px 14px;
+   overflow: auto;
+   resize: none;
+   color: var(--editor-color);
+@@ -113,11 +120,34 @@ textarea:focus-visible {
+   outline: 0;
+   pointer-events: auto;
+   user-select: text;
++  white-space: pre-wrap;
++  overflow-wrap: anywhere;
+ }
+ 
+ .learning-inline-editor[data-mode="note"] textarea { color: #1f2937; }
+ .learning-inline-editor textarea::placeholder { color: rgb(100 116 139 / 75%); }
+ 
++.learning-inline-editor-hint {
++  position: absolute;
++  top: calc(100% + 6px);
++  left: 0;
++  display: flex;
++  gap: 12px;
++  align-items: center;
++  justify-content: space-between;
++  min-width: min(100%, 360px);
++  padding: 4px 7px;
++  color: #475569;
++  font-size: 11px;
++  line-height: 16px;
++  white-space: nowrap;
++  pointer-events: none;
++  background: rgb(255 255 255 / 92%);
++  border: 1px solid rgb(203 213 225 / 85%);
++  border-radius: 6px;
++  box-shadow: 0 2px 8px rgb(15 23 42 / 10%);
++}
++
+ .learning-selection-overlay circle {
+   fill: #fff;
+   stroke: var(--cowart-blue);
+diff --git a/src/learning-canvas/textEditing.js b/src/learning-canvas/textEditing.js
+new file mode 100644
+index 0000000..4bbefd3
+--- /dev/null
++++ b/src/learning-canvas/textEditing.js
+@@ -0,0 +1,56 @@
++export const INLINE_LEARNING_TEXT_LIMIT = 2000
++export const INLINE_LEARNING_TEXT_INDENT = '  '
++
++export function normalizeInlineLearningText(value) {
++  return String(value ?? '')
++    .replace(/\r\n?/gu, '\n')
++    .slice(0, INLINE_LEARNING_TEXT_LIMIT)
++}
++
++export function inlineEditorActionForKey({
++  key,
++  shiftKey = false,
++  isComposing = false,
++  keyCode = 0
++} = {}) {
++  if (key === 'Escape') return 'cancel'
++  if (key === 'Tab') return shiftKey ? 'outdent' : 'indent'
++  if (key !== 'Enter') return 'none'
++  if (isComposing || keyCode === 229) return 'none'
++  return shiftKey ? 'newline' : 'commit'
++}
++
++export function indentInlineLearningText(text, selectionStart, selectionEnd, { outdent = false } = {}) {
++  const value = normalizeInlineLearningText(text)
++  const start = Math.max(0, Math.min(value.length, Number(selectionStart) || 0))
++  const end = Math.max(start, Math.min(value.length, Number(selectionEnd) || start))
++  if (!outdent && start === end) {
++    const next = `${value.slice(0, start)}${INLINE_LEARNING_TEXT_INDENT}${value.slice(end)}`
++    const caret = start + INLINE_LEARNING_TEXT_INDENT.length
++    return { text: next, selectionStart: caret, selectionEnd: caret }
++  }
++
++  const lineStart = value.lastIndexOf('\n', Math.max(0, start - 1)) + 1
++  const trailingBreak = value.indexOf('\n', end)
++  const lineEnd = trailingBreak === -1 ? value.length : trailingBreak
++  const block = value.slice(lineStart, lineEnd)
++  let removedBeforeStart = 0
++  let totalDelta = 0
++  const lines = block.split('\n').map((line, index) => {
++    if (!outdent) {
++      totalDelta += INLINE_LEARNING_TEXT_INDENT.length
++      return `${INLINE_LEARNING_TEXT_INDENT}${line}`
++    }
++    const removable = Math.min(INLINE_LEARNING_TEXT_INDENT.length, line.match(/^ */u)?.[0].length || 0)
++    if (index === 0) removedBeforeStart = Math.min(removable, Math.max(0, start - lineStart))
++    totalDelta -= removable
++    return line.slice(removable)
++  })
++  const nextBlock = lines.join('\n')
++  const next = `${value.slice(0, lineStart)}${nextBlock}${value.slice(lineEnd)}`
++  const nextStart = outdent
++    ? Math.max(lineStart, start - removedBeforeStart)
++    : start + INLINE_LEARNING_TEXT_INDENT.length
++  const nextEnd = Math.max(nextStart, end + totalDelta)
++  return { text: next, selectionStart: nextStart, selectionEnd: nextEnd }
++}
+diff --git a/src/learning-canvas/textEditing.test.mjs b/src/learning-canvas/textEditing.test.mjs
+new file mode 100644
+index 0000000..70cf2aa
+--- /dev/null
++++ b/src/learning-canvas/textEditing.test.mjs
+@@ -0,0 +1,39 @@
++import assert from 'node:assert/strict'
++import test from 'node:test'
++
++import {
++  indentInlineLearningText,
++  INLINE_LEARNING_TEXT_LIMIT,
++  inlineEditorActionForKey,
++  normalizeInlineLearningText
++} from './textEditing.js'
++
++test('inline editor keeps Enter confirmation distinct from newline and IME composition', () => {
++  assert.equal(inlineEditorActionForKey({ key: 'Enter' }), 'commit')
++  assert.equal(inlineEditorActionForKey({ key: 'Enter', shiftKey: true }), 'newline')
++  assert.equal(inlineEditorActionForKey({ key: 'Enter', isComposing: true }), 'none')
++  assert.equal(inlineEditorActionForKey({ key: 'Enter', keyCode: 229 }), 'none')
++  assert.equal(inlineEditorActionForKey({ key: 'Escape' }), 'cancel')
++  assert.equal(inlineEditorActionForKey({ key: 'Tab' }), 'indent')
++  assert.equal(inlineEditorActionForKey({ key: 'Tab', shiftKey: true }), 'outdent')
++})
++
++test('tab indentation preserves the editable selection and supports outdent', () => {
++  const indented = indentInlineLearningText('模块一\n模块二', 0, 7)
++  assert.equal(indented.text, '  模块一\n  模块二')
++  assert.deepEqual(
++    indentInlineLearningText(indented.text, indented.selectionStart, indented.selectionEnd, { outdent: true }),
++    { text: '模块一\n模块二', selectionStart: 0, selectionEnd: 7 }
++  )
++
++  assert.deepEqual(indentInlineLearningText('测试1', 3, 3), {
++    text: '测试1  ',
++    selectionStart: 5,
++    selectionEnd: 5
++  })
++})
++
++test('inline editor normalizes line endings and enforces its persisted limit', () => {
++  assert.equal(normalizeInlineLearningText('一\r\n二\r三'), '一\n二\n三')
++  assert.equal(normalizeInlineLearningText('x'.repeat(INLINE_LEARNING_TEXT_LIMIT + 20)).length, INLINE_LEARNING_TEXT_LIMIT)
++})
+-- 
+2.55.0.windows.3
+

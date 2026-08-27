@@ -1,0 +1,2648 @@
+From 9efed3d82104301e78dc0a9cda44c0a2c65708fb Mon Sep 17 00:00:00 2001
+From: Codex <codex@local.invalid>
+Date: Tue, 25 Aug 2026 10:13:30 +0800
+Subject: [PATCH] feat: replace hardware learning canvas runtime
+
+---
+ mcp/learning/conversation-question.mjs        |  20 +-
+ mcp/lib/canvas-storage.mjs                    |  19 +
+ mcp/server.mjs                                |  20 +-
+ package.json                                  |   5 +-
+ scripts/build-release-artifacts.mjs           |  13 +
+ scripts/probe-hardware-learning.mjs           |  22 +
+ scripts/probe-learning-tools.mjs              |  22 +-
+ .../HardwareLearningCanvas.jsx                | 883 ++++++++++++++++++
+ src/learning-canvas/annotations.js            |  35 +
+ src/learning-canvas/export.js                 | 171 ++++
+ src/learning-canvas/model.js                  | 572 ++++++++++++
+ src/learning-canvas/model.test.mjs            | 150 +++
+ src/learning-canvas/styles.css                | 401 ++++++++
+ src/main.jsx                                  |  23 +-
+ vite.config.js                                |   1 +
+ 15 files changed, 2336 insertions(+), 21 deletions(-)
+ create mode 100644 src/learning-canvas/HardwareLearningCanvas.jsx
+ create mode 100644 src/learning-canvas/annotations.js
+ create mode 100644 src/learning-canvas/export.js
+ create mode 100644 src/learning-canvas/model.js
+ create mode 100644 src/learning-canvas/model.test.mjs
+ create mode 100644 src/learning-canvas/styles.css
+
+diff --git a/mcp/learning/conversation-question.mjs b/mcp/learning/conversation-question.mjs
+index a84e465..577af53 100644
+--- a/mcp/learning/conversation-question.mjs
++++ b/mcp/learning/conversation-question.mjs
+@@ -19,6 +19,18 @@ function finite(value, fallback = 0) {
+ }
+ 
+ function shapeLocalBounds(shape) {
++  const learningBounds = shape?.meta?.cowartLearningBounds;
++  if (
++    learningBounds &&
++    [learningBounds.x, learningBounds.y, learningBounds.w, learningBounds.h].every(Number.isFinite)
++  ) {
++    return {
++      x: learningBounds.x,
++      y: learningBounds.y,
++      width: Math.max(1, learningBounds.w),
++      height: Math.max(1, learningBounds.h),
++    };
++  }
+   if (shape?.type !== "arrow") {
+     return {
+       x: 0,
+@@ -76,9 +88,10 @@ function pageIdForShape(store, shape) {
+ 
+ function roleForShape(shape) {
+   if (shape.type === "image") return "source-image";
+-  if (shape.type === "geo" && shape.props?.geo === "rectangle") return "selection-frame";
+-  if (shape.meta?.cowartHardwareAnnotation === true) return "selection-frame";
++  if (shape.meta?.cowartLearningFrame === true) return "selection-frame";
+   if (shape.type === "note" || shape.type === "text") return "question-note";
++  if (shape.meta?.cowartLearningKind === "note") return "question-note";
++  if (shape.meta?.cowartHardwareAnnotation === true) return "annotation";
+   if (["arrow", "highlight", "geo", "draw"].includes(shape.type)) return "annotation";
+   return "other";
+ }
+@@ -189,7 +202,8 @@ export function buildConversationLearningQuestion({
+   }
+ 
+   const selectionCore = {
+-    version: 1,
++    version: chosen.selection.version ?? 1,
++    selectionRevision: chosen.selection.selectionRevision ?? null,
+     cowartPageId,
+     selectedShapeIds: [...selectedIds],
+     shapes,
+diff --git a/mcp/lib/canvas-storage.mjs b/mcp/lib/canvas-storage.mjs
+index 4be3d00..c77708e 100644
+--- a/mcp/lib/canvas-storage.mjs
++++ b/mcp/lib/canvas-storage.mjs
+@@ -659,6 +659,24 @@ export async function readCowartCanvasState(args = {}, { hydrateAssets = false }
+   };
+ }
+ 
++export async function ensureCowartCanvasState(args = {}) {
++  const loaded = await loadStoredCanvasSnapshot(args);
++  if (loaded.snapshot) return { created: false, snapshot: loaded.snapshot, storage: loaded.storage };
++
++  const { createTLStore } = await import("tldraw");
++  const store = createTLStore();
++  store.put([{
++    id: "page:page",
++    typeName: "page",
++    name: "Page 1",
++    index: "a1",
++    meta: {},
++  }]);
++  const snapshot = store.getStoreSnapshot();
++  const result = await saveStoredCanvasSnapshot(args, snapshot);
++  return { created: true, snapshot, ...result };
++}
++
+ export async function saveCowartCanvasSnapshot(args = {}, snapshot) {
+   const { sanitizeCanvasSnapshotForTldraw } = await import("../../src/canvasSnapshot.js");
+   const sanitized = sanitizeCanvasSnapshotForTldraw(snapshot);
+@@ -726,6 +744,7 @@ export async function writeCowartSelectionState(args = {}, selection) {
+   const lastNonEmptySelection = selection.selectedShapes.length > 0
+     ? {
+         version: selection.version ?? 1,
++        selectionRevision: selection.selectionRevision ?? null,
+         currentPageId: selection.currentPageId ?? null,
+         selectedShapes: selection.selectedShapes,
+         updatedAt,
+diff --git a/mcp/server.mjs b/mcp/server.mjs
+index a5fce1a..b4d2338 100644
+--- a/mcp/server.mjs
++++ b/mcp/server.mjs
+@@ -17,6 +17,7 @@ import {
+ } from "./lib/cowart-static-widget.mjs";
+ import {
+   nonEmptyString,
++  ensureCowartCanvasState,
+   pageAssetUrl,
+   pageDirName,
+   pathResolve,
+@@ -332,6 +333,18 @@ function getPageShapes(store, pageId) {
+ 
+ function localBoundsForShape(shape) {
+   if (!shape || shape.typeName !== "shape") return null;
++  const learningBounds = shape.meta?.cowartLearningBounds;
++  if (
++    learningBounds &&
++    [learningBounds.x, learningBounds.y, learningBounds.w, learningBounds.h].every(Number.isFinite)
++  ) {
++    return {
++      x: learningBounds.x,
++      y: learningBounds.y,
++      w: Math.max(1, learningBounds.w),
++      h: Math.max(1, learningBounds.h),
++    };
++  }
+   if (shape.type === "arrow") {
+     const start = shape.props?.start ?? { x: 0, y: 0 };
+     const end = shape.props?.end ?? { x: 0, y: 0 };
+@@ -1086,7 +1099,7 @@ function registerCowartWidget(mcpServer) {
+     uri: COWART_WIDGET_URI,
+     title: "Cowart Canvas",
+     description:
+-      "A native Codex widget that renders Cowart's tldraw canvas directly and persists canvas data in the active project.",
++      "A native Codex widget that renders the dedicated Cowart hardware-learning vector canvas and persists canvas data in the active project.",
+     connectDomains: COWART_CONNECT_DOMAINS,
+     resourceDomains: COWART_RESOURCE_DOMAINS,
+     frameDomains: COWART_FRAME_DOMAINS,
+@@ -1103,7 +1116,7 @@ function registerCowartWidget(mcpServer) {
+     {
+       title: "Render Cowart Canvas Widget",
+       description:
+-        "Open, reopen, or explicitly refresh the native Cowart canvas for the active Codex project. Pass projectDir for the user's workspace so canvas data is stored under <projectDir>/canvas. A successful call creates a widget surface, so do not use this tool as a routine prerequisite when a Cowart canvas is already open.",
++        "Open, reopen, or explicitly refresh the native Cowart hardware-learning canvas for the active Codex project. Pass projectDir for the user's workspace so canvas data is stored under <projectDir>/canvas. A successful call creates a widget surface, so do not use this tool as a routine prerequisite when a Cowart canvas is already open.",
+       inputSchema: {
+         ...projectArgsSchema,
+         title: z.string().trim().optional(),
+@@ -1112,7 +1125,7 @@ function registerCowartWidget(mcpServer) {
+         analyticsEnabled: z.boolean().optional(),
+       },
+       annotations: {
+-        readOnlyHint: true,
++        readOnlyHint: false,
+         destructiveHint: false,
+         idempotentHint: true,
+         openWorldHint: false,
+@@ -1135,6 +1148,7 @@ function registerCowartWidget(mcpServer) {
+       const preferredDisplayMode = normalizeDisplayMode(input.displayMode);
+       const mode = input.mode === HARDWARE_LEARNING_MODE ? HARDWARE_LEARNING_MODE : "default";
+       const analyticsEnabled = mode === HARDWARE_LEARNING_MODE ? false : input.analyticsEnabled !== false;
++      if (mode === HARDWARE_LEARNING_MODE) await ensureCowartCanvasState(input);
+       if (mode === HARDWARE_LEARNING_MODE) hardwareLearningCanvasDirs.add(canvasDir);
+       else hardwareLearningCanvasDirs.delete(canvasDir);
+ 
+diff --git a/package.json b/package.json
+index 59750fc..cb6acb1 100644
+--- a/package.json
++++ b/package.json
+@@ -5,7 +5,7 @@
+   "type": "module",
+   "scripts": {
+     "check:plugin": "node ./scripts/check-plugin-metadata.mjs && node ./scripts/check-agent-plugin.mjs",
+-    "check": "node --check ./mcp/server.mjs && node --check ./mcp/lib/plugin-root.mjs && node --check ./mcp/lib/widget-resource.mjs && node --check ./mcp/lib/cowart-static-widget.mjs && node --check ./mcp/lib/canvas-storage.mjs && node --check ./mcp/lib/ga4-analytics.mjs && node --check ./src/analytics.js && node --check ./scripts/build-release-artifacts.mjs && node --check ./scripts/probe-cold-install.mjs && node --check ./scripts/probe-analytics.mjs && node --check ./scripts/probe-ga4.mjs && node --check ./scripts/probe-mcp.mjs && node --check ./scripts/start-mcp.mjs && node --check ./scripts/vite-build-once.mjs && node --check ./mcp/generated/cowart-mcp.mjs",
++    "check": "node --check ./mcp/server.mjs && node --check ./mcp/lib/plugin-root.mjs && node --check ./mcp/lib/widget-resource.mjs && node --check ./mcp/lib/cowart-static-widget.mjs && node --check ./mcp/lib/canvas-storage.mjs && node --check ./mcp/lib/ga4-analytics.mjs && node --check ./mcp/learning/conversation-question.mjs && node --check ./src/analytics.js && node --check ./src/learning-canvas/model.js && node --check ./src/learning-canvas/annotations.js && node --check ./src/learning-canvas/export.js && node --check ./scripts/build-release-artifacts.mjs && node --check ./scripts/probe-cold-install.mjs && node --check ./scripts/probe-analytics.mjs && node --check ./scripts/probe-ga4.mjs && node --check ./scripts/probe-mcp.mjs && node --check ./scripts/start-mcp.mjs && node --check ./scripts/vite-build-once.mjs && node --check ./mcp/generated/cowart-mcp.mjs",
+     "dev": "vite",
+     "build:web": "node ./scripts/vite-build-once.mjs",
+     "build:artifacts": "node ./scripts/build-release-artifacts.mjs",
+@@ -18,8 +18,9 @@
+     "probe:analytics": "node ./scripts/probe-analytics.mjs",
+     "probe:hardware-learning": "node ./scripts/probe-hardware-learning.mjs",
+     "probe:learning-tools": "node ./scripts/probe-learning-tools.mjs",
++    "test:learning-canvas": "node --test ./src/learning-canvas/model.test.mjs",
+     "probe:ga4": "node ./scripts/probe-ga4.mjs",
+-    "quality": "npm run check:plugin && npm run check && npm run check:artifacts && npm run probe:mcp:cold && npm run probe:mcp && npm run probe:analytics && npm run probe:ga4"
++    "quality": "npm run check:plugin && npm run check && npm run test:learning-canvas && npm run check:artifacts && npm run probe:hardware-learning && npm run probe:learning-tools && npm run probe:mcp:cold && npm run probe:mcp && npm run probe:analytics && npm run probe:ga4"
+   },
+   "devDependencies": {
+     "@modelcontextprotocol/ext-apps": "^1.7.4",
+diff --git a/scripts/build-release-artifacts.mjs b/scripts/build-release-artifacts.mjs
+index 7f3e649..2f6bdcd 100644
+--- a/scripts/build-release-artifacts.mjs
++++ b/scripts/build-release-artifacts.mjs
+@@ -84,7 +84,9 @@ process.exit(0);
+ 
+ async function buildWidgetArtifact(outDir) {
+   const previousWidgetBuild = process.env.COWART_WIDGET_BUILD;
++  const previousHardwareLearningBuild = process.env.COWART_HARDWARE_LEARNING_BUILD;
+   process.env.COWART_WIDGET_BUILD = "1";
++  process.env.COWART_HARDWARE_LEARNING_BUILD = "1";
+   try {
+     await viteBuild({
+       root: ROOT_DIR,
+@@ -100,6 +102,11 @@ async function buildWidgetArtifact(outDir) {
+     } else {
+       process.env.COWART_WIDGET_BUILD = previousWidgetBuild;
+     }
++    if (previousHardwareLearningBuild === undefined) {
++      delete process.env.COWART_HARDWARE_LEARNING_BUILD;
++    } else {
++      process.env.COWART_HARDWARE_LEARNING_BUILD = previousHardwareLearningBuild;
++    }
+   }
+ 
+   let html = await inlineViteBuild(outDir);
+@@ -107,6 +114,12 @@ async function buildWidgetArtifact(outDir) {
+   if (!html.includes("Cowart Canvas")) {
+     throw new Error("The generated Cowart widget does not include the expected app shell.");
+   }
++  if (!html.includes("cowart-learning-canvas-v2")) {
++    throw new Error("The generated Cowart widget does not contain the dedicated hardware-learning canvas.");
++  }
++  if (/tl-watermark|Made with tldraw|production license/i.test(html)) {
++    throw new Error("The dedicated hardware-learning widget unexpectedly contains the tldraw watermark runtime.");
++  }
+   return html;
+ }
+ 
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index 5f97f0b..28ce3f9 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -41,6 +41,20 @@ assert.match(appSource, /licenseKey=\{COWART_TLDRAW_LICENSE_KEY \|\| undefined\}
+ assert.doesNotMatch(appSource, /HardwareQuestionPanel|cowart-hardware-question-panel/);
+ assert.match(appSource, /currentPageId: editor\.getCurrentPageId\(\)/);
+ 
++const mainSource = await readFile(new URL("../src/main.jsx", import.meta.url), "utf8");
++assert.match(mainSource, /__COWART_HARDWARE_LEARNING_BUILD__/);
++assert.match(mainSource, /learning-canvas\/HardwareLearningCanvas\.jsx/);
++
++const learningCanvasSource = await readFile(
++  new URL("../src/learning-canvas/HardwareLearningCanvas.jsx", import.meta.url),
++  "utf8",
++);
++assert.match(learningCanvasSource, /data-engine="cowart-learning-canvas-v2"/);
++assert.match(learningCanvasSource, /id: 'frame', label: '学习框'/);
++assert.match(learningCanvasSource, /selectionRevisionRef/);
++assert.match(learningCanvasSource, /buildLearningCanvasSvg/);
++assert.doesNotMatch(learningCanvasSource, /from ['"]tldraw['"]|tl-watermark|Made with tldraw/);
++
+ const stylesSource = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+ assert.doesNotMatch(stylesSource, /cowart-hardware-question-panel/);
+ assert.doesNotMatch(stylesSource, /tl-watermark|SEE-LICENSE/);
+@@ -48,6 +62,11 @@ assert.doesNotMatch(stylesSource, /tl-watermark|SEE-LICENSE/);
+ const viteSource = await readFile(new URL("../vite.config.js", import.meta.url), "utf8");
+ assert.match(viteSource, /COWART_TLDRAW_LICENSE_KEY/);
+ assert.match(viteSource, /__COWART_TLDRAW_LICENSE_KEY__/);
++assert.match(viteSource, /__COWART_HARDWARE_LEARNING_BUILD__/);
++
++const widgetSource = await readFile(new URL("../mcp/generated/cowart-widget.html", import.meta.url), "utf8");
++assert.match(widgetSource, /cowart-learning-canvas-v2/);
++assert.doesNotMatch(widgetSource, /tl-watermark|Made with tldraw|production license/i);
+ 
+ const serverSource = await readFile(new URL("../mcp/server.mjs", import.meta.url), "utf8");
+ assert.match(serverSource, /mode: widgetModeSchema\.optional\(\)/);
+@@ -58,6 +77,7 @@ assert.match(serverSource, /shapeMeta\.evidenceSource = evidenceSource/);
+ assert.match(serverSource, /does not match the admitted evidenceSource/);
+ assert.match(serverSource, /TOOL_SAVE_LEARNING_QUESTION[\s\S]*?visibility: \["model", "app"\]/);
+ assert.match(serverSource, /buildConversationLearningQuestion/);
++assert.match(serverSource, /await ensureCowartCanvasState\(input\)/);
+ 
+ const selectionStorageSource = await readFile(
+   new URL("../mcp/lib/canvas-storage.mjs", import.meta.url),
+@@ -71,6 +91,8 @@ const conversationQuestionSource = await readFile(
+ );
+ assert.match(conversationQuestionSource, /selectionSource: chosen\.source/);
+ assert.match(conversationQuestionSource, /roleForShape/);
++assert.match(conversationQuestionSource, /cowartLearningFrame/);
++assert.doesNotMatch(conversationQuestionSource, /props\?\.geo === "rectangle"\) return "selection-frame"/);
+ assert.doesNotMatch(conversationQuestionSource, /imagegen|insert_cowart_image|sendFollowUpMessage/);
+ 
+ console.log("Cowart hardware-learning profile probe passed.");
+diff --git a/scripts/probe-learning-tools.mjs b/scripts/probe-learning-tools.mjs
+index 9225657..6c0ba6d 100644
+--- a/scripts/probe-learning-tools.mjs
++++ b/scripts/probe-learning-tools.mjs
+@@ -28,7 +28,8 @@ try {
+   assert.equal((await saveLearningQuestion({ projectDir, question, screenshotDataUrl })).replayed, true);
+ 
+   const selectedFrame = {
+-    version: 1,
++    version: 2,
++    selectionRevision: 7,
+     currentPageId: "page:page",
+     selectedShapes: [{ id: "shape:frame", type: "geo" }],
+     updatedAt: "2026-08-24T00:00:00.000Z",
+@@ -74,7 +75,12 @@ try {
+         y: 40,
+         rotation: 0,
+         props: { geo: "rectangle", w: 100, h: 80 },
+-        meta: {},
++        meta: {
++          cowartLearningFrame: true,
++          cowartLearningKind: "frame",
++          cowartHardwareAnnotation: true,
++          cowartLearningBounds: { x: 0, y: 0, w: 100, h: 80 },
++        },
+       },
+     },
+   };
+@@ -89,6 +95,7 @@ try {
+   assert.equal(conversational.question.selection.cowartPageId, "page:page");
+   assert.deepEqual(conversational.question.selection.selectedShapeIds, ["shape:frame"]);
+   assert.equal(conversational.question.selection.shapes[0].role, "selection-frame");
++  assert.equal(conversational.question.selection.selectionRevision, 7);
+   assert.ok(conversational.question.selection.shapes.some((shape) => shape.role === "source-image"));
+   assert.equal((await saveLearningQuestion({ projectDir, question: conversational.question })).replayed, false);
+ 
+@@ -130,15 +137,16 @@ try {
+   assert.doesNotMatch(appSource, /HardwareQuestionPanel|cowart-hardware-question-panel/);
+   const conversationSource = await readFile(new URL("../mcp/learning/conversation-question.mjs", import.meta.url), "utf8");
+   assert.doesNotMatch(conversationSource, /imagegen|insert_cowart_image|insert_cowart_html_draft/);
+-  const annotationSource = await readFile(new URL("../src/learning/learningAnnotations.js", import.meta.url), "utf8");
++  const annotationSource = await readFile(new URL("../src/learning-canvas/annotations.js", import.meta.url), "utf8");
+   assert.match(annotationSource, /cowartLearningOperationId/);
+-  assert.match(annotationSource, /await saveCowartCanvasSnapshot\(/);
++  assert.doesNotMatch(annotationSource, /type: ['"]image['"]|type: ['"]embed['"]/);
++
++  const canvasSource = await readFile(new URL("../src/learning-canvas/HardwareLearningCanvas.jsx", import.meta.url), "utf8");
+   assert.ok(
+-    annotationSource.indexOf("await saveCowartCanvasSnapshot(") <
+-      annotationSource.indexOf("await acknowledgeCowartLearningAnnotations("),
++    canvasSource.indexOf("await saveQueueRef.current") <
++      canvasSource.indexOf("await acknowledgeCowartLearningAnnotations("),
+     "learning annotations must persist the canvas before acknowledging the operation",
+   );
+-  assert.doesNotMatch(annotationSource, /type: ['"]image['"]|type: ['"]embed['"]/);
+ 
+   console.log("Cowart learning question and annotation tools probe passed.");
+ } finally {
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+new file mode 100644
+index 0000000..0d9703b
+--- /dev/null
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -0,0 +1,883 @@
++import {
++  ArrowUpRight,
++  BoxSelect,
++  Brush,
++  Check,
++  ChevronDown,
++  Clipboard,
++  Download,
++  Hand,
++  Highlighter,
++  LoaderCircle,
++  Maximize2,
++  MousePointer2,
++  Redo2,
++  StickyNote,
++  Trash2,
++  Undo2,
++  ZoomIn,
++  ZoomOut
++} from 'lucide-react'
++import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
++
++import {
++  acknowledgeCowartLearningAnnotations,
++  copyCowartImageToClipboard,
++  downloadCowartFile,
++  loadCowartCanvasState,
++  pullCowartLearningAnnotations,
++  readCowartPageAsset,
++  refreshCowartCanvasSnapshot,
++  saveCowartCanvasSnapshot,
++  saveCowartSelectionState,
++  saveCowartViewState
++} from '../cowartClient.js'
++import { applyLearningAnnotationOperations } from './annotations.js'
++import {
++  addShape,
++  createArrowShape,
++  createFrameShape,
++  createNoteShape,
++  createStrokeShape,
++  deleteLearningShapes,
++  fitCamera,
++  migrateLegacyLearningFrames,
++  normalizeBounds,
++  pageBoundsForShape,
++  pageRecords,
++  resizeRectangleShape,
++  screenToPage,
++  selectionState,
++  shapesForPage,
++  translateShape,
++  unionBounds,
++  updateShape,
++  zoomCameraAt
++} from './model.js'
++import {
++  buildLearningCanvasSvg,
++  colorValue,
++  svgDataUrl,
++  svgToPngDataUrl,
++  textToBase64
++} from './export.js'
++import './styles.css'
++
++const TOOLS = [
++  { id: 'select', label: '选择', Icon: MousePointer2 },
++  { id: 'hand', label: '平移', Icon: Hand },
++  { id: 'frame', label: '学习框', Icon: BoxSelect },
++  { id: 'pen', label: '画笔', Icon: Brush },
++  { id: 'highlight', label: '高亮', Icon: Highlighter },
++  { id: 'arrow', label: '箭头', Icon: ArrowUpRight },
++  { id: 'note', label: '文字', Icon: StickyNote }
++]
++
++const DEFAULT_CAMERA = { x: 0, y: 0, z: 1 }
++const EMPTY_VIEW_STATE = { version: 1, currentPageId: null, camera: DEFAULT_CAMERA }
++
++function snapshotSignature(snapshot) {
++  return JSON.stringify(snapshot?.store ?? {})
++}
++
++function assetDataUrl(asset) {
++  return `data:${asset.mimeType};base64,${asset.dataBase64}`
++}
++
++function pointerPosition(event, root) {
++  const rect = root.getBoundingClientRect()
++  return { x: event.clientX - rect.left, y: event.clientY - rect.top }
++}
++
++function noteTextLines(text) {
++  const lines = []
++  for (const source of String(text || '').split(/\r?\n/)) {
++    if (!source) lines.push('')
++    for (let index = 0; index < source.length; index += 26) lines.push(source.slice(index, index + 26))
++  }
++  return lines.slice(0, 10)
++}
++
++function LearningShape({ shape, snapshot, assetSources, selected, onPointerDown, onDoubleClick }) {
++  const common = {
++    'data-shape-id': shape.id,
++    onDoubleClick: (event) => onDoubleClick(event, shape),
++    onPointerDown: (event) => onPointerDown(event, shape),
++    style: { cursor: 'inherit' },
++    transform: `translate(${shape.x || 0} ${shape.y || 0}) rotate(${((shape.rotation || 0) * 180) / Math.PI})`
++  }
++  if (shape.type === 'image') {
++    const asset = snapshot.store[shape.props?.assetId]
++    const source = assetSources.get(asset?.props?.src) || asset?.props?.src || ''
++    return (
++      <image
++        {...common}
++        className={selected ? 'is-selected' : ''}
++        height={shape.props?.h || 1}
++        href={source}
++        preserveAspectRatio="none"
++        width={shape.props?.w || 1}
++      />
++    )
++  }
++  if (shape.type === 'arrow') {
++    const start = shape.props?.start ?? { x: 0, y: 0 }
++    const end = shape.props?.end ?? { x: 1, y: 1 }
++    return (
++      <line
++        {...common}
++        className={selected ? 'is-selected' : ''}
++        markerEnd="url(#learning-arrow)"
++        stroke={colorValue(shape.props?.color, '#2563eb')}
++        strokeLinecap="round"
++        strokeWidth={3 / Math.max(0.2, 1)}
++        x1={start.x}
++        x2={end.x}
++        y1={start.y}
++        y2={end.y}
++      />
++    )
++  }
++  if (shape.type === 'draw' || shape.type === 'highlight') {
++    const points = (shape.meta?.cowartLearningPoints ?? []).map((point) => `${point.x},${point.y}`).join(' ')
++    return (
++      <polyline
++        {...common}
++        className={selected ? 'is-selected' : ''}
++        fill="none"
++        points={points}
++        stroke={shape.type === 'highlight' ? '#facc15' : colorValue(shape.props?.color)}
++        strokeLinecap="round"
++        strokeLinejoin="round"
++        strokeOpacity={shape.type === 'highlight' ? 0.5 : 1}
++        strokeWidth={shape.type === 'highlight' ? 18 : 4}
++      />
++    )
++  }
++  if (shape.type === 'geo') {
++    const kind = shape.meta?.cowartLearningKind
++    const frame = shape.meta?.cowartLearningFrame === true
++    const note = kind === 'note'
++    const highlight = kind === 'highlight'
++    const text = shape.meta?.cowartLearningText || ''
++    return (
++      <g {...common} className={selected ? 'is-selected' : ''}>
++        <rect
++          className={frame ? 'learning-frame-shape' : ''}
++          fill={note ? '#fff6a8' : highlight ? '#fde047' : 'transparent'}
++          fillOpacity={highlight ? 0.35 : 1}
++          height={shape.props?.h || 1}
++          rx={note ? 10 : 3}
++          stroke={frame ? '#7c3aed' : colorValue(shape.props?.color, '#2563eb')}
++          strokeDasharray={frame ? '10 7' : shape.props?.dash === 'draw' ? '7 5' : undefined}
++          strokeWidth={frame ? 4 : 3}
++          width={shape.props?.w || 1}
++        />
++        {note && (
++          <text className="learning-note-text" x="14" y="8">
++            {noteTextLines(text).map((line, index) => (
++              <tspan key={`${shape.id}-${index}`} x="14" dy={index === 0 ? 24 : 20}>{line}</tspan>
++            ))}
++          </text>
++        )}
++      </g>
++    )
++  }
++  return null
++}
++
++function ToolbarButton({ active = false, disabled = false, label, Icon, onClick, testId }) {
++  return (
++    <button
++      aria-label={label}
++      aria-pressed={active ? 'true' : 'false'}
++      className="learning-toolbar-button"
++      data-active={active ? 'true' : 'false'}
++      data-testid={testId}
++      disabled={disabled}
++      onClick={onClick}
++      title={label}
++      type="button"
++    >
++      <Icon aria-hidden="true" size={18} strokeWidth={2} />
++      <span>{label}</span>
++    </button>
++  )
++}
++
++function resizeFromHandle(start, point, handle) {
++  const corners = {
++    nw: [{ x: start.x + start.w, y: start.y + start.h }, point],
++    ne: [{ x: start.x, y: start.y + start.h }, point],
++    sw: [{ x: start.x + start.w, y: start.y }, point],
++    se: [{ x: start.x, y: start.y }, point]
++  }
++  const [anchor, cursor] = corners[handle]
++  return normalizeBounds(anchor, cursor, 12)
++}
++
++function timestampFilePart() {
++  return new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').replace('Z', '')
++}
++
++export default function HardwareLearningCanvas() {
++  const rootRef = useRef(null)
++  const snapshotRef = useRef(null)
++  const viewRef = useRef(EMPTY_VIEW_STATE)
++  const assetSourcesRef = useRef(new Map())
++  const remoteSignatureRef = useRef('')
++  const saveQueueRef = useRef(Promise.resolve())
++  const localMutationRef = useRef(0)
++  const selectionRevisionRef = useRef(0)
++  const undoRef = useRef([])
++  const redoRef = useRef([])
++  const annotationPollingRef = useRef(false)
++  const [snapshot, setSnapshot] = useState(null)
++  const [view, setView] = useState(EMPTY_VIEW_STATE)
++  const [selectedIds, setSelectedIds] = useState([])
++  const [tool, setTool] = useState('select')
++  const [gesture, setGesture] = useState(null)
++  const [draftShape, setDraftShape] = useState(null)
++  const [assetSources, setAssetSources] = useState(new Map())
++  const [status, setStatus] = useState({ kind: 'loading', text: '正在加载学习画布…' })
++  const [historyVersion, setHistoryVersion] = useState(0)
++  const [noteDraft, setNoteDraft] = useState(null)
++  const [exportOpen, setExportOpen] = useState(false)
++  const [exporting, setExporting] = useState(false)
++
++  const pages = useMemo(() => pageRecords(snapshot), [snapshot])
++  const pageId = view.currentPageId || pages[0]?.id || null
++  const camera = view.camera || DEFAULT_CAMERA
++  const pageShapes = useMemo(
++    () => pageId && snapshot ? shapesForPage(snapshot, pageId) : [],
++    [snapshot, pageId]
++  )
++
++  const persistSnapshot = useCallback((next, message = '已保存') => {
++    snapshotRef.current = next
++    remoteSignatureRef.current = snapshotSignature(next)
++    localMutationRef.current = Date.now()
++    setSnapshot(next)
++    setStatus({ kind: 'saving', text: '正在保存…' })
++    const operation = saveQueueRef.current
++      .catch(() => undefined)
++      .then(() => saveCowartCanvasSnapshot(next, { protectImageRecords: true }))
++    saveQueueRef.current = operation
++    operation
++      .then(() => {
++        if (saveQueueRef.current === operation) setStatus({ kind: 'saved', text: message })
++      })
++      .catch((error) => {
++        console.error(error)
++        if (saveQueueRef.current === operation) setStatus({ kind: 'error', text: '保存失败，请重试' })
++      })
++    return operation
++  }, [])
++
++  const commitSnapshot = useCallback((next, options = {}) => {
++    const current = snapshotRef.current
++    if (!current || next === current) return Promise.resolve()
++    if (options.history !== false) {
++      undoRef.current.push(current)
++      if (undoRef.current.length > 50) undoRef.current.shift()
++      redoRef.current = []
++      setHistoryVersion((value) => value + 1)
++    }
++    return persistSnapshot(next, options.message)
++  }, [persistSnapshot])
++
++  const setViewState = useCallback((updater) => {
++    setView((current) => {
++      const next = typeof updater === 'function' ? updater(current) : updater
++      viewRef.current = next
++      return next
++    })
++  }, [])
++
++  useEffect(() => {
++    const controller = new AbortController()
++    async function load() {
++      try {
++        const loaded = await loadCowartCanvasState(controller.signal)
++        if (!loaded.snapshot) throw new Error('学习画布尚未初始化。')
++        const migration = migrateLegacyLearningFrames(loaded.snapshot)
++        const loadedPages = pageRecords(migration.snapshot)
++        const requestedPage = loaded.viewState?.currentPageId
++        const currentPageId = loadedPages.some((page) => page.id === requestedPage)
++          ? requestedPage
++          : loadedPages[0]?.id
++        const loadedView = {
++          version: 1,
++          currentPageId,
++          camera: loaded.viewState?.camera || DEFAULT_CAMERA
++        }
++        snapshotRef.current = migration.snapshot
++        remoteSignatureRef.current = snapshotSignature(migration.snapshot)
++        viewRef.current = loadedView
++        setSnapshot(migration.snapshot)
++        setView(loadedView)
++        setStatus({
++          kind: 'saved',
++          text: migration.changed ? `已迁移 ${migration.migratedShapeIds.length} 个旧学习框` : '学习画布已就绪'
++        })
++        if (migration.changed) await persistSnapshot(migration.snapshot, '旧学习框迁移完成')
++      } catch (error) {
++        if (error.name === 'AbortError') return
++        console.error(error)
++        setStatus({ kind: 'error', text: error.message || '学习画布加载失败' })
++      }
++    }
++    load()
++    return () => controller.abort()
++  }, [persistSnapshot])
++
++  const ensureAssetSources = useCallback(async (targetPageId, { signal, strict = false } = {}) => {
++    const currentSnapshot = snapshotRef.current
++    if (!currentSnapshot || !targetPageId) return assetSourcesRef.current
++    const missing = []
++    for (const shape of shapesForPage(currentSnapshot, targetPageId)) {
++      if (shape.type !== 'image') continue
++      const asset = currentSnapshot.store[shape.props?.assetId]
++      const source = asset?.props?.src
++      if (!source || assetSourcesRef.current.has(source)) continue
++      missing.push(source)
++    }
++    if (!missing.length) return assetSourcesRef.current
++    const entries = await Promise.all(missing.map(async (source) => {
++      try {
++        if (/^(?:data:|https?:)/i.test(source)) return [source, source]
++        const asset = await readCowartPageAsset(source, { signal })
++        return [source, assetDataUrl(asset)]
++      } catch (error) {
++        if (error.name === 'AbortError' || strict) throw error
++        console.error(error)
++        return [source, source]
++      }
++    }))
++    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
++    const next = new Map(assetSourcesRef.current)
++    for (const [source, resolved] of entries) next.set(source, resolved)
++    assetSourcesRef.current = next
++    setAssetSources(next)
++    return next
++  }, [])
++
++  useEffect(() => {
++    if (!snapshot || !pageId) return
++    const controller = new AbortController()
++    ensureAssetSources(pageId, { signal: controller.signal }).catch((error) => {
++      if (error.name !== 'AbortError') console.error(error)
++    })
++    return () => controller.abort()
++  }, [snapshot, pageId, pageShapes, ensureAssetSources])
++
++  useEffect(() => {
++    if (!snapshot || !pageId) return
++    selectionRevisionRef.current += 1
++    const payload = selectionState(snapshot, pageId, selectedIds, selectionRevisionRef.current)
++    saveCowartSelectionState(payload).catch((error) => console.error(error))
++  }, [snapshot, pageId, selectedIds])
++
++  useEffect(() => {
++    if (!pageId) return
++    const timer = window.setTimeout(() => {
++      saveCowartViewState({
++        version: 1,
++        currentPageId: pageId,
++        camera: view.camera,
++        updatedAt: new Date().toISOString()
++      }).catch((error) => console.error(error))
++    }, 300)
++    return () => window.clearTimeout(timer)
++  }, [pageId, view.camera])
++
++  useEffect(() => {
++    if (!pageId) return
++    let stopped = false
++    async function refresh() {
++      if (Date.now() - localMutationRef.current < 1200) return
++      try {
++        const remote = await refreshCowartCanvasSnapshot()
++        const signature = snapshotSignature(remote)
++        if (!stopped && remote && signature !== remoteSignatureRef.current) {
++          const migration = migrateLegacyLearningFrames(remote)
++          snapshotRef.current = migration.snapshot
++          remoteSignatureRef.current = snapshotSignature(migration.snapshot)
++          setSnapshot(migration.snapshot)
++          setStatus({ kind: 'saved', text: '已同步外部导入或标注' })
++          if (migration.changed) persistSnapshot(migration.snapshot, '外部画布同步完成')
++        }
++      } catch (error) {
++        console.error(error)
++      }
++    }
++    const timer = window.setInterval(refresh, 1600)
++    return () => {
++      stopped = true
++      window.clearInterval(timer)
++    }
++  }, [pageId, persistSnapshot])
++
++  useEffect(() => {
++    if (!pageId || !snapshot) return
++    async function pollAnnotations() {
++      if (annotationPollingRef.current) return
++      annotationPollingRef.current = true
++      try {
++        const pulled = await pullCowartLearningAnnotations(pageId)
++        if (!pulled.operations?.length) return
++        const applied = applyLearningAnnotationOperations(snapshotRef.current, pageId, pulled.operations)
++        if (applied.changed) await commitSnapshot(applied.snapshot, { history: false, message: '教学标注已写入画布' })
++        await saveQueueRef.current
++        for (const operation of pulled.operations) {
++          await acknowledgeCowartLearningAnnotations(operation.operationId, operation.commandsSha256)
++        }
++      } catch (error) {
++        console.error(error)
++      } finally {
++        annotationPollingRef.current = false
++      }
++    }
++    pollAnnotations()
++    const timer = window.setInterval(pollAnnotations, 1500)
++    return () => window.clearInterval(timer)
++  }, [pageId, snapshot, commitSnapshot])
++
++  useEffect(() => {
++    function keyDown(event) {
++      const editingText = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
++      if (editingText) return
++      if (event.key === 'Delete' || event.key === 'Backspace') {
++        if (!snapshotRef.current || !selectedIds.length) return
++        const result = deleteLearningShapes(snapshotRef.current, selectedIds)
++        if (result.deleted.length) {
++          event.preventDefault()
++          setSelectedIds([])
++          commitSnapshot(result.snapshot, { message: `已删除 ${result.deleted.length} 个标注` })
++        }
++      }
++      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
++        event.preventDefault()
++        if (event.shiftKey) redo()
++        else undo()
++      }
++      if (event.key === 'Escape') {
++        setGesture(null)
++        setDraftShape(null)
++        setNoteDraft(null)
++        setExportOpen(false)
++      }
++      const shortcut = { v: 'select', h: 'hand', f: 'frame', p: 'pen', l: 'highlight', a: 'arrow', n: 'note' }[event.key.toLowerCase()]
++      if (shortcut && !event.ctrlKey && !event.metaKey) setTool(shortcut)
++    }
++    window.addEventListener('keydown', keyDown)
++    return () => window.removeEventListener('keydown', keyDown)
++  })
++
++  const undo = useCallback(() => {
++    const previous = undoRef.current.pop()
++    if (!previous || !snapshotRef.current) return
++    redoRef.current.push(snapshotRef.current)
++    setHistoryVersion((value) => value + 1)
++    setSelectedIds([])
++    persistSnapshot(previous, '已撤销')
++  }, [persistSnapshot])
++
++  const redo = useCallback(() => {
++    const next = redoRef.current.pop()
++    if (!next || !snapshotRef.current) return
++    undoRef.current.push(snapshotRef.current)
++    setHistoryVersion((value) => value + 1)
++    setSelectedIds([])
++    persistSnapshot(next, '已重做')
++  }, [persistSnapshot])
++
++  const fitContent = useCallback((ids = [], targetPageId = pageId) => {
++    if (!rootRef.current || !snapshotRef.current || !targetPageId) return
++    const candidates = ids.length
++      ? ids.map((id) => snapshotRef.current.store[id]).filter(Boolean)
++      : shapesForPage(snapshotRef.current, targetPageId)
++    const bounds = unionBounds(candidates.map((shape) => pageBoundsForShape(snapshotRef.current.store, shape)))
++    const rect = rootRef.current.getBoundingClientRect()
++    setViewState((current) => ({
++      ...current,
++      camera: fitCamera(bounds, { width: rect.width, height: rect.height })
++    }))
++  }, [pageId, setViewState])
++
++  function startPointerGesture(event, type, data = {}) {
++    rootRef.current?.setPointerCapture?.(event.pointerId)
++    setGesture({ type, pointerId: event.pointerId, ...data })
++  }
++
++  function handleCanvasPointerDown(event) {
++    if (!rootRef.current || !snapshot || !pageId) return
++    const screen = pointerPosition(event, rootRef.current)
++    const page = screenToPage(screen, camera)
++    if (event.button === 1 || event.button === 2 || tool === 'hand' || event.altKey) {
++      event.preventDefault()
++      startPointerGesture(event, 'pan', { startScreen: screen, startCamera: camera })
++      return
++    }
++    if (event.button !== 0) return
++    if (tool === 'select') {
++      setSelectedIds([])
++      return
++    }
++    if (tool === 'note') {
++      setNoteDraft({ point: page, text: '' })
++      return
++    }
++    if (tool === 'frame' || tool === 'arrow') {
++      startPointerGesture(event, tool, { startPage: page, currentPage: page })
++      return
++    }
++    if (tool === 'pen' || tool === 'highlight') {
++      startPointerGesture(event, 'stroke', { kind: tool, points: [page] })
++    }
++  }
++
++  function handleShapePointerDown(event, shape) {
++    if (tool !== 'select' || event.button !== 0 || !rootRef.current) return
++    event.stopPropagation()
++    const screen = pointerPosition(event, rootRef.current)
++    const page = screenToPage(screen, camera)
++    setSelectedIds((current) => {
++      if (event.shiftKey) return current.includes(shape.id) ? current.filter((id) => id !== shape.id) : [...current, shape.id]
++      return [shape.id]
++    })
++    if (shape.type !== 'image' && (shape.meta?.cowartHardwareAnnotation || shape.meta?.cowartLearningFrame)) {
++      startPointerGesture(event, 'move', { startPage: page, originalShape: shape })
++    }
++  }
++
++  function handleShapeDoubleClick(event, shape) {
++    if (shape.meta?.cowartLearningKind !== 'note') return
++    event.stopPropagation()
++    setNoteDraft({
++      point: { x: shape.x, y: shape.y },
++      text: shape.meta?.cowartLearningText || '',
++      shapeId: shape.id
++    })
++  }
++
++  function handlePointerMove(event) {
++    if (!gesture || !rootRef.current || gesture.pointerId !== event.pointerId) return
++    const screen = pointerPosition(event, rootRef.current)
++    const page = screenToPage(screen, camera)
++    if (gesture.type === 'pan') {
++      const delta = { x: screen.x - gesture.startScreen.x, y: screen.y - gesture.startScreen.y }
++      setViewState((current) => ({
++        ...current,
++        camera: { ...gesture.startCamera, x: gesture.startCamera.x + delta.x, y: gesture.startCamera.y + delta.y }
++      }))
++      return
++    }
++    if (gesture.type === 'frame') {
++      const bounds = normalizeBounds(gesture.startPage, page)
++      setDraftShape(createFrameShape({ snapshot, pageId, bounds, id: 'shape:cowart-frame-preview', index: 'a0' }))
++      setGesture({ ...gesture, currentPage: page })
++      return
++    }
++    if (gesture.type === 'arrow') {
++      setDraftShape(createArrowShape({ snapshot, pageId, start: gesture.startPage, end: page, id: 'shape:cowart-arrow-preview', index: 'a0' }))
++      setGesture({ ...gesture, currentPage: page })
++      return
++    }
++    if (gesture.type === 'stroke') {
++      const last = gesture.points.at(-1)
++      if (Math.hypot(page.x - last.x, page.y - last.y) < 2 / camera.z) return
++      const points = [...gesture.points, page]
++      setGesture({ ...gesture, points })
++      if (points.length > 1) {
++        setDraftShape(createStrokeShape({ snapshot, pageId, points, kind: gesture.kind, id: 'shape:cowart-stroke-preview', index: 'a0' }))
++      }
++      return
++    }
++    if (gesture.type === 'move') {
++      const delta = { x: page.x - gesture.startPage.x, y: page.y - gesture.startPage.y }
++      setDraftShape(translateShape(gesture.originalShape, delta))
++      return
++    }
++    if (gesture.type === 'resize') {
++      const bounds = resizeFromHandle(gesture.startBounds, page, gesture.handle)
++      setDraftShape(resizeRectangleShape(gesture.originalShape, bounds))
++    }
++  }
++
++  function finishGesture(event) {
++    if (!gesture || gesture.pointerId !== event.pointerId || !snapshotRef.current) return
++    rootRef.current?.releasePointerCapture?.(event.pointerId)
++    let created = null
++    let next = snapshotRef.current
++    if (gesture.type === 'frame' && draftShape) created = createFrameShape({ snapshot: next, pageId, bounds: { x: draftShape.x, y: draftShape.y, w: draftShape.props.w, h: draftShape.props.h } })
++    if (gesture.type === 'arrow' && draftShape) {
++      created = createArrowShape({
++        snapshot: next,
++        pageId,
++        start: gesture.startPage,
++        end: gesture.currentPage
++      })
++    }
++    if (gesture.type === 'stroke' && gesture.points.length > 1) {
++      created = createStrokeShape({ snapshot: next, pageId, points: gesture.points, kind: gesture.kind })
++    }
++    if (created) {
++      next = addShape(next, created)
++      setSelectedIds([created.id])
++      commitSnapshot(next, { message: created.meta.cowartLearningFrame ? '学习框已保存，可在对话栏提问' : '标注已保存' })
++    } else if ((gesture.type === 'move' || gesture.type === 'resize') && draftShape) {
++      commitSnapshot(updateShape(next, draftShape), { message: '标注位置已更新' })
++    }
++    setGesture(null)
++    setDraftShape(null)
++  }
++
++  function handleWheel(event) {
++    if (!rootRef.current) return
++    event.preventDefault()
++    const screen = pointerPosition(event, rootRef.current)
++    const nextZoom = camera.z * Math.exp(-event.deltaY * 0.0015)
++    setViewState((current) => ({ ...current, camera: zoomCameraAt(current.camera, screen, nextZoom) }))
++  }
++
++  function handleResizePointerDown(event, shape, handle) {
++    event.stopPropagation()
++    if (!rootRef.current) return
++    const bounds = pageBoundsForShape(snapshot.store, shape)
++    startPointerGesture(event, 'resize', { originalShape: shape, startBounds: bounds, handle })
++  }
++
++  function saveNote() {
++    const text = noteDraft?.text?.trim()
++    if (!text || !snapshotRef.current || !pageId) return
++    if (noteDraft.shapeId) {
++      const original = snapshotRef.current.store[noteDraft.shapeId]
++      const updated = {
++        ...original,
++        meta: { ...original.meta, cowartLearningText: text },
++        props: { ...original.props, richText: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] } }
++      }
++      commitSnapshot(updateShape(snapshotRef.current, updated), { message: '文字标注已更新' })
++      setSelectedIds([updated.id])
++    } else {
++      const shape = createNoteShape({ snapshot: snapshotRef.current, pageId, point: noteDraft.point, text })
++      commitSnapshot(addShape(snapshotRef.current, shape), { message: '文字标注已保存' })
++      setSelectedIds([shape.id])
++    }
++    setNoteDraft(null)
++  }
++
++  async function exportCanvas(kind, selectedOnly = false) {
++    if (!snapshotRef.current || !pageId || exporting) return
++    setExporting(true)
++    setExportOpen(false)
++    setStatus({ kind: 'saving', text: '正在准备导出…' })
++    try {
++      await new Promise((resolve) => requestAnimationFrame(resolve))
++      const selectedShapeIds = selectedOnly ? selectedIds : []
++      const filePart = timestampFilePart()
++      if (kind === 'json') {
++        const json = `${JSON.stringify(snapshotRef.current, null, 2)}\n`
++        await downloadCowartFile({
++          dataBase64: textToBase64(json),
++          fileName: `cowart-learning-canvas-${filePart}.json`,
++          mimeType: 'application/json'
++        })
++      } else {
++        await ensureAssetSources(pageId, { strict: true })
++        const result = buildLearningCanvasSvg({
++          snapshot: snapshotRef.current,
++          pageId,
++          assetSources: assetSourcesRef.current,
++          selectedShapeIds
++        })
++        if (kind === 'svg') {
++          await downloadCowartFile({
++            dataUrl: svgDataUrl(result.svg),
++            fileName: `cowart-learning-${selectedOnly ? 'selection' : 'page'}-${filePart}.svg`,
++            mimeType: 'image/svg+xml'
++          })
++        } else {
++          const png = await svgToPngDataUrl(result.svg, result.bounds)
++          if (kind === 'clipboard') {
++            await copyCowartImageToClipboard({ dataUrl: png.dataUrl, mimeType: 'image/png' })
++          } else {
++            await downloadCowartFile({
++              dataUrl: png.dataUrl,
++              fileName: `cowart-learning-${selectedOnly ? 'selection' : 'page'}-${filePart}.png`,
++              mimeType: 'image/png'
++            })
++          }
++        }
++      }
++      setStatus({ kind: 'saved', text: kind === 'clipboard' ? '已复制 PNG 到剪贴板' : '导出完成' })
++    } catch (error) {
++      console.error(error)
++      setStatus({ kind: 'error', text: `导出失败：${error.message}` })
++    } finally {
++      setExporting(false)
++    }
++  }
++
++  const selectedShape = selectedIds.length === 1 ? snapshot?.store?.[selectedIds[0]] : null
++  const selectedBounds = selectedShape && pageBoundsForShape(snapshot.store, draftShape?.id === selectedShape.id ? draftShape : selectedShape)
++  const visibleShapes = pageShapes.map((shape) => draftShape?.id === shape.id ? draftShape : shape)
++  if (draftShape && !snapshot?.store?.[draftShape.id]) visibleShapes.push(draftShape)
++
++  return (
++    <main className="learning-canvas-shell" data-engine="cowart-learning-canvas-v2">
++      <header className="learning-topbar">
++        <div className="learning-brand">
++          <span className="learning-brand-mark">HW</span>
++          <div><strong>硬件学习画板</strong><small>框选原理图，然后在 Codex 对话栏提问</small></div>
++        </div>
++        <div className="learning-page-controls">
++          <label htmlFor="learning-page-select">图页</label>
++          <select
++            id="learning-page-select"
++            onChange={(event) => {
++              const nextPageId = event.target.value
++              setSelectedIds([])
++              setViewState((current) => ({ ...current, currentPageId: nextPageId }))
++              window.setTimeout(() => fitContent([], nextPageId), 0)
++            }}
++            value={pageId || ''}
++          >
++            {pages.map((page) => <option key={page.id} value={page.id}>{page.name || page.id}</option>)}
++          </select>
++        </div>
++      </header>
++
++      <nav aria-label="学习画布工具" className="learning-toolbar">
++        {TOOLS.map(({ id, label, Icon }) => (
++          <ToolbarButton
++            key={id}
++            active={tool === id}
++            Icon={Icon}
++            label={label}
++            onClick={() => setTool(id)}
++            testId={`learning-tool-${id}`}
++          />
++        ))}
++        <span className="learning-toolbar-separator" />
++        <ToolbarButton disabled={!undoRef.current.length} Icon={Undo2} label="撤销" onClick={undo} testId="learning-undo" />
++        <ToolbarButton disabled={!redoRef.current.length} Icon={Redo2} label="重做" onClick={redo} testId="learning-redo" />
++        <ToolbarButton
++          disabled={!selectedIds.some((id) => snapshot?.store?.[id]?.type !== 'image')}
++          Icon={Trash2}
++          label="删除"
++          onClick={() => {
++            const result = deleteLearningShapes(snapshotRef.current, selectedIds)
++            if (result.deleted.length) {
++              setSelectedIds([])
++              commitSnapshot(result.snapshot, { message: `已删除 ${result.deleted.length} 个标注` })
++            }
++          }}
++          testId="learning-delete"
++        />
++        <span className="learning-toolbar-separator" />
++        <ToolbarButton Icon={Maximize2} label="适合内容" onClick={() => fitContent()} testId="learning-fit" />
++        <ToolbarButton Icon={ZoomOut} label="缩小" onClick={() => setViewState((current) => ({ ...current, camera: zoomCameraAt(current.camera, { x: rootRef.current.clientWidth / 2, y: rootRef.current.clientHeight / 2 }, current.camera.z / 1.2) }))} testId="learning-zoom-out" />
++        <span className="learning-zoom-label">{Math.round(camera.z * 100)}%</span>
++        <ToolbarButton Icon={ZoomIn} label="放大" onClick={() => setViewState((current) => ({ ...current, camera: zoomCameraAt(current.camera, { x: rootRef.current.clientWidth / 2, y: rootRef.current.clientHeight / 2 }, current.camera.z * 1.2) }))} testId="learning-zoom-in" />
++        <div className="learning-export-menu">
++          <button
++            className="learning-export-button"
++            data-testid="learning-export"
++            disabled={exporting}
++            onClick={() => setExportOpen((value) => !value)}
++            type="button"
++          >
++            {exporting ? <LoaderCircle className="is-spinning" size={18} /> : <Download size={18} />}
++            导出 <ChevronDown size={14} />
++          </button>
++          {exportOpen && (
++            <div className="learning-export-popover" role="menu">
++              <button onClick={() => exportCanvas('png')} role="menuitem" type="button">当前图页 PNG</button>
++              <button onClick={() => exportCanvas('svg')} role="menuitem" type="button">当前图页 SVG</button>
++              <button disabled={!selectedIds.length} onClick={() => exportCanvas('png', true)} role="menuitem" type="button">当前选区 PNG</button>
++              <button disabled={!selectedIds.length} onClick={() => exportCanvas('clipboard', true)} role="menuitem" type="button"><Clipboard size={14} />复制选区 PNG</button>
++              <button onClick={() => exportCanvas('json')} role="menuitem" type="button">画布备份 JSON</button>
++            </div>
++          )}
++        </div>
++      </nav>
++
++      <section
++        className={`learning-canvas-viewport tool-${tool}`}
++        onContextMenu={(event) => event.preventDefault()}
++        onPointerDown={handleCanvasPointerDown}
++        onPointerMove={handlePointerMove}
++        onPointerUp={finishGesture}
++        onWheel={handleWheel}
++        ref={rootRef}
++      >
++        {snapshot && pageId ? (
++          <svg aria-label="硬件学习画布" className="learning-canvas-svg" data-testid="learning-canvas-svg">
++            <defs>
++              <pattern height="24" id="learning-grid-small" patternUnits="userSpaceOnUse" width="24">
++                <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#dbe4ef" strokeWidth="1" />
++              </pattern>
++              <marker id="learning-arrow" markerHeight="10" markerWidth="10" orient="auto" refX="8" refY="3">
++                <path d="M0,0 L0,6 L9,3 z" fill="#2563eb" />
++              </marker>
++            </defs>
++            <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.z})`}>
++              <rect fill="url(#learning-grid-small)" height={100000} pointerEvents="none" width={100000} x={-50000} y={-50000} />
++              {visibleShapes.map((shape) => (
++                <LearningShape
++                  assetSources={assetSources}
++                  key={shape.id}
++                  onDoubleClick={handleShapeDoubleClick}
++                  onPointerDown={handleShapePointerDown}
++                  selected={selectedIds.includes(shape.id)}
++                  shape={shape}
++                  snapshot={snapshot}
++                />
++              ))}
++              {selectedBounds && selectedShape?.type === 'geo' && (
++                <g className="learning-selection-overlay">
++                  <rect fill="none" height={selectedBounds.h} pointerEvents="none" stroke="#2563eb" strokeDasharray="6 4" strokeWidth={2 / camera.z} width={selectedBounds.w} x={selectedBounds.x} y={selectedBounds.y} />
++                  {['nw', 'ne', 'sw', 'se'].map((handle) => {
++                    const x = handle.endsWith('w') ? selectedBounds.x : selectedBounds.x + selectedBounds.w
++                    const y = handle.startsWith('n') ? selectedBounds.y : selectedBounds.y + selectedBounds.h
++                    return <circle key={handle} cx={x} cy={y} onPointerDown={(event) => handleResizePointerDown(event, selectedShape, handle)} r={7 / camera.z} />
++                  })}
++                </g>
++              )}
++            </g>
++          </svg>
++        ) : (
++          <div className="learning-empty-state">{status.text}</div>
++        )}
++      </section>
++
++      <aside className="learning-status" data-kind={status.kind}>
++        {status.kind === 'saving' ? <LoaderCircle className="is-spinning" size={15} /> : <Check size={15} />}
++        <span>{status.text}</span>
++        {selectedIds.length > 0 && <span>已选 {selectedIds.length} 个对象</span>}
++      </aside>
++
++      {noteDraft && (
++        <div className="learning-dialog-backdrop" role="presentation">
++          <form className="learning-note-dialog" onSubmit={(event) => { event.preventDefault(); saveNote() }}>
++            <h2>{noteDraft.shapeId ? '编辑文字标注' : '添加文字标注'}</h2>
++            <textarea
++              autoFocus
++              maxLength={800}
++              onChange={(event) => setNoteDraft((current) => ({ ...current, text: event.target.value }))}
++              placeholder="输入希望保留在原理图旁边的说明…"
++              rows={6}
++              value={noteDraft.text}
++            />
++            <div>
++              <button onClick={() => setNoteDraft(null)} type="button">取消</button>
++              <button disabled={!noteDraft.text.trim()} type="submit">保存标注</button>
++            </div>
++          </form>
++        </div>
++      )}
++    </main>
++  )
++}
+diff --git a/src/learning-canvas/annotations.js b/src/learning-canvas/annotations.js
+new file mode 100644
+index 0000000..333b7d9
+--- /dev/null
++++ b/src/learning-canvas/annotations.js
+@@ -0,0 +1,35 @@
++import { shapeForAnnotationCommand } from './model.js'
++
++const ALLOWED_KINDS = new Set(['note', 'highlight', 'rectangle', 'arrow'])
++
++export function hasAppliedCommand(snapshot, command) {
++  return Object.values(snapshot?.store ?? {}).some((shape) =>
++    shape?.typeName === 'shape' &&
++    shape.meta?.cowartLearningOperationId === command.operationId &&
++    shape.meta?.cowartLearningCommandId === command.commandId
++  )
++}
++
++export function applyLearningAnnotationOperations(snapshot, pageId, operations = []) {
++  let next = structuredClone(snapshot)
++  const appliedCommands = []
++  for (const operation of operations) {
++    for (const command of operation.commands ?? []) {
++      if (!ALLOWED_KINDS.has(command.kind)) {
++        throw new Error(`不允许的学习标注：${command.kind}`)
++      }
++      if (command.pageId !== pageId || operation.pageId !== pageId) {
++        throw new Error(`学习标注页不匹配：${command.pageId || operation.pageId}`)
++      }
++      if (hasAppliedCommand(next, command)) continue
++      const shape = shapeForAnnotationCommand(next, command)
++      next.store[shape.id] = shape
++      appliedCommands.push(command.commandId)
++    }
++  }
++  return {
++    snapshot: appliedCommands.length ? next : snapshot,
++    changed: appliedCommands.length > 0,
++    appliedCommands
++  }
++}
+diff --git a/src/learning-canvas/export.js b/src/learning-canvas/export.js
+new file mode 100644
+index 0000000..8098e82
+--- /dev/null
++++ b/src/learning-canvas/export.js
+@@ -0,0 +1,171 @@
++import { localBoundsForShape, pageBoundsForShape, shapesForPage, unionBounds } from './model.js'
++
++const COLOR_MAP = {
++  black: '#1f2937',
++  blue: '#2563eb',
++  green: '#16a34a',
++  grey: '#64748b',
++  light_blue: '#38bdf8',
++  light_green: '#86efac',
++  light_red: '#fca5a5',
++  light_violet: '#c4b5fd',
++  orange: '#f97316',
++  red: '#dc2626',
++  violet: '#7c3aed',
++  yellow: '#eab308'
++}
++
++export function colorValue(color, fallback = '#7c3aed') {
++  return COLOR_MAP[color] || fallback
++}
++
++function escapeXml(value) {
++  return String(value ?? '')
++    .replaceAll('&', '&amp;')
++    .replaceAll('<', '&lt;')
++    .replaceAll('>', '&gt;')
++    .replaceAll('"', '&quot;')
++    .replaceAll("'", '&apos;')
++}
++
++function polylinePoints(shape) {
++  return (shape.meta?.cowartLearningPoints ?? [])
++    .map((point) => `${Number(point.x).toFixed(2)},${Number(point.y).toFixed(2)}`)
++    .join(' ')
++}
++
++function noteLines(text, maxLength = 28) {
++  const rawLines = String(text || '').split(/\r?\n/)
++  const lines = []
++  for (const raw of rawLines) {
++    if (!raw) {
++      lines.push('')
++      continue
++    }
++    for (let index = 0; index < raw.length; index += maxLength) {
++      lines.push(raw.slice(index, index + maxLength))
++    }
++  }
++  return lines.slice(0, 12)
++}
++
++function shapeSvg(shape, snapshot, assetSources) {
++  const transform = `translate(${shape.x || 0} ${shape.y || 0}) rotate(${((shape.rotation || 0) * 180) / Math.PI})`
++  if (shape.type === 'image') {
++    const asset = snapshot.store[shape.props?.assetId]
++    const href = assetSources.get(asset?.props?.src) || asset?.props?.src || ''
++    return `<image data-shape-id="${escapeXml(shape.id)}" href="${escapeXml(href)}" width="${shape.props?.w || 1}" height="${shape.props?.h || 1}" transform="${transform}" preserveAspectRatio="none"/>`
++  }
++  if (shape.type === 'arrow') {
++    const start = shape.props?.start ?? { x: 0, y: 0 }
++    const end = shape.props?.end ?? { x: 1, y: 1 }
++    const stroke = colorValue(shape.props?.color, '#2563eb')
++    return `<line data-shape-id="${escapeXml(shape.id)}" x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" transform="${transform}" stroke="${stroke}" stroke-width="3" marker-end="url(#cowart-arrow)"/>`
++  }
++  if (shape.type === 'draw' || shape.type === 'highlight') {
++    const points = polylinePoints(shape)
++    const stroke = shape.type === 'highlight' ? '#facc15' : colorValue(shape.props?.color)
++    const width = shape.type === 'highlight' ? 18 : 4
++    const opacity = shape.type === 'highlight' ? 0.42 : 1
++    return `<polyline data-shape-id="${escapeXml(shape.id)}" points="${points}" transform="${transform}" fill="none" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round" opacity="${opacity}"/>`
++  }
++  if (shape.type === 'geo') {
++    const width = shape.props?.w || 1
++    const height = shape.props?.h || 1
++    const kind = shape.meta?.cowartLearningKind
++    const frame = shape.meta?.cowartLearningFrame === true
++    const note = kind === 'note'
++    const highlight = kind === 'highlight'
++    const stroke = frame ? '#7c3aed' : colorValue(shape.props?.color, '#2563eb')
++    const fill = note ? '#fff6a8' : highlight ? '#fde047' : 'none'
++    const dash = frame ? '10 7' : shape.props?.dash === 'draw' ? '7 5' : 'none'
++    const text = shape.meta?.cowartLearningText || ''
++    const textSvg = noteLines(text).map((line, index) =>
++      `<tspan x="14" dy="${index === 0 ? 24 : 20}">${escapeXml(line)}</tspan>`
++    ).join('')
++    return `<g data-shape-id="${escapeXml(shape.id)}" transform="${transform}"><rect width="${width}" height="${height}" rx="${note ? 10 : 3}" fill="${fill}" fill-opacity="${highlight ? 0.35 : 1}" stroke="${stroke}" stroke-width="${frame ? 4 : 3}" stroke-dasharray="${dash}"/><text font-family="system-ui,sans-serif" font-size="15" fill="#1f2937">${textSvg}</text></g>`
++  }
++  const bounds = localBoundsForShape(shape)
++  return `<rect data-shape-id="${escapeXml(shape.id)}" x="${bounds.x}" y="${bounds.y}" width="${bounds.w}" height="${bounds.h}" transform="${transform}" fill="none" stroke="#94a3b8" stroke-width="2"/>`
++}
++
++export function exportBoundsForPage(snapshot, pageId, selectedShapeIds = []) {
++  const requested = selectedShapeIds.length
++    ? selectedShapeIds.map((id) => snapshot.store[id]).filter(Boolean)
++    : shapesForPage(snapshot, pageId)
++  return unionBounds(requested.map((shape) => pageBoundsForShape(snapshot.store, shape)))
++}
++
++function boundsIntersect(left, right) {
++  return left.x <= right.x + right.w
++    && left.x + left.w >= right.x
++    && left.y <= right.y + right.h
++    && left.y + left.h >= right.y
++}
++
++export function buildLearningCanvasSvg({ snapshot, pageId, assetSources = new Map(), selectedShapeIds = [], padding = 32 } = {}) {
++  const selected = new Set(selectedShapeIds)
++  const pageShapes = shapesForPage(snapshot, pageId)
++  const selectedShapes = selectedShapeIds.map((id) => snapshot.store[id]).filter(Boolean)
++  const selectionBounds = selected.size
++    ? unionBounds(selectedShapes.map((shape) => pageBoundsForShape(snapshot.store, shape)))
++    : null
++  const shapes = selectionBounds
++    ? pageShapes.filter((shape) => boundsIntersect(pageBoundsForShape(snapshot.store, shape), selectionBounds))
++    : pageShapes
++  const rawBounds = selectionBounds
++    ?? unionBounds(shapes.map((shape) => pageBoundsForShape(snapshot.store, shape)))
++    ?? { x: 0, y: 0, w: 1, h: 1 }
++  const bounds = {
++    x: rawBounds.x - padding,
++    y: rawBounds.y - padding,
++    w: rawBounds.w + padding * 2,
++    h: rawBounds.h + padding * 2
++  }
++  const body = shapes.map((shape) => shapeSvg(shape, snapshot, assetSources)).join('')
++  const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${Math.ceil(bounds.w)}" height="${Math.ceil(bounds.h)}" viewBox="${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}"><defs><marker id="cowart-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#2563eb"/></marker></defs><rect x="${bounds.x}" y="${bounds.y}" width="${bounds.w}" height="${bounds.h}" fill="#f8fafc"/>${body}</svg>`
++  return { svg, bounds, shapeIds: shapes.map((shape) => shape.id) }
++}
++
++export function textToBase64(value) {
++  const bytes = new TextEncoder().encode(value)
++  let binary = ''
++  const chunkSize = 0x8000
++  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
++    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
++  }
++  return btoa(binary)
++}
++
++export function svgDataUrl(svg) {
++  return `data:image/svg+xml;base64,${textToBase64(svg)}`
++}
++
++export async function svgToPngDataUrl(svg, bounds, { maxPixels = 16_000_000, maxDimension = 8192 } = {}) {
++  const scale = Math.min(
++    2,
++    maxDimension / Math.max(bounds.w, bounds.h, 1),
++    Math.sqrt(maxPixels / Math.max(bounds.w * bounds.h, 1))
++  )
++  const width = Math.max(1, Math.round(bounds.w * scale))
++  const height = Math.max(1, Math.round(bounds.h * scale))
++  const sourceUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }))
++  try {
++    const image = await new Promise((resolve, reject) => {
++      const element = new Image()
++      element.onload = () => resolve(element)
++      element.onerror = () => reject(new Error('学习画布 SVG 无法转换为 PNG。'))
++      element.src = sourceUrl
++    })
++    const canvas = document.createElement('canvas')
++    canvas.width = width
++    canvas.height = height
++    const context = canvas.getContext('2d')
++    context.fillStyle = '#f8fafc'
++    context.fillRect(0, 0, width, height)
++    context.drawImage(image, 0, 0, width, height)
++    return { dataUrl: canvas.toDataURL('image/png'), width, height }
++  } finally {
++    URL.revokeObjectURL(sourceUrl)
++  }
++}
+diff --git a/src/learning-canvas/model.js b/src/learning-canvas/model.js
+new file mode 100644
+index 0000000..84390ef
+--- /dev/null
++++ b/src/learning-canvas/model.js
+@@ -0,0 +1,572 @@
++import { generateKeyBetween } from 'fractional-indexing'
++
++export const LEARNING_CANVAS_VERSION = 2
++export const DEFAULT_PAGE_ID = 'page:page'
++export const FRAME_KIND = 'frame'
++export const LEARNING_KINDS = new Set(['frame', 'pen', 'highlight', 'arrow', 'note', 'rectangle'])
++
++const EMPTY_RICH_TEXT = Object.freeze({
++  type: 'doc',
++  content: [{ type: 'paragraph' }]
++})
++
++export function cloneSnapshot(snapshot) {
++  return structuredClone(snapshot)
++}
++
++export function createRecordId(prefix = 'shape') {
++  const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
++  return `${prefix}:${random}`
++}
++
++export function emptyRichText(text = '') {
++  if (!text) return cloneSnapshot(EMPTY_RICH_TEXT)
++  return {
++    type: 'doc',
++    content: [{
++      type: 'paragraph',
++      content: [{ type: 'text', text: String(text) }]
++    }]
++  }
++}
++
++function finite(value, fallback = 0) {
++  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
++}
++
++export function normalizeBounds(start, end, minimum = 4) {
++  const left = Math.min(start.x, end.x)
++  const top = Math.min(start.y, end.y)
++  return {
++    x: left,
++    y: top,
++    w: Math.max(minimum, Math.abs(end.x - start.x)),
++    h: Math.max(minimum, Math.abs(end.y - start.y))
++  }
++}
++
++export function pageRecords(snapshot) {
++  return Object.values(snapshot?.store ?? {})
++    .filter((record) => record?.typeName === 'page')
++    .sort((left, right) => String(left.index ?? '').localeCompare(String(right.index ?? '')))
++}
++
++export function pageIdForShape(store, shape) {
++  let record = shape
++  const visited = new Set()
++  while (record && !visited.has(record.id)) {
++    visited.add(record.id)
++    if (record.typeName === 'page') return record.id
++    const parent = store?.[record.parentId]
++    if (parent?.typeName === 'page') return parent.id
++    record = parent
++  }
++  return null
++}
++
++export function shapesForPage(snapshot, pageId) {
++  const store = snapshot?.store ?? {}
++  const byParent = new Map()
++  for (const record of Object.values(store)) {
++    if (record?.typeName !== 'shape') continue
++    const siblings = byParent.get(record.parentId) ?? []
++    siblings.push(record)
++    byParent.set(record.parentId, siblings)
++  }
++  const shapes = []
++  const queue = [...(byParent.get(pageId) ?? [])]
++  while (queue.length > 0) {
++    const shape = queue.shift()
++    shapes.push(shape)
++    queue.push(...(byParent.get(shape.id) ?? []))
++  }
++  return shapes.sort((left, right) => String(left.index ?? '').localeCompare(String(right.index ?? '')))
++}
++
++export function nextShapeIndex(snapshot, pageId) {
++  const indexes = shapesForPage(snapshot, pageId)
++    .map((shape) => shape.index)
++    .filter((index) => typeof index === 'string')
++    .sort()
++  return generateKeyBetween(indexes.at(-1) ?? null, null)
++}
++
++function baseShape({ id = createRecordId(), pageId, index, x, y, type, opacity = 1, meta = {}, props }) {
++  return {
++    x,
++    y,
++    rotation: 0,
++    isLocked: false,
++    opacity,
++    meta,
++    id,
++    type,
++    props,
++    parentId: pageId,
++    index,
++    typeName: 'shape'
++  }
++}
++
++function learningMeta(kind, extra = {}) {
++  return {
++    cowartLearningCanvasVersion: LEARNING_CANVAS_VERSION,
++    cowartLearningKind: kind,
++    cowartHardwareAnnotation: true,
++    ...extra
++  }
++}
++
++function rectangleProps(bounds, { color = 'violet', dash = 'draw', fill = 'none', text = '', size = 's' } = {}) {
++  return {
++    w: bounds.w,
++    h: bounds.h,
++    geo: 'rectangle',
++    dash,
++    growY: 0,
++    url: '',
++    scale: 1,
++    color,
++    labelColor: 'black',
++    fill,
++    size,
++    font: 'draw',
++    align: 'middle',
++    verticalAlign: 'middle',
++    richText: emptyRichText(text)
++  }
++}
++
++export function createFrameShape({ snapshot, pageId, bounds, id, index } = {}) {
++  return baseShape({
++    id,
++    pageId,
++    index: index ?? nextShapeIndex(snapshot, pageId),
++    x: bounds.x,
++    y: bounds.y,
++    type: 'geo',
++    meta: learningMeta(FRAME_KIND, {
++      cowartLearningFrame: true,
++      cowartLearningBounds: { x: 0, y: 0, w: bounds.w, h: bounds.h }
++    }),
++    props: rectangleProps(bounds)
++  })
++}
++
++export function createRectangleShape({ snapshot, pageId, bounds, command, id, index } = {}) {
++  const kind = command?.kind === 'highlight' ? 'highlight' : 'rectangle'
++  return baseShape({
++    id,
++    pageId,
++    index: index ?? nextShapeIndex(snapshot, pageId),
++    x: bounds.x,
++    y: bounds.y,
++    type: 'geo',
++    opacity: kind === 'highlight' ? 0.35 : 1,
++    meta: learningMeta(kind, commandMeta(command)),
++    props: rectangleProps(bounds, {
++      color: command?.style?.color || (kind === 'highlight' ? 'yellow' : 'blue'),
++      dash: command?.style?.dash || 'solid',
++      fill: kind === 'highlight' ? 'semi' : 'none',
++      text: command?.text || ''
++    })
++  })
++}
++
++export function createNoteShape({ snapshot, pageId, point, text, bounds, command, id, index } = {}) {
++  const noteBounds = bounds ?? { x: point.x, y: point.y, w: 260, h: 120 }
++  return baseShape({
++    id,
++    pageId,
++    index: index ?? nextShapeIndex(snapshot, pageId),
++    x: noteBounds.x,
++    y: noteBounds.y,
++    type: 'geo',
++    meta: learningMeta('note', {
++      cowartLearningText: String(text || command?.text || ''),
++      ...commandMeta(command)
++    }),
++    props: rectangleProps(noteBounds, {
++      color: 'yellow',
++      dash: 'solid',
++      fill: 'solid',
++      text: String(text || command?.text || ''),
++      size: 'm'
++    })
++  })
++}
++
++export function createArrowShape({ snapshot, pageId, start, end, command, id, index } = {}) {
++  const x = Math.min(start.x, end.x)
++  const y = Math.min(start.y, end.y)
++  const localStart = { x: start.x - x, y: start.y - y }
++  const localEnd = { x: end.x - x, y: end.y - y }
++  return baseShape({
++    id,
++    pageId,
++    index: index ?? nextShapeIndex(snapshot, pageId),
++    x,
++    y,
++    type: 'arrow',
++    meta: learningMeta('arrow', commandMeta(command)),
++    props: {
++      kind: 'arc',
++      elbowMidPoint: 0.5,
++      dash: command?.style?.dash || 'draw',
++      size: 'm',
++      fill: 'none',
++      color: command?.style?.color || 'blue',
++      labelColor: 'black',
++      bend: 0,
++      start: localStart,
++      end: localEnd,
++      arrowheadStart: 'none',
++      arrowheadEnd: 'arrow',
++      richText: emptyRichText(command?.text || ''),
++      labelPosition: 0.5,
++      font: 'draw',
++      scale: 1
++    }
++  })
++}
++
++export function createStrokeShape({ snapshot, pageId, points, kind = 'pen', id, index } = {}) {
++  if (!Array.isArray(points) || points.length < 2) throw new Error('A learning stroke requires at least two points.')
++  const minX = Math.min(...points.map((point) => point.x))
++  const minY = Math.min(...points.map((point) => point.y))
++  const maxX = Math.max(...points.map((point) => point.x))
++  const maxY = Math.max(...points.map((point) => point.y))
++  const localPoints = points.map((point) => ({
++    x: point.x - minX,
++    y: point.y - minY,
++    z: finite(point.z, 0.5)
++  }))
++  const highlight = kind === 'highlight'
++  return baseShape({
++    id,
++    pageId,
++    index: index ?? nextShapeIndex(snapshot, pageId),
++    x: minX,
++    y: minY,
++    type: highlight ? 'highlight' : 'draw',
++    opacity: highlight ? 0.42 : 1,
++    meta: learningMeta(kind, {
++      cowartLearningPoints: localPoints,
++      cowartLearningBounds: { x: 0, y: 0, w: Math.max(1, maxX - minX), h: Math.max(1, maxY - minY) }
++    }),
++    props: highlight
++      ? {
++          segments: [], color: 'yellow', size: 'l', isComplete: true,
++          isPen: false, scale: 1, scaleX: 1, scaleY: 1
++        }
++      : {
++          segments: [], color: 'violet', fill: 'none', dash: 'draw', size: 'm',
++          isComplete: true, isClosed: false, isPen: false, scale: 1, scaleX: 1, scaleY: 1
++        }
++  })
++}
++
++function commandMeta(command) {
++  if (!command) return {}
++  return {
++    cowartLearningOperationId: command.operationId,
++    cowartLearningCommandId: command.commandId,
++    cowartLearningKind: command.kind
++  }
++}
++
++function stableCommandShapeId(command) {
++  const safe = String(command.commandId || createRecordId('command'))
++    .replace(/^shape:/, '')
++    .replace(/[^a-zA-Z0-9_-]+/g, '-')
++  return `shape:cowart-${safe}`
++}
++
++export function shapeForAnnotationCommand(snapshot, command) {
++  const bounds = {
++    x: finite(command?.bounds?.x),
++    y: finite(command?.bounds?.y),
++    w: Math.max(1, finite(command?.bounds?.width, 320)),
++    h: Math.max(1, finite(command?.bounds?.height, 160))
++  }
++  const shared = {
++    snapshot,
++    pageId: command.pageId,
++    command,
++    id: stableCommandShapeId(command)
++  }
++  if (command.kind === 'note') {
++    return createNoteShape({ ...shared, bounds, text: command.text || '' })
++  }
++  if (command.kind === 'arrow') {
++    return createArrowShape({
++      ...shared,
++      start: { x: bounds.x, y: bounds.y },
++      end: { x: bounds.x + bounds.w, y: bounds.y + bounds.h }
++    })
++  }
++  return createRectangleShape({ ...shared, bounds })
++}
++
++export function migrateLegacyLearningFrames(snapshot) {
++  if (!snapshot?.store) return { snapshot, changed: false, migratedShapeIds: [] }
++  const next = cloneSnapshot(snapshot)
++  const migratedShapeIds = []
++  for (const shape of Object.values(next.store)) {
++    if (shape?.typeName !== 'shape' || shape.type !== 'geo' || shape.props?.geo !== 'rectangle') continue
++    if (shape.meta?.cowartLearningFrame === true) continue
++    const legacyFrame =
++      shape.props?.color === 'violet' &&
++      shape.props?.fill === 'none' &&
++      shape.props?.dash === 'draw'
++    if (!legacyFrame) continue
++    shape.meta = learningMeta(FRAME_KIND, {
++      ...shape.meta,
++      cowartLearningFrame: true,
++      cowartMigratedFromLegacyRectangle: true,
++      cowartLearningBounds: {
++        x: 0,
++        y: 0,
++        w: Math.max(1, finite(shape.props?.w, 1)),
++        h: Math.max(1, finite(shape.props?.h, 1))
++      }
++    })
++    migratedShapeIds.push(shape.id)
++  }
++  return { snapshot: migratedShapeIds.length ? next : snapshot, changed: migratedShapeIds.length > 0, migratedShapeIds }
++}
++
++function identityMatrix() {
++  return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
++}
++
++function multiply(left, right) {
++  return {
++    a: left.a * right.a + left.c * right.b,
++    b: left.b * right.a + left.d * right.b,
++    c: left.a * right.c + left.c * right.d,
++    d: left.b * right.c + left.d * right.d,
++    e: left.a * right.e + left.c * right.f + left.e,
++    f: left.b * right.e + left.d * right.f + left.f
++  }
++}
++
++function shapeMatrix(shape) {
++  const angle = finite(shape?.rotation)
++  const cosine = Math.cos(angle)
++  const sine = Math.sin(angle)
++  return {
++    a: cosine,
++    b: sine,
++    c: -sine,
++    d: cosine,
++    e: finite(shape?.x),
++    f: finite(shape?.y)
++  }
++}
++
++function applyMatrix(matrix, point) {
++  return {
++    x: matrix.a * point.x + matrix.c * point.y + matrix.e,
++    y: matrix.b * point.x + matrix.d * point.y + matrix.f
++  }
++}
++
++export function localBoundsForShape(shape) {
++  const metaBounds = shape?.meta?.cowartLearningBounds
++  if (metaBounds && [metaBounds.x, metaBounds.y, metaBounds.w, metaBounds.h].every(Number.isFinite)) {
++    return { x: metaBounds.x, y: metaBounds.y, w: Math.max(1, metaBounds.w), h: Math.max(1, metaBounds.h) }
++  }
++  if (shape?.type === 'arrow') {
++    const start = shape.props?.start ?? { x: 0, y: 0 }
++    const end = shape.props?.end ?? { x: 0, y: 0 }
++    const x = Math.min(finite(start.x), finite(end.x))
++    const y = Math.min(finite(start.y), finite(end.y))
++    return {
++      x,
++      y,
++      w: Math.max(1, Math.abs(finite(end.x) - finite(start.x))),
++      h: Math.max(1, Math.abs(finite(end.y) - finite(start.y)))
++    }
++  }
++  return {
++    x: 0,
++    y: 0,
++    w: Math.max(1, finite(shape?.props?.w, shape?.type === 'text' ? 160 : 1)),
++    h: Math.max(1, finite(shape?.props?.h, shape?.type === 'text' ? 40 : 1))
++  }
++}
++
++export function pageBoundsForShape(store, shape) {
++  const local = localBoundsForShape(shape)
++  let matrix = identityMatrix()
++  const chain = []
++  let current = shape
++  const visited = new Set()
++  while (current?.typeName === 'shape' && !visited.has(current.id)) {
++    visited.add(current.id)
++    chain.unshift(current)
++    current = store?.[current.parentId]
++  }
++  for (const entry of chain) matrix = multiply(matrix, shapeMatrix(entry))
++  const corners = [
++    applyMatrix(matrix, { x: local.x, y: local.y }),
++    applyMatrix(matrix, { x: local.x + local.w, y: local.y }),
++    applyMatrix(matrix, { x: local.x + local.w, y: local.y + local.h }),
++    applyMatrix(matrix, { x: local.x, y: local.y + local.h })
++  ]
++  const minX = Math.min(...corners.map((corner) => corner.x))
++  const minY = Math.min(...corners.map((corner) => corner.y))
++  const maxX = Math.max(...corners.map((corner) => corner.x))
++  const maxY = Math.max(...corners.map((corner) => corner.y))
++  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
++}
++
++export function unionBounds(bounds) {
++  const valid = bounds.filter(Boolean)
++  if (!valid.length) return null
++  const x = Math.min(...valid.map((item) => item.x))
++  const y = Math.min(...valid.map((item) => item.y))
++  const right = Math.max(...valid.map((item) => item.x + item.w))
++  const bottom = Math.max(...valid.map((item) => item.y + item.h))
++  return { x, y, w: right - x, h: bottom - y }
++}
++
++export function shapeRole(shape) {
++  if (shape?.type === 'image') return 'source-image'
++  if (shape?.meta?.cowartLearningFrame === true) return 'selection-frame'
++  if (shape?.meta?.cowartLearningKind === 'note') return 'question-note'
++  if (LEARNING_KINDS.has(shape?.meta?.cowartLearningKind)) return 'annotation'
++  return 'other'
++}
++
++export function serializeSelectedShape(snapshot, shape) {
++  const asset = shape?.props?.assetId ? snapshot.store[shape.props.assetId] : null
++  return {
++    id: shape.id,
++    type: shape.type,
++    parentId: shape.parentId ?? null,
++    x: shape.x ?? null,
++    y: shape.y ?? null,
++    rotation: shape.rotation ?? null,
++    meta: shape.meta ?? null,
++    role: shapeRole(shape),
++    pageBounds: pageBoundsForShape(snapshot.store, shape),
++    props: shape.props ?? null,
++    asset: asset
++      ? {
++          id: asset.id,
++          type: asset.type,
++          name: asset.props?.name ?? null,
++          src: asset.props?.src ?? null,
++          w: asset.props?.w ?? null,
++          h: asset.props?.h ?? null,
++          mimeType: asset.props?.mimeType ?? null,
++          fileSize: asset.props?.fileSize ?? null,
++          meta: asset.meta ?? null
++        }
++      : null
++  }
++}
++
++export function selectionState(snapshot, pageId, selectedShapeIds, revision, updatedAt = new Date().toISOString()) {
++  const selectedShapes = selectedShapeIds
++    .map((id) => snapshot?.store?.[id])
++    .filter((shape) => shape?.typeName === 'shape' && pageIdForShape(snapshot.store, shape) === pageId)
++    .map((shape) => serializeSelectedShape(snapshot, shape))
++  return {
++    version: LEARNING_CANVAS_VERSION,
++    selectionRevision: revision,
++    currentPageId: pageId,
++    selectedShapes,
++    updatedAt
++  }
++}
++
++export function addShape(snapshot, shape) {
++  const next = cloneSnapshot(snapshot)
++  next.store[shape.id] = shape
++  return next
++}
++
++export function updateShape(snapshot, shape) {
++  if (!snapshot?.store?.[shape.id]) return snapshot
++  const next = cloneSnapshot(snapshot)
++  next.store[shape.id] = shape
++  return next
++}
++
++export function deleteLearningShapes(snapshot, shapeIds) {
++  const next = cloneSnapshot(snapshot)
++  const deleted = []
++  for (const id of shapeIds) {
++    const shape = next.store[id]
++    if (shape?.typeName !== 'shape' || shape.type === 'image') continue
++    if (!shape.meta?.cowartHardwareAnnotation && !shape.meta?.cowartLearningFrame) continue
++    delete next.store[id]
++    deleted.push(id)
++  }
++  return { snapshot: deleted.length ? next : snapshot, deleted }
++}
++
++export function translateShape(shape, delta) {
++  return {
++    ...shape,
++    x: finite(shape.x) + delta.x,
++    y: finite(shape.y) + delta.y
++  }
++}
++
++export function resizeRectangleShape(shape, bounds) {
++  if (shape?.type !== 'geo') return shape
++  return {
++    ...shape,
++    x: bounds.x,
++    y: bounds.y,
++    meta: {
++      ...shape.meta,
++      cowartLearningBounds: { x: 0, y: 0, w: bounds.w, h: bounds.h }
++    },
++    props: {
++      ...shape.props,
++      w: bounds.w,
++      h: bounds.h
++    }
++  }
++}
++
++export function pageToScreen(point, camera) {
++  return {
++    x: point.x * camera.z + camera.x,
++    y: point.y * camera.z + camera.y
++  }
++}
++
++export function screenToPage(point, camera) {
++  return {
++    x: (point.x - camera.x) / camera.z,
++    y: (point.y - camera.y) / camera.z
++  }
++}
++
++export function zoomCameraAt(camera, screenPoint, zoom) {
++  const nextZoom = Math.min(8, Math.max(0.08, zoom))
++  const pagePoint = screenToPage(screenPoint, camera)
++  return {
++    x: screenPoint.x - pagePoint.x * nextZoom,
++    y: screenPoint.y - pagePoint.y * nextZoom,
++    z: nextZoom
++  }
++}
++
++export function fitCamera(bounds, viewport, padding = 72) {
++  if (!bounds || viewport.width <= 0 || viewport.height <= 0) return { x: 0, y: 0, z: 1 }
++  const availableWidth = Math.max(1, viewport.width - padding * 2)
++  const availableHeight = Math.max(1, viewport.height - padding * 2)
++  const z = Math.min(4, Math.max(0.08, Math.min(availableWidth / bounds.w, availableHeight / bounds.h)))
++  return {
++    x: (viewport.width - bounds.w * z) / 2 - bounds.x * z,
++    y: (viewport.height - bounds.h * z) / 2 - bounds.y * z,
++    z
++  }
++}
+diff --git a/src/learning-canvas/model.test.mjs b/src/learning-canvas/model.test.mjs
+new file mode 100644
+index 0000000..92e357f
+--- /dev/null
++++ b/src/learning-canvas/model.test.mjs
+@@ -0,0 +1,150 @@
++import assert from 'node:assert/strict'
++import test from 'node:test'
++
++import { applyLearningAnnotationOperations } from './annotations.js'
++import { buildLearningCanvasSvg } from './export.js'
++import {
++  addShape,
++  createArrowShape,
++  createFrameShape,
++  createNoteShape,
++  createStrokeShape,
++  migrateLegacyLearningFrames,
++  pageBoundsForShape,
++  selectionState,
++  shapeRole
++} from './model.js'
++
++function fixtureSnapshot() {
++  return {
++    schema: { schemaVersion: 2, sequences: {} },
++    store: {
++      'page:page': { id: 'page:page', typeName: 'page', name: 'Page 1', index: 'a1', meta: {} },
++      'asset:source': {
++        id: 'asset:source',
++        typeName: 'asset',
++        type: 'image',
++        props: { name: 'source.png', src: '/page-assets/page/source.png', w: 600, h: 400, mimeType: 'image/png' },
++        meta: { evidenceSource: 'official-easyeda-export' }
++      },
++      'shape:source': {
++        id: 'shape:source',
++        typeName: 'shape',
++        type: 'image',
++        parentId: 'page:page',
++        index: 'a1',
++        x: 100,
++        y: 80,
++        rotation: 0,
++        isLocked: false,
++        opacity: 1,
++        props: { assetId: 'asset:source', w: 600, h: 400 },
++        meta: { cowartHardwareEvidence: true }
++      }
++    }
++  }
++}
++
++test('learning frame has explicit semantics and selection revision', () => {
++  const initial = fixtureSnapshot()
++  const frame = createFrameShape({
++    snapshot: initial,
++    pageId: 'page:page',
++    bounds: { x: 160, y: 120, w: 180, h: 120 },
++    id: 'shape:frame'
++  })
++  const snapshot = addShape(initial, frame)
++  assert.equal(frame.meta.cowartLearningFrame, true)
++  assert.equal(shapeRole(frame), 'selection-frame')
++  const selected = selectionState(snapshot, 'page:page', [frame.id], 42, '2026-08-25T00:00:00.000Z')
++  assert.equal(selected.version, 2)
++  assert.equal(selected.selectionRevision, 42)
++  assert.equal(selected.selectedShapes[0].role, 'selection-frame')
++  assert.deepEqual(selected.selectedShapes[0].pageBounds, { x: 160, y: 120, w: 180, h: 120 })
++})
++
++test('ordinary rectangle is not a learning frame', () => {
++  const shape = {
++    id: 'shape:ordinary', typeName: 'shape', type: 'geo', parentId: 'page:page',
++    x: 0, y: 0, rotation: 0, props: { geo: 'rectangle', w: 100, h: 100 }, meta: {}
++  }
++  assert.equal(shapeRole(shape), 'other')
++})
++
++test('legacy violet hand-drawn rectangle migrates once', () => {
++  const snapshot = fixtureSnapshot()
++  snapshot.store['shape:legacy'] = {
++    id: 'shape:legacy', typeName: 'shape', type: 'geo', parentId: 'page:page', index: 'a2',
++    x: 25, y: 30, rotation: 0, isLocked: false, opacity: 1,
++    props: { geo: 'rectangle', w: 80, h: 60, color: 'violet', fill: 'none', dash: 'draw' }, meta: {}
++  }
++  const migrated = migrateLegacyLearningFrames(snapshot)
++  assert.equal(migrated.changed, true)
++  assert.deepEqual(migrated.migratedShapeIds, ['shape:legacy'])
++  assert.equal(migrated.snapshot.store['shape:legacy'].meta.cowartLearningFrame, true)
++  assert.equal(migrateLegacyLearningFrames(migrated.snapshot).changed, false)
++})
++
++test('pen, highlight, arrow and note preserve page bounds without tldraw runtime', () => {
++  let snapshot = fixtureSnapshot()
++  const shapes = [
++    createStrokeShape({ snapshot, pageId: 'page:page', points: [{ x: 10, y: 20 }, { x: 35, y: 60 }], kind: 'pen', id: 'shape:pen' }),
++    createStrokeShape({ snapshot, pageId: 'page:page', points: [{ x: 40, y: 50 }, { x: 90, y: 75 }], kind: 'highlight', id: 'shape:highlight' }),
++    createArrowShape({ snapshot, pageId: 'page:page', start: { x: 5, y: 8 }, end: { x: 105, y: 58 }, id: 'shape:arrow' }),
++    createNoteShape({ snapshot, pageId: 'page:page', point: { x: 200, y: 220 }, text: '电源路径', id: 'shape:note' })
++  ]
++  for (const shape of shapes) snapshot = addShape(snapshot, shape)
++  assert.deepEqual(pageBoundsForShape(snapshot.store, snapshot.store['shape:pen']), { x: 10, y: 20, w: 25, h: 40 })
++  assert.deepEqual(pageBoundsForShape(snapshot.store, snapshot.store['shape:arrow']), { x: 5, y: 8, w: 100, h: 50 })
++  assert.equal(snapshot.store['shape:note'].meta.cowartLearningText, '电源路径')
++})
++
++test('queued teaching annotations apply idempotently with stable IDs', () => {
++  const snapshot = fixtureSnapshot()
++  const operation = {
++    operationId: 'operation:one',
++    pageId: 'page:page',
++    commands: [{
++      operationId: 'operation:one',
++      commandId: 'command:one',
++      pageId: 'page:page',
++      kind: 'rectangle',
++      bounds: { x: 20, y: 30, width: 100, height: 70 }
++    }]
++  }
++  const first = applyLearningAnnotationOperations(snapshot, 'page:page', [operation])
++  assert.equal(first.changed, true)
++  assert.deepEqual(first.appliedCommands, ['command:one'])
++  const second = applyLearningAnnotationOperations(first.snapshot, 'page:page', [operation])
++  assert.equal(second.changed, false)
++})
++
++test('standalone SVG export contains the selected evidence and no tldraw watermark', () => {
++  const initial = fixtureSnapshot()
++  const frame = createFrameShape({ snapshot: initial, pageId: 'page:page', bounds: { x: 120, y: 100, w: 200, h: 140 }, id: 'shape:frame' })
++  const snapshot = addShape(initial, frame)
++  const result = buildLearningCanvasSvg({
++    snapshot,
++    pageId: 'page:page',
++    assetSources: new Map([['/page-assets/page/source.png', 'data:image/png;base64,AA==']])
++  })
++  assert.match(result.svg, /data:image\/png;base64,AA==/)
++  assert.match(result.svg, /shape:frame/)
++  assert.doesNotMatch(result.svg, /tldraw|tl-watermark/i)
++})
++
++test('selection export crops to the learning frame and keeps intersecting schematic evidence', () => {
++  const initial = fixtureSnapshot()
++  const frame = createFrameShape({ snapshot: initial, pageId: 'page:page', bounds: { x: 160, y: 120, w: 180, h: 120 }, id: 'shape:frame' })
++  const snapshot = addShape(initial, frame)
++  const result = buildLearningCanvasSvg({
++    snapshot,
++    pageId: 'page:page',
++    selectedShapeIds: [frame.id],
++    assetSources: new Map([['/page-assets/page/source.png', 'data:image/png;base64,AA==']])
++  })
++  assert.match(result.svg, /shape:source/)
++  assert.match(result.svg, /shape:frame/)
++  assert.deepEqual(result.bounds, { x: 128, y: 88, w: 244, h: 184 })
++  assert.deepEqual(result.shapeIds, ['shape:source', 'shape:frame'])
++})
+diff --git a/src/learning-canvas/styles.css b/src/learning-canvas/styles.css
+new file mode 100644
+index 0000000..052133d
+--- /dev/null
++++ b/src/learning-canvas/styles.css
+@@ -0,0 +1,401 @@
++.learning-canvas-shell {
++  --learning-blue: #2563eb;
++  --learning-ink: #18212f;
++  --learning-panel: rgb(255 255 255 / 94%);
++  position: fixed;
++  inset: 0;
++  display: grid;
++  grid-template-rows: 58px 1fr;
++  overflow: hidden;
++  color: var(--learning-ink);
++  background: #edf2f7;
++  user-select: none;
++}
++
++.learning-topbar {
++  z-index: 20;
++  display: flex;
++  padding: 0 18px;
++  align-items: center;
++  justify-content: space-between;
++  background: var(--learning-panel);
++  border-bottom: 1px solid #d8e0ea;
++  box-shadow: 0 1px 8px rgb(15 23 42 / 8%);
++  backdrop-filter: blur(14px);
++}
++
++.learning-brand {
++  display: flex;
++  min-width: 0;
++  gap: 10px;
++  align-items: center;
++}
++
++.learning-brand-mark {
++  display: grid;
++  width: 34px;
++  height: 34px;
++  flex: 0 0 auto;
++  place-items: center;
++  color: #fff;
++  font-size: 12px;
++  font-weight: 800;
++  letter-spacing: 0.04em;
++  background: linear-gradient(135deg, #2563eb, #7c3aed);
++  border-radius: 10px;
++  box-shadow: 0 6px 18px rgb(79 70 229 / 24%);
++}
++
++.learning-brand div {
++  display: grid;
++  min-width: 0;
++  gap: 1px;
++}
++
++.learning-brand strong {
++  font-size: 15px;
++  line-height: 1.25;
++}
++
++.learning-brand small {
++  overflow: hidden;
++  color: #64748b;
++  font-size: 12px;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.learning-page-controls {
++  display: flex;
++  gap: 8px;
++  align-items: center;
++  color: #64748b;
++  font-size: 12px;
++}
++
++.learning-page-controls select {
++  min-width: 128px;
++  height: 34px;
++  padding: 0 30px 0 10px;
++  color: #1e293b;
++  background: #fff;
++  border: 1px solid #cbd5e1;
++  border-radius: 8px;
++}
++
++.learning-toolbar {
++  position: fixed;
++  z-index: 30;
++  top: 70px;
++  left: 50%;
++  display: flex;
++  max-width: calc(100vw - 32px);
++  min-height: 48px;
++  padding: 6px;
++  gap: 3px;
++  align-items: center;
++  overflow: visible;
++  background: var(--learning-panel);
++  border: 1px solid #d8e0ea;
++  border-radius: 13px;
++  box-shadow: 0 12px 34px rgb(15 23 42 / 16%);
++  transform: translateX(-50%);
++  backdrop-filter: blur(14px);
++}
++
++.learning-toolbar-button,
++.learning-export-button {
++  display: inline-flex;
++  height: 36px;
++  padding: 0 9px;
++  gap: 5px;
++  align-items: center;
++  justify-content: center;
++  color: #475569;
++  font: inherit;
++  font-size: 12px;
++  white-space: nowrap;
++  background: transparent;
++  border: 0;
++  border-radius: 8px;
++  cursor: pointer;
++}
++
++.learning-toolbar-button:hover:not(:disabled),
++.learning-export-button:hover:not(:disabled) {
++  color: #1d4ed8;
++  background: #eff6ff;
++}
++
++.learning-toolbar-button[data-active="true"] {
++  color: #fff;
++  background: linear-gradient(135deg, #2563eb, #4f46e5);
++  box-shadow: 0 5px 14px rgb(37 99 235 / 24%);
++}
++
++.learning-toolbar-button:disabled,
++.learning-export-button:disabled,
++.learning-export-popover button:disabled {
++  opacity: 0.35;
++  cursor: not-allowed;
++}
++
++.learning-toolbar-separator {
++  width: 1px;
++  height: 24px;
++  margin: 0 3px;
++  background: #d8e0ea;
++}
++
++.learning-zoom-label {
++  min-width: 40px;
++  color: #64748b;
++  font-size: 11px;
++  text-align: center;
++}
++
++.learning-export-menu {
++  position: relative;
++}
++
++.learning-export-button {
++  color: #1d4ed8;
++  font-weight: 650;
++  background: #eff6ff;
++}
++
++.learning-export-popover {
++  position: absolute;
++  top: calc(100% + 10px);
++  right: 0;
++  display: grid;
++  width: 190px;
++  padding: 6px;
++  gap: 2px;
++  background: #fff;
++  border: 1px solid #d8e0ea;
++  border-radius: 10px;
++  box-shadow: 0 14px 38px rgb(15 23 42 / 20%);
++}
++
++.learning-export-popover button {
++  display: flex;
++  min-height: 34px;
++  padding: 7px 10px;
++  gap: 6px;
++  align-items: center;
++  color: #334155;
++  font: inherit;
++  font-size: 12px;
++  text-align: left;
++  background: transparent;
++  border: 0;
++  border-radius: 7px;
++  cursor: pointer;
++}
++
++.learning-export-popover button:hover:not(:disabled) {
++  color: #1d4ed8;
++  background: #eff6ff;
++}
++
++.learning-canvas-viewport {
++  position: relative;
++  grid-row: 2;
++  min-width: 0;
++  min-height: 0;
++  overflow: hidden;
++  touch-action: none;
++  background: #f8fafc;
++}
++
++.learning-canvas-viewport.tool-select { cursor: default; }
++.learning-canvas-viewport.tool-hand { cursor: grab; }
++.learning-canvas-viewport.tool-frame { cursor: crosshair; }
++.learning-canvas-viewport.tool-pen,
++.learning-canvas-viewport.tool-highlight { cursor: crosshair; }
++.learning-canvas-viewport.tool-arrow { cursor: crosshair; }
++.learning-canvas-viewport.tool-note { cursor: text; }
++
++.learning-canvas-svg {
++  display: block;
++  width: 100%;
++  height: 100%;
++  overflow: visible;
++}
++
++.learning-canvas-svg image,
++.learning-canvas-svg line,
++.learning-canvas-svg polyline,
++.learning-canvas-svg g[data-shape-id] {
++  pointer-events: all;
++}
++
++.learning-canvas-svg .is-selected {
++  filter: drop-shadow(0 0 2px rgb(37 99 235 / 70%));
++}
++
++.learning-frame-shape {
++  vector-effect: non-scaling-stroke;
++}
++
++.learning-note-text {
++  fill: #1f2937;
++  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
++  font-size: 15px;
++  pointer-events: none;
++  user-select: none;
++}
++
++.learning-selection-overlay circle {
++  fill: #fff;
++  stroke: #2563eb;
++  stroke-width: 2px;
++  cursor: nwse-resize;
++  vector-effect: non-scaling-stroke;
++}
++
++.learning-selection-overlay circle:nth-of-type(2),
++.learning-selection-overlay circle:nth-of-type(3) {
++  cursor: nesw-resize;
++}
++
++.learning-status {
++  position: fixed;
++  z-index: 22;
++  bottom: 16px;
++  left: 16px;
++  display: flex;
++  min-height: 34px;
++  padding: 0 12px;
++  gap: 8px;
++  align-items: center;
++  color: #475569;
++  font-size: 12px;
++  background: rgb(255 255 255 / 92%);
++  border: 1px solid #d8e0ea;
++  border-radius: 10px;
++  box-shadow: 0 8px 24px rgb(15 23 42 / 10%);
++  backdrop-filter: blur(10px);
++}
++
++.learning-status[data-kind="error"] {
++  color: #b91c1c;
++  border-color: #fecaca;
++}
++
++.learning-status span + span::before {
++  margin-right: 8px;
++  color: #cbd5e1;
++  content: "·";
++}
++
++.learning-empty-state {
++  display: grid;
++  width: 100%;
++  height: 100%;
++  place-items: center;
++  color: #64748b;
++  font-size: 14px;
++}
++
++.learning-dialog-backdrop {
++  position: fixed;
++  z-index: 100;
++  inset: 0;
++  display: grid;
++  padding: 24px;
++  place-items: center;
++  background: rgb(15 23 42 / 28%);
++  backdrop-filter: blur(3px);
++}
++
++.learning-note-dialog {
++  display: grid;
++  width: min(460px, 100%);
++  padding: 20px;
++  gap: 14px;
++  background: #fff;
++  border: 1px solid #d8e0ea;
++  border-radius: 14px;
++  box-shadow: 0 24px 70px rgb(15 23 42 / 28%);
++}
++
++.learning-note-dialog h2 {
++  margin: 0;
++  font-size: 17px;
++}
++
++.learning-note-dialog textarea {
++  width: 100%;
++  padding: 12px;
++  resize: vertical;
++  color: #1e293b;
++  font: inherit;
++  font-size: 14px;
++  line-height: 1.55;
++  background: #f8fafc;
++  border: 1px solid #cbd5e1;
++  border-radius: 9px;
++  outline: none;
++  user-select: text;
++}
++
++.learning-note-dialog textarea:focus {
++  border-color: #60a5fa;
++  box-shadow: 0 0 0 3px rgb(59 130 246 / 14%);
++}
++
++.learning-note-dialog > div {
++  display: flex;
++  gap: 8px;
++  justify-content: flex-end;
++}
++
++.learning-note-dialog button {
++  min-height: 36px;
++  padding: 0 14px;
++  color: #475569;
++  font: inherit;
++  background: #f1f5f9;
++  border: 0;
++  border-radius: 8px;
++  cursor: pointer;
++}
++
++.learning-note-dialog button[type="submit"] {
++  color: #fff;
++  background: #2563eb;
++}
++
++.learning-note-dialog button:disabled {
++  opacity: 0.4;
++  cursor: not-allowed;
++}
++
++.is-spinning {
++  animation: learning-spin 0.9s linear infinite;
++}
++
++@keyframes learning-spin {
++  to { transform: rotate(360deg); }
++}
++
++@media (max-width: 1080px) {
++  .learning-toolbar {
++    right: 12px;
++    left: 12px;
++    justify-content: flex-start;
++    overflow-x: auto;
++    transform: none;
++  }
++
++  .learning-toolbar-button span {
++    display: none;
++  }
++
++  .learning-toolbar-button {
++    width: 36px;
++    padding: 0;
++  }
++}
+diff --git a/src/main.jsx b/src/main.jsx
+index 995a23c..629ea2f 100644
+--- a/src/main.jsx
++++ b/src/main.jsx
+@@ -1,10 +1,21 @@
+ import React from 'react'
+ import { createRoot } from 'react-dom/client'
+-import App from './App.jsx'
+ import './styles.css'
+ 
+-createRoot(document.getElementById('root')).render(
+-  <React.StrictMode>
+-    <App />
+-  </React.StrictMode>
+-)
++const hardwareLearningBuild =
++  typeof __COWART_HARDWARE_LEARNING_BUILD__ !== 'undefined' &&
++  __COWART_HARDWARE_LEARNING_BUILD__
++
++async function mountCowart() {
++  const module = hardwareLearningBuild
++    ? await import('./learning-canvas/HardwareLearningCanvas.jsx')
++    : await import('./App.jsx')
++  const App = module.default
++  const content = hardwareLearningBuild ? <App /> : <React.StrictMode><App /></React.StrictMode>
++  createRoot(document.getElementById('root')).render(content)
++}
++
++mountCowart().catch((error) => {
++  console.error(error)
++  document.getElementById('root').textContent = 'Cowart canvas could not be loaded.'
++})
+diff --git a/vite.config.js b/vite.config.js
+index 96b8b7d..2c8a5a8 100644
+--- a/vite.config.js
++++ b/vite.config.js
+@@ -773,6 +773,7 @@ export default defineConfig({
+   plugins: [react(), canvasStoragePlugin()],
+   define: {
+     __COWART_WIDGET_BUILD__: JSON.stringify(process.env.COWART_WIDGET_BUILD === '1'),
++    __COWART_HARDWARE_LEARNING_BUILD__: JSON.stringify(process.env.COWART_HARDWARE_LEARNING_BUILD === '1'),
+     __COWART_APP_VERSION__: JSON.stringify(cowartAppVersion),
+     __COWART_TLDRAW_LICENSE_KEY__: JSON.stringify(cowartTldrawLicenseKey),
+     'process.env.NODE_ENV': JSON.stringify('development')
+-- 
+2.55.0.windows.3
+

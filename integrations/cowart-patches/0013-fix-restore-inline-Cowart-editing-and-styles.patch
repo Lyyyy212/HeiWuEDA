@@ -1,0 +1,733 @@
+From ab9f5f360a002ee68220fa47b2df50f1885040ba Mon Sep 17 00:00:00 2001
+From: Codex <codex@local.invalid>
+Date: Tue, 25 Aug 2026 11:37:56 +0800
+Subject: [PATCH] fix: restore inline Cowart editing and styles
+
+---
+ scripts/probe-hardware-learning.mjs           |  12 +-
+ .../HardwareLearningCanvas.jsx                | 200 ++++++++++++++----
+ src/learning-canvas/export.js                 |  16 +-
+ src/learning-canvas/model.js                  |  36 +++-
+ src/learning-canvas/model.test.mjs            |  18 +-
+ src/learning-canvas/styles.css                | 111 ++++------
+ 6 files changed, 262 insertions(+), 131 deletions(-)
+
+diff --git a/scripts/probe-hardware-learning.mjs b/scripts/probe-hardware-learning.mjs
+index e564bd6..7700080 100644
+--- a/scripts/probe-hardware-learning.mjs
++++ b/scripts/probe-hardware-learning.mjs
+@@ -50,11 +50,14 @@ const learningCanvasSource = await readFile(
+   "utf8",
+ );
+ assert.match(learningCanvasSource, /data-engine="cowart-learning-canvas-v2"/);
+-assert.match(learningCanvasSource, /id: 'frame', label: '标注'/);
++assert.match(learningCanvasSource, /id: 'frame', label: '学习框'/);
+ assert.match(learningCanvasSource, /cowart-top-actions/);
+ assert.match(learningCanvasSource, /cowart-style-panel/);
+ assert.match(learningCanvasSource, /cowart-bottom-toolbar/);
+ assert.match(learningCanvasSource, /cowart-zoom-controls/);
++assert.match(learningCanvasSource, /learning-inline-text-editor/);
++assert.match(learningCanvasSource, /<InlineCanvasTextEditor/);
++assert.doesNotMatch(learningCanvasSource, /learning-note-dialog|learning-dialog-backdrop|<small>\{label\}<\/small>/);
+ assert.match(learningCanvasSource, /id: 'eraser', label: '橡皮擦'/);
+ assert.match(learningCanvasSource, /id: 'rectangle', label: '矩形'/);
+ assert.match(learningCanvasSource, /duplicateLearningShapes/);
+@@ -66,6 +69,13 @@ const stylesSource = await readFile(new URL("../src/styles.css", import.meta.url
+ assert.doesNotMatch(stylesSource, /cowart-hardware-question-panel/);
+ assert.doesNotMatch(stylesSource, /tl-watermark|SEE-LICENSE/);
+ 
++const learningStylesSource = await readFile(
++  new URL("../src/learning-canvas/styles.css", import.meta.url),
++  "utf8",
++);
++assert.match(learningStylesSource, /\.learning-inline-editor/);
++assert.doesNotMatch(learningStylesSource, /\.learning-note-dialog|\.learning-dialog-backdrop/);
++
+ const viteSource = await readFile(new URL("../vite.config.js", import.meta.url), "utf8");
+ assert.match(viteSource, /COWART_TLDRAW_LICENSE_KEY/);
+ assert.match(viteSource, /__COWART_TLDRAW_LICENSE_KEY__/);
+diff --git a/src/learning-canvas/HardwareLearningCanvas.jsx b/src/learning-canvas/HardwareLearningCanvas.jsx
+index d117f85..849cfc0 100644
+--- a/src/learning-canvas/HardwareLearningCanvas.jsx
++++ b/src/learning-canvas/HardwareLearningCanvas.jsx
+@@ -85,7 +85,7 @@ import {
+ import './styles.css'
+ 
+ const PRIMARY_TOOLS = [
+-  { id: 'frame', label: '标注', Icon: BoxSelect, featured: true },
++  { id: 'frame', label: '学习框', Icon: BoxSelect },
+   { id: 'select', label: '选择', Icon: MousePointer2 },
+   { id: 'hand', label: '平移', Icon: Hand },
+   { id: 'pen', label: '画笔', Icon: Brush },
+@@ -138,7 +138,7 @@ function noteTextLines(text) {
+   return lines.slice(0, 10)
+ }
+ 
+-function LearningShape({ shape, snapshot, assetSources, selected, onPointerDown, onDoubleClick }) {
++function LearningShape({ shape, snapshot, assetSources, editing, selected, onPointerDown, onDoubleClick }) {
+   const common = {
+     'data-shape-id': shape.id,
+     onDoubleClick: (event) => onDoubleClick(event, shape),
+@@ -206,19 +206,28 @@ function LearningShape({ shape, snapshot, assetSources, selected, onPointerDown,
+     const textOnly = kind === 'text'
+     const highlight = kind === 'highlight'
+     const text = shape.meta?.cowartLearningText || ''
+-    const stroke = frame ? '#7c3aed' : colorValue(shape.props?.color, '#2563eb')
+-    const fill = note
+-      ? '#fff6a8'
+-      : shape.props?.fill === 'solid'
++    const stroke = colorValue(shape.props?.color, frame ? '#7c3aed' : '#2563eb')
++    const fill = shape.props?.fill === 'solid'
+         ? stroke
+         : shape.props?.fill === 'semi' || highlight
+           ? stroke
+           : 'transparent'
+-    const fillOpacity = note ? 1 : shape.props?.fill === 'solid' ? 0.92 : 0.22
+-    const strokeWidth = frame ? 4 : strokeWidthForSize(shape.props?.size)
++    const fillOpacity = note
++      ? shape.props?.fill === 'solid' ? 0.34 : shape.props?.fill === 'semi' ? 0.18 : 0
++      : shape.props?.fill === 'solid' ? 0.92 : 0.22
++    const strokeWidth = strokeWidthForSize(shape.props?.size, frame ? 4 : 3)
+     const geometry = shape.props?.geo === 'ellipse' ? 'ellipse' : 'rectangle'
+     return (
+       <g {...common} className={selected ? 'is-selected' : ''}>
++        {textOnly && (
++          <rect
++            fill="transparent"
++            height={shape.props?.h || 54}
++            pointerEvents="all"
++            stroke="none"
++            width={shape.props?.w || 120}
++          />
++        )}
+         {!textOnly && geometry === 'rectangle' && (
+           <rect
+             className={frame ? 'learning-frame-shape' : ''}
+@@ -227,7 +236,7 @@ function LearningShape({ shape, snapshot, assetSources, selected, onPointerDown,
+             height={shape.props?.h || 1}
+             rx={note ? 10 : 3}
+             stroke={stroke}
+-            strokeDasharray={frame ? '10 7' : dashArrayForStyle(shape.props?.dash, strokeWidth)}
++            strokeDasharray={dashArrayForStyle(shape.props?.dash, strokeWidth)}
+             strokeWidth={strokeWidth}
+             width={shape.props?.w || 1}
+           />
+@@ -245,7 +254,7 @@ function LearningShape({ shape, snapshot, assetSources, selected, onPointerDown,
+             strokeWidth={strokeWidth}
+           />
+         )}
+-        {(note || textOnly) && (
++        {!editing && (note || textOnly) && (
+           <text className="learning-note-text" fill={textOnly ? stroke : undefined} x="14" y="8">
+             {noteTextLines(text).map((line, index) => (
+               <tspan key={`${shape.id}-${index}`} x="14" dy={index === 0 ? 24 : 20}>{line}</tspan>
+@@ -258,6 +267,67 @@ function LearningShape({ shape, snapshot, assetSources, selected, onPointerDown,
+   return null
+ }
+ 
++function InlineCanvasTextEditor({ draft, shape, style, onCancel, onChange, onCommit }) {
++  const inputRef = useRef(null)
++  const editingStyle = normalizeLearningStyle(draft.style ?? style)
++  const point = shape ? { x: shape.x, y: shape.y } : draft.point
++  const width = shape?.props?.w || (draft.mode === 'note' ? 260 : 320)
++  const height = shape?.props?.h || (draft.mode === 'note' ? 120 : 82)
++  const color = colorValue(editingStyle.color, draft.mode === 'note' ? '#eab308' : '#1f2937')
++  const fillOpacity = editingStyle.fill === 'solid' ? (draft.mode === 'note' ? 0.34 : 0.92) : editingStyle.fill === 'semi' ? 0.18 : 0
++  const background = fillOpacity > 0 ? `${color}${Math.round(fillOpacity * 255).toString(16).padStart(2, '0')}` : 'transparent'
++
++  useEffect(() => {
++    const input = inputRef.current
++    if (!input) return
++    input.focus()
++    if (draft.shapeId) input.select()
++  }, [draft.shapeId])
++
++  return (
++    <foreignObject
++      className="learning-inline-editor"
++      data-mode={draft.mode}
++      height={height}
++      onDoubleClick={(event) => event.stopPropagation()}
++      onPointerDown={(event) => event.stopPropagation()}
++      width={width}
++      x={point.x}
++      y={point.y}
++    >
++      <div
++        className="learning-inline-editor-surface"
++        style={{ '--editor-color': color, '--editor-background': background }}
++        xmlns="http://www.w3.org/1999/xhtml"
++      >
++        <textarea
++          aria-label={draft.mode === 'note' ? '便签文字' : '画布文字'}
++          data-testid="learning-inline-text-editor"
++          maxLength={800}
++          onBlur={onCommit}
++          onChange={(event) => onChange(event.target.value)}
++          onKeyDown={(event) => {
++            event.stopPropagation()
++            if (event.key === 'Escape') {
++              event.preventDefault()
++              onCancel()
++            } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
++              event.preventDefault()
++              onCommit()
++            }
++          }}
++          onPointerDown={(event) => event.stopPropagation()}
++          onWheel={(event) => event.stopPropagation()}
++          placeholder={draft.mode === 'note' ? '输入便签…' : '输入文字…'}
++          ref={inputRef}
++          spellCheck="false"
++          value={draft.text}
++        />
++      </div>
++    </foreignObject>
++  )
++}
++
+ function ToolbarButton({ active = false, disabled = false, label, Icon, onClick, testId }) {
+   return (
+     <button
+@@ -675,7 +745,11 @@ export default function HardwareLearningCanvas() {
+     setStyle(nextStyle)
+     if (!snapshotRef.current || !selectedIds.length) return
+     const result = styleLearningShapes(snapshotRef.current, selectedIds, stylePatch)
+-    if (result.updated.length) commitSnapshot(result.snapshot, { message: '样式已更新' })
++    if (result.updated.length) {
++      commitSnapshot(result.snapshot, { message: `已更新 ${result.updated.length} 个对象的样式` })
++    } else {
++      setStatus({ kind: 'saved', text: '原理图底图受保护；新样式将用于下一项标注' })
++    }
+   }
+ 
+   function chooseTool(nextTool) {
+@@ -693,6 +767,7 @@ export default function HardwareLearningCanvas() {
+ 
+   function handleCanvasPointerDown(event) {
+     if (!rootRef.current || !snapshot || !pageId) return
++    if (noteDraft) return
+     const screen = pointerPosition(event, rootRef.current)
+     const page = screenToPage(screen, camera)
+     if (event.button === 1 || event.button === 2 || tool === 'hand' || event.altKey) {
+@@ -707,7 +782,14 @@ export default function HardwareLearningCanvas() {
+       return
+     }
+     if (tool === 'note' || tool === 'text') {
+-      setNoteDraft({ point: page, text: '', mode: tool })
++      setNoteDraft({
++        point: page,
++        text: '',
++        mode: tool,
++        style: tool === 'note'
++          ? normalizeLearningStyle({ color: 'yellow', fill: 'solid', dash: 'solid', size: style.size, opacity: style.opacity })
++          : style
++      })
+       return
+     }
+     if (['frame', 'arrow', 'line', 'rectangle', 'ellipse'].includes(tool)) {
+@@ -721,6 +803,7 @@ export default function HardwareLearningCanvas() {
+ 
+   function handleShapePointerDown(event, shape) {
+     if (event.button !== 0 || !rootRef.current) return
++    if (noteDraft) return
+     if (tool === 'eraser') {
+       event.stopPropagation()
+       if (shape.type === 'image') {
+@@ -750,11 +833,20 @@ export default function HardwareLearningCanvas() {
+   function handleShapeDoubleClick(event, shape) {
+     if (!['note', 'text'].includes(shape.meta?.cowartLearningKind)) return
+     event.stopPropagation()
++    setSelectedIds([shape.id])
++    setTool('select')
+     setNoteDraft({
+       point: { x: shape.x, y: shape.y },
+       text: shape.meta?.cowartLearningText || '',
+       shapeId: shape.id,
+-      mode: shape.meta?.cowartLearningKind
++      mode: shape.meta?.cowartLearningKind,
++      style: normalizeLearningStyle({
++        color: shape.props?.color,
++        fill: shape.props?.fill,
++        dash: shape.props?.dash,
++        size: shape.props?.size,
++        opacity: shape.opacity
++      })
+     })
+   }
+ 
+@@ -777,7 +869,7 @@ export default function HardwareLearningCanvas() {
+     }
+     if (gesture.type === 'frame') {
+       const bounds = normalizeBounds(gesture.startPage, page)
+-      setDraftShape(createFrameShape({ snapshot, pageId, bounds, id: 'shape:cowart-frame-preview', index: 'a0' }))
++      setDraftShape(createFrameShape({ snapshot, pageId, bounds, style, id: 'shape:cowart-frame-preview', index: 'a0' }))
+       setGesture({ ...gesture, currentPage: page })
+       return
+     }
+@@ -841,7 +933,7 @@ export default function HardwareLearningCanvas() {
+       setMarqueeBounds(null)
+       return
+     }
+-    if (gesture.type === 'frame' && draftShape) created = createFrameShape({ snapshot: next, pageId, bounds: { x: draftShape.x, y: draftShape.y, w: draftShape.props.w, h: draftShape.props.h } })
++    if (gesture.type === 'frame' && draftShape) created = createFrameShape({ snapshot: next, pageId, bounds: { x: draftShape.x, y: draftShape.y, w: draftShape.props.w, h: draftShape.props.h }, style })
+     if (gesture.type === 'arrow' && draftShape) {
+       created = createArrowShape({
+         snapshot: next,
+@@ -891,23 +983,49 @@ export default function HardwareLearningCanvas() {
+ 
+   function saveNote() {
+     const text = noteDraft?.text?.trim()
+-    if (!text || !snapshotRef.current || !pageId) return
++    if (!noteDraft || !snapshotRef.current || !pageId) return
++    if (!text) {
++      setNoteDraft(null)
++      return
++    }
+     if (noteDraft.shapeId) {
+       const original = snapshotRef.current.store[noteDraft.shapeId]
++      const replacement = noteDraft.mode === 'text'
++        ? createTextShape({
++            snapshot: snapshotRef.current,
++            pageId,
++            point: { x: original.x, y: original.y },
++            text,
++            style: noteDraft.style,
++            id: original.id,
++            index: original.index
++          })
++        : createNoteShape({
++            snapshot: snapshotRef.current,
++            pageId,
++            point: { x: original.x, y: original.y },
++            bounds: { x: original.x, y: original.y, w: original.props?.w || 260, h: original.props?.h || 120 },
++            text,
++            style: noteDraft.style,
++            id: original.id,
++            index: original.index
++          })
+       const updated = {
+         ...original,
+-        meta: { ...original.meta, cowartLearningText: text },
+-        props: { ...original.props, richText: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] } }
++        opacity: replacement.opacity,
++        meta: { ...original.meta, ...replacement.meta },
++        props: { ...original.props, ...replacement.props }
+       }
+       commitSnapshot(updateShape(snapshotRef.current, updated), { message: '文字标注已更新' })
+       setSelectedIds([updated.id])
+     } else {
+       const shape = noteDraft.mode === 'text'
+-        ? createTextShape({ snapshot: snapshotRef.current, pageId, point: noteDraft.point, text, style })
+-        : createNoteShape({ snapshot: snapshotRef.current, pageId, point: noteDraft.point, text })
++        ? createTextShape({ snapshot: snapshotRef.current, pageId, point: noteDraft.point, text, style: noteDraft.style })
++        : createNoteShape({ snapshot: snapshotRef.current, pageId, point: noteDraft.point, text, style: noteDraft.style })
+       commitSnapshot(addShape(snapshotRef.current, shape), { message: '文字标注已保存' })
+       setSelectedIds([shape.id])
+     }
++    setTool('select')
+     setNoteDraft(null)
+   }
+ 
+@@ -1005,6 +1123,7 @@ export default function HardwareLearningCanvas() {
+               {visibleShapes.map((shape) => (
+                 <LearningShape
+                   assetSources={assetSources}
++                  editing={noteDraft?.shapeId === shape.id}
+                   key={shape.id}
+                   onDoubleClick={handleShapeDoubleClick}
+                   onPointerDown={handleShapePointerDown}
+@@ -1013,6 +1132,16 @@ export default function HardwareLearningCanvas() {
+                   snapshot={snapshot}
+                 />
+               ))}
++              {noteDraft && (
++                <InlineCanvasTextEditor
++                  draft={noteDraft}
++                  onCancel={() => setNoteDraft(null)}
++                  onChange={(text) => setNoteDraft((current) => current ? { ...current, text } : current)}
++                  onCommit={saveNote}
++                  shape={noteDraft.shapeId ? snapshot.store[noteDraft.shapeId] : null}
++                  style={style}
++                />
++              )}
+               {selectionBounds && (
+                 <g className="learning-selection-overlay">
+                   <rect fill="none" height={selectionBounds.h} pointerEvents="none" stroke="#2563eb" strokeDasharray="6 4" strokeWidth={2 / camera.z} width={selectionBounds.w} x={selectionBounds.x} y={selectionBounds.y} />
+@@ -1113,7 +1242,12 @@ export default function HardwareLearningCanvas() {
+         </div>
+       </nav>
+ 
+-      <aside aria-label="样式" className="cowart-style-panel">
++      <aside
++        aria-label="样式"
++        className="cowart-style-panel"
++        data-selection-scope={selectedIds.length && !selectedIds.some((id) => snapshot?.store?.[id]?.type !== 'image') ? 'protected' : 'editable'}
++        title={selectedIds.length && !selectedIds.some((id) => snapshot?.store?.[id]?.type !== 'image') ? '原理图底图受保护；调整项将用于下一项标注' : '调整当前标注或下一项标注的样式'}
++      >
+         <div className="cowart-color-grid">
+           {STYLE_COLORS.map(([name, value]) => (
+             <button
+@@ -1130,7 +1264,7 @@ export default function HardwareLearningCanvas() {
+         </div>
+         <label className="cowart-opacity-control">
+           <span>不透明度</span><output>{Math.round(style.opacity * 100)}%</output>
+-          <input max="100" min="10" onChange={(event) => applyStyle({ opacity: Number(event.target.value) / 100 })} type="range" value={Math.round(style.opacity * 100)} />
++          <input max="100" min="10" onInput={(event) => applyStyle({ opacity: Number(event.currentTarget.value) / 100 })} type="range" value={Math.round(style.opacity * 100)} />
+         </label>
+         <StyleOptions label="填充" onChange={(fill) => applyStyle({ fill })} options={FILL_OPTIONS} value={style.fill} />
+         <StyleOptions label="线条" onChange={(dash) => applyStyle({ dash })} options={DASH_OPTIONS} value={style.dash} />
+@@ -1138,11 +1272,10 @@ export default function HardwareLearningCanvas() {
+       </aside>
+ 
+       <nav aria-label="学习画布工具" className="cowart-bottom-toolbar">
+-        {PRIMARY_TOOLS.map(({ id, label, Icon, featured }, index) => (
++        {PRIMARY_TOOLS.map(({ id, label, Icon }, index) => (
+           <span className="cowart-tool-slot" key={id}>
+             {index === 1 && <span className="cowart-control-separator" />}
+             <ToolbarButton active={tool === id} Icon={Icon} label={label} onClick={() => chooseTool(id)} testId={`learning-tool-${id}`} />
+-            {featured && <small>{label}</small>}
+           </span>
+         ))}
+         <span className="cowart-control-separator" />
+@@ -1191,25 +1324,6 @@ export default function HardwareLearningCanvas() {
+         {selectedIds.length > 0 && <span>已选 {selectedIds.length} 个对象</span>}
+       </aside>
+ 
+-      {noteDraft && (
+-        <div className="learning-dialog-backdrop" role="presentation">
+-          <form className="learning-note-dialog" onSubmit={(event) => { event.preventDefault(); saveNote() }}>
+-            <h2>{noteDraft.shapeId ? '编辑文字标注' : noteDraft.mode === 'text' ? '添加文本' : '添加便签'}</h2>
+-            <textarea
+-              autoFocus
+-              maxLength={800}
+-              onChange={(event) => setNoteDraft((current) => ({ ...current, text: event.target.value }))}
+-              placeholder="输入希望保留在原理图旁边的说明…"
+-              rows={6}
+-              value={noteDraft.text}
+-            />
+-            <div>
+-              <button onClick={() => setNoteDraft(null)} type="button">取消</button>
+-              <button disabled={!noteDraft.text.trim()} type="submit">保存标注</button>
+-            </div>
+-          </form>
+-        </div>
+-      )}
+     </main>
+   )
+ }
+diff --git a/src/learning-canvas/export.js b/src/learning-canvas/export.js
+index 1c32ee8..e6ca2fe 100644
+--- a/src/learning-canvas/export.js
++++ b/src/learning-canvas/export.js
+@@ -80,7 +80,7 @@ function shapeSvg(shape, snapshot, assetSources) {
+   }
+   if (shape.type === 'draw' || shape.type === 'highlight') {
+     const points = polylinePoints(shape)
+-    const stroke = shape.type === 'highlight' ? '#facc15' : colorValue(shape.props?.color)
++    const stroke = colorValue(shape.props?.color, shape.type === 'highlight' ? '#facc15' : '#7c3aed')
+     const width = shape.type === 'highlight'
+       ? strokeWidthForSize(shape.props?.size, 5) * 4
+       : strokeWidthForSize(shape.props?.size, 4)
+@@ -94,17 +94,17 @@ function shapeSvg(shape, snapshot, assetSources) {
+     const note = kind === 'note'
+     const textOnly = kind === 'text'
+     const highlight = kind === 'highlight'
+-    const stroke = frame ? '#7c3aed' : colorValue(shape.props?.color, '#2563eb')
+-    const fill = note
+-      ? '#fff6a8'
+-      : shape.props?.fill === 'solid'
++    const stroke = colorValue(shape.props?.color, frame ? '#7c3aed' : '#2563eb')
++    const fill = shape.props?.fill === 'solid'
+         ? stroke
+         : shape.props?.fill === 'semi' || highlight
+           ? stroke
+           : 'none'
+-    const fillOpacity = note ? 1 : shape.props?.fill === 'solid' ? 0.92 : 0.22
+-    const strokeWidth = frame ? 4 : strokeWidthForSize(shape.props?.size)
+-    const dash = frame ? '10 7' : dashArrayForStyle(shape.props?.dash, strokeWidth)
++    const fillOpacity = note
++      ? shape.props?.fill === 'solid' ? 0.34 : shape.props?.fill === 'semi' ? 0.18 : 0
++      : shape.props?.fill === 'solid' ? 0.92 : 0.22
++    const strokeWidth = strokeWidthForSize(shape.props?.size, frame ? 4 : 3)
++    const dash = dashArrayForStyle(shape.props?.dash, strokeWidth)
+     const text = shape.meta?.cowartLearningText || ''
+     const textSvg = noteLines(text).map((line, index) =>
+       `<tspan x="14" dy="${index === 0 ? 24 : 20}">${escapeXml(line)}</tspan>`
+diff --git a/src/learning-canvas/model.js b/src/learning-canvas/model.js
+index 1e213a4..afae21a 100644
+--- a/src/learning-canvas/model.js
++++ b/src/learning-canvas/model.js
+@@ -167,7 +167,14 @@ function rectangleProps(bounds, {
+   }
+ }
+ 
+-export function createFrameShape({ snapshot, pageId, bounds, id, index } = {}) {
++export function createFrameShape({ snapshot, pageId, bounds, style, id, index } = {}) {
++  const normalizedStyle = normalizeLearningStyle(style ?? {
++    color: 'violet',
++    fill: 'none',
++    dash: 'draw',
++    size: 's',
++    opacity: 1
++  })
+   return baseShape({
+     id,
+     pageId,
+@@ -175,11 +182,12 @@ export function createFrameShape({ snapshot, pageId, bounds, id, index } = {}) {
+     x: bounds.x,
+     y: bounds.y,
+     type: 'geo',
++    opacity: normalizedStyle.opacity,
+     meta: learningMeta(FRAME_KIND, {
+       cowartLearningFrame: true,
+       cowartLearningBounds: { x: 0, y: 0, w: bounds.w, h: bounds.h }
+     }),
+-    props: rectangleProps(bounds)
++    props: rectangleProps(bounds, normalizedStyle)
+   })
+ }
+ 
+@@ -244,11 +252,14 @@ export function createEllipseShape({ snapshot, pageId, bounds, style, id, index
+ 
+ export function createTextShape({ snapshot, pageId, point, text, style, id, index } = {}) {
+   const normalizedStyle = normalizeLearningStyle(style)
+-  const width = Math.max(120, Math.min(520, String(text || '').length * 16 + 28))
++  const textLines = String(text || '').split(/\r?\n/)
++  const longestLine = textLines.reduce((length, line) => Math.max(length, line.length), 0)
++  const width = Math.max(120, Math.min(520, longestLine * 16 + 28))
++  const height = Math.max(54, Math.min(360, textLines.length * 22 + 28))
+   return createGeoShape({
+     snapshot,
+     pageId,
+-    bounds: { x: point.x, y: point.y, w: width, h: 54 },
++    bounds: { x: point.x, y: point.y, w: width, h: height },
+     kind: 'text',
+     style: { ...normalizedStyle, fill: 'none', dash: 'solid' },
+     text,
+@@ -257,8 +268,15 @@ export function createTextShape({ snapshot, pageId, point, text, style, id, inde
+   })
+ }
+ 
+-export function createNoteShape({ snapshot, pageId, point, text, bounds, command, id, index } = {}) {
++export function createNoteShape({ snapshot, pageId, point, text, bounds, command, style, id, index } = {}) {
+   const noteBounds = bounds ?? { x: point.x, y: point.y, w: 260, h: 120 }
++  const normalizedStyle = normalizeLearningStyle(style ?? {
++    color: 'yellow',
++    dash: 'solid',
++    fill: 'solid',
++    size: 'm',
++    opacity: 1
++  })
+   return baseShape({
+     id,
+     pageId,
+@@ -266,16 +284,14 @@ export function createNoteShape({ snapshot, pageId, point, text, bounds, command
+     x: noteBounds.x,
+     y: noteBounds.y,
+     type: 'geo',
++    opacity: normalizedStyle.opacity,
+     meta: learningMeta('note', {
+       cowartLearningText: String(text || command?.text || ''),
+       ...commandMeta(command)
+     }),
+     props: rectangleProps(noteBounds, {
+-      color: 'yellow',
+-      dash: 'solid',
+-      fill: 'solid',
+-      text: String(text || command?.text || ''),
+-      size: 'm'
++      ...normalizedStyle,
++      text: String(text || command?.text || '')
+     })
+   })
+ }
+diff --git a/src/learning-canvas/model.test.mjs b/src/learning-canvas/model.test.mjs
+index 6d727f3..6d5e899 100644
+--- a/src/learning-canvas/model.test.mjs
++++ b/src/learning-canvas/model.test.mjs
+@@ -67,6 +67,17 @@ test('learning frame has explicit semantics and selection revision', () => {
+   assert.equal(selected.selectionRevision, 42)
+   assert.equal(selected.selectedShapes[0].role, 'selection-frame')
+   assert.deepEqual(selected.selectedShapes[0].pageBounds, { x: 160, y: 120, w: 180, h: 120 })
++
++  const styled = styleLearningShapes(snapshot, [frame.id], {
++    color: 'red', fill: 'semi', dash: 'dotted', size: 'xl', opacity: 0.6
++  })
++  assert.deepEqual(styled.updated, [frame.id])
++  assert.equal(styled.snapshot.store[frame.id].meta.cowartLearningFrame, true)
++  assert.equal(styled.snapshot.store[frame.id].props.color, 'red')
++  assert.equal(styled.snapshot.store[frame.id].props.fill, 'semi')
++  assert.equal(styled.snapshot.store[frame.id].props.dash, 'dotted')
++  assert.equal(styled.snapshot.store[frame.id].props.size, 'xl')
++  assert.equal(styled.snapshot.store[frame.id].opacity, 0.6)
+ })
+ 
+ test('ordinary rectangle is not a learning frame', () => {
+@@ -127,7 +138,8 @@ test('original Cowart geometry tools keep explicit learning semantics and styles
+     createRectangleShape({ snapshot, pageId: 'page:page', bounds: { x: 10, y: 20, w: 80, h: 60 }, style, id: 'shape:rectangle' }),
+     createEllipseShape({ snapshot, pageId: 'page:page', bounds: { x: 110, y: 20, w: 70, h: 50 }, style, id: 'shape:ellipse' }),
+     createLineShape({ snapshot, pageId: 'page:page', start: { x: 20, y: 110 }, end: { x: 180, y: 140 }, style, id: 'shape:line' }),
+-    createTextShape({ snapshot, pageId: 'page:page', point: { x: 30, y: 160 }, text: '信号链', style, id: 'shape:text' })
++    createTextShape({ snapshot, pageId: 'page:page', point: { x: 30, y: 160 }, text: '信号链', style, id: 'shape:text' }),
++    createNoteShape({ snapshot, pageId: 'page:page', point: { x: 210, y: 160 }, text: '控制说明', style, id: 'shape:note' })
+   ]
+   for (const shape of shapes) snapshot = addShape(snapshot, shape)
+   assert.equal(snapshot.store['shape:rectangle'].meta.cowartLearningKind, 'rectangle')
+@@ -146,6 +158,10 @@ test('original Cowart geometry tools keep explicit learning semantics and styles
+   const copy = duplicated.snapshot.store[duplicated.duplicated[0]]
+   assert.equal(copy.x, styled.snapshot.store['shape:rectangle'].x + 28)
+   assert.equal(copy.meta.cowartDuplicatedFrom, 'shape:rectangle')
++
++  const styledNote = styleLearningShapes(snapshot, ['shape:note'], { color: 'red', fill: 'semi' })
++  assert.equal(styledNote.snapshot.store['shape:note'].props.color, 'red')
++  assert.equal(styledNote.snapshot.store['shape:note'].props.fill, 'semi')
+ })
+ 
+ test('queued teaching annotations apply idempotently with stable IDs', () => {
+diff --git a/src/learning-canvas/styles.css b/src/learning-canvas/styles.css
+index cd861e0..8e12d3b 100644
+--- a/src/learning-canvas/styles.css
++++ b/src/learning-canvas/styles.css
+@@ -74,6 +74,45 @@ textarea:focus-visible {
+   user-select: none;
+ }
+ 
++.learning-inline-editor {
++  overflow: visible;
++  pointer-events: all;
++}
++
++.learning-inline-editor-surface {
++  box-sizing: border-box;
++  width: 100%;
++  height: 100%;
++  overflow: hidden;
++  background: var(--editor-background);
++  border: 2px solid var(--editor-color);
++  border-radius: 4px;
++  box-shadow: 0 0 0 2px rgb(47 128 237 / 24%);
++}
++
++.learning-inline-editor[data-mode="note"] .learning-inline-editor-surface {
++  border-radius: 10px;
++  box-shadow: 0 5px 18px rgb(15 23 42 / 16%);
++}
++
++.learning-inline-editor textarea {
++  box-sizing: border-box;
++  width: 100%;
++  height: 100%;
++  padding: 10px 12px;
++  overflow: auto;
++  resize: none;
++  color: var(--editor-color);
++  font: 15px/1.4 Inter, ui-sans-serif, system-ui, sans-serif;
++  background: transparent;
++  border: 0;
++  outline: 0;
++  user-select: text;
++}
++
++.learning-inline-editor[data-mode="note"] textarea { color: #1f2937; }
++.learning-inline-editor textarea::placeholder { color: rgb(100 116 139 / 75%); }
++
+ .learning-selection-overlay circle {
+   fill: #fff;
+   stroke: var(--cowart-blue);
+@@ -96,6 +135,10 @@ textarea:focus-visible {
+   backdrop-filter: blur(16px);
+ }
+ 
++.cowart-style-panel[data-selection-scope="protected"] {
++  border-color: #fbbf24;
++}
++
+ .cowart-top-actions {
+   position: fixed;
+   z-index: 40;
+@@ -354,21 +397,6 @@ textarea:focus-visible {
+   align-items: center;
+ }
+ 
+-.cowart-tool-slot > small {
+-  position: absolute;
+-  right: 0;
+-  bottom: -1px;
+-  left: 0;
+-  overflow: hidden;
+-  color: currentColor;
+-  font-size: 9px;
+-  line-height: 10px;
+-  text-align: center;
+-  pointer-events: none;
+-}
+-
+-.cowart-tool-slot:has(> small) .learning-toolbar-button { padding-bottom: 9px; }
+-
+ .cowart-tool-menu {
+   top: auto;
+   right: 0;
+@@ -454,59 +482,6 @@ textarea:focus-visible {
+   font-size: 14px;
+ }
+ 
+-.learning-dialog-backdrop {
+-  position: fixed;
+-  z-index: 120;
+-  inset: 0;
+-  display: grid;
+-  padding: 24px;
+-  place-items: center;
+-  background: rgb(15 23 42 / 28%);
+-  backdrop-filter: blur(3px);
+-}
+-
+-.learning-note-dialog {
+-  display: grid;
+-  width: min(460px, 100%);
+-  padding: 20px;
+-  gap: 14px;
+-  background: #fff;
+-  border: 1px solid #d8e0ea;
+-  border-radius: 12px;
+-  box-shadow: 0 24px 70px rgb(15 23 42 / 28%);
+-}
+-
+-.learning-note-dialog h2 { margin: 0; font-size: 17px; }
+-
+-.learning-note-dialog textarea {
+-  width: 100%;
+-  padding: 12px;
+-  resize: vertical;
+-  color: #1e293b;
+-  font-size: 14px;
+-  line-height: 1.55;
+-  background: #f8fafc;
+-  border: 1px solid #cbd5e1;
+-  border-radius: 8px;
+-  outline: none;
+-  user-select: text;
+-}
+-
+-.learning-note-dialog textarea:focus { border-color: #60a5fa; box-shadow: 0 0 0 3px rgb(59 130 246 / 14%); }
+-.learning-note-dialog > div { display: flex; gap: 8px; justify-content: flex-end; }
+-
+-.learning-note-dialog button {
+-  min-height: 36px;
+-  padding: 0 14px;
+-  color: #475569;
+-  background: #f1f5f9;
+-  border: 0;
+-  border-radius: 7px;
+-  cursor: pointer;
+-}
+-
+-.learning-note-dialog button[type="submit"] { color: #fff; background: var(--cowart-blue); }
+-.learning-note-dialog button:disabled { opacity: 0.4; cursor: not-allowed; }
+ .is-spinning { animation: learning-spin 0.9s linear infinite; }
+ 
+ @keyframes learning-spin { to { transform: rotate(360deg); } }
+-- 
+2.55.0.windows.3
+
