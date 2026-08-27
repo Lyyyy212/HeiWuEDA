@@ -4,7 +4,10 @@ import test from 'node:test'
 import {
   chooseHardwareLearningExportDirectory,
   downloadHardwareLearningFile,
-  loadHardwareLearningCanvasState
+  getHardwareLearningStorageTarget,
+  loadHardwareLearningCanvasState,
+  manageHardwareLearningCanvases,
+  setHardwareLearningStorageTarget
 } from './hardwareLearningClient.js'
 
 test('JLC Hardware Learning waits through host-only globals until the tool result provides its storage target', async () => {
@@ -53,6 +56,40 @@ test('JLC Hardware Learning waits through host-only globals until the tool resul
   }
 })
 
+test('canvas management stays project-scoped and a selected canvas overrides later storage calls', async () => {
+  const calls = []
+  globalThis.window = {
+    openai: { toolOutput: { projectDir: 'D:\\fixture', canvasDir: 'D:\\fixture\\canvas' } },
+    hardwareLearningMcp: {
+      async callServerTool(request) {
+        calls.push(request)
+        if (request.name === 'manage_hardware_learning_canvases') {
+          return { structuredContent: { activeCanvas: { canvasDir: 'D:\\fixture\\canvases\\one' } } }
+        }
+        return { structuredContent: {
+          projectDir: request.arguments.projectDir,
+          canvasDir: request.arguments.canvasDir,
+          snapshot: { store: {}, schema: { schemaVersion: 2, sequences: {} } },
+          storage: 'per-page'
+        } }
+      }
+    }
+  }
+
+  try {
+    await manageHardwareLearningCanvases('list')
+    assert.equal(calls[0].arguments.projectDir, 'D:\\fixture')
+    assert.equal('canvasDir' in calls[0].arguments, false)
+    setHardwareLearningStorageTarget({ projectDir: 'D:\\fixture', canvasDir: 'D:\\fixture\\canvases\\one' })
+    assert.equal(getHardwareLearningStorageTarget().canvasDir, 'D:\\fixture\\canvases\\one')
+    await loadHardwareLearningCanvasState()
+    assert.equal(calls[1].arguments.canvasDir, 'D:\\fixture\\canvases\\one')
+  } finally {
+    setHardwareLearningStorageTarget(null)
+    delete globalThis.window
+  }
+})
+
 test('large JLC Hardware Learning widget exports use ordered chunked Bridge calls', async () => {
   const calls = []
   const progress = []
@@ -62,7 +99,7 @@ test('large JLC Hardware Learning widget exports use ordered chunked Bridge call
       async callServerTool(request) {
         calls.push(request)
         const action = request.arguments.action
-        if (action === 'begin') return { structuredContent: { downloadId: '4dd91ef0-144d-4a97-94a8-a0d0afef96ee' } }
+        if (action === 'begin') return { structuredContent: { downloadId: '00000000-0000-4000-8000-000000000001' } }
         if (action === 'finish') return { structuredContent: { ok: true, filePath: 'D:\\Downloads\\fixture.png' } }
         return { structuredContent: { ok: true } }
       }
@@ -73,14 +110,14 @@ test('large JLC Hardware Learning widget exports use ordered chunked Bridge call
     const dataBase64 = 'QUJD'.repeat(200_000)
     const result = await downloadHardwareLearningFile({
       dataBase64,
-      directoryToken: '58b830c4-9aa2-43d4-90cd-92912557ea62',
+      directoryToken: '00000000-0000-4000-8000-000000000002',
       fileName: 'fixture.png',
       mimeType: 'image/png',
       onProgress: (event) => progress.push(event)
     })
     assert.equal(result.ok, true)
     assert.equal(calls[0].arguments.action, 'begin')
-    assert.equal(calls[0].arguments.directoryToken, '58b830c4-9aa2-43d4-90cd-92912557ea62')
+    assert.equal(calls[0].arguments.directoryToken, '00000000-0000-4000-8000-000000000002')
     assert.equal(calls.at(-1).arguments.action, 'finish')
     const appendCalls = calls.filter((call) => call.arguments.action === 'append')
     assert.ok(appendCalls.length > 1)
@@ -107,7 +144,7 @@ test('JLC Hardware Learning export directory selection stays app-driven and canv
             ok: true,
             canceled: false,
             directoryPath: 'D:\\Exports',
-            directoryToken: '58b830c4-9aa2-43d4-90cd-92912557ea62'
+            directoryToken: '00000000-0000-4000-8000-000000000002'
           }
         }
       }

@@ -28,10 +28,17 @@ license terms with the root noncommercial license.
 
 1. Run the Python, lifecycle and Node.js validation commands in `README.md`.
 2. Confirm `git status --short` is clean.
-3. Scan tracked content for secrets, local paths and live design identifiers.
+3. Run `node materials/scripts/scan-public-release.mjs` to reject private
+   evidence directories, credentials, local paths, tenant URLs and live-looking
+   design identifiers.
 4. Confirm all Git submodules match `PUBLIC_RELEASE_MANIFEST.json`.
 5. Use `main` as the default branch and protect it after creating the remote.
 6. Create the first tag only after GitHub Actions passes.
+
+The public hardware-learning copy excludes `docs/evidence/**`. Test-only
+Feishu tokens, tenant URLs and project/page identifiers must use explicit
+`Fixture*` or reserved zero UUID values while preserving the same behavioral
+coverage.
 
 Suggested repository description:
 

@@ -100,6 +100,22 @@ test("explicit frame numbers override the current selection and persist stable r
     [1, 2],
   );
   assert.ok(built.question.selection.shapes.some((shape) => shape.role === "source-image"));
+  assert.equal(built.question.responseMode, "quick");
+  assert.equal(built.question.annotationRequested, false);
+});
+
+test("response mode and explicit annotation intent are recorded without creating annotations", () => {
+  const built = buildConversationLearningQuestion({
+    canvasSnapshot: fixtureSnapshot(),
+    selectionState,
+    userQuestion: "请深入解释并把结果标在画板上",
+    responseMode: "deep",
+    annotationRequested: true,
+    pageEvidence: { netlist: { status: "verified", summary: { componentCount: 2 } } },
+  });
+  assert.equal(built.question.responseMode, "deep");
+  assert.equal(built.question.annotationRequested, true);
+  assert.equal(built.question.pageEvidence.netlist.status, "verified");
 });
 
 test("missing numbered frames fail without falling back to another selection", () => {

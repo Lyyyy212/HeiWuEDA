@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -66,6 +67,7 @@ try {
     "save_hardware_learning_canvas_state",
     "save_hardware_learning_selection_state",
     "save_hardware_learning_view_state",
+    "manage_hardware_learning_canvases",
     "save_hardware_learning_reference_image",
     "read_hardware_learning_page_asset",
     "choose_hardware_learning_export_directory",
@@ -73,6 +75,15 @@ try {
     "copy_hardware_learning_image_to_clipboard",
     "get_hardware_learning_selection",
     "insert_hardware_learning_image",
+    "save_hardware_learning_question",
+    "insert_hardware_learning_annotations",
+    "attach_hardware_learning_page_netlist",
+    "read_hardware_learning_page_netlist",
+    "get_feishu_learning_note_state",
+    "update_feishu_learning_note_state",
+    "inspect_feishu_learning_note_target",
+    "preview_feishu_learning_note_migration",
+    "execute_feishu_learning_note_migration",
   ];
 
   for (const toolName of requiredTools) {
@@ -102,6 +113,13 @@ try {
   ) {
     throw new Error("JLC Hardware Learning export directory chooser should only be callable from the widget app.");
   }
+  const manageCanvasesTool = tools.tools.find((tool) => tool.name === "manage_hardware_learning_canvases");
+  if (
+    JSON.stringify(manageCanvasesTool?._meta?.ui?.visibility) !== JSON.stringify(["app"]) ||
+    manageCanvasesTool?._meta?.["openai/widgetAccessible"] !== true
+  ) {
+    throw new Error("JLC Hardware Learning canvas manager should only be callable from the widget app.");
+  }
 
   projectDir = await mkdtemp(path.join(tmpdir(), "jlc-hardware-learning-widget-probe-"));
   const renderResult = await client.callTool({
@@ -123,12 +141,45 @@ try {
   if (renderResult.structuredContent?.projectDir !== projectDir) {
     throw new Error("JLC Hardware Learning render tool did not preserve the requested projectDir.");
   }
+  if (renderResult.structuredContent?.canvasCatalog?.activeCanvasId !== "default") {
+    throw new Error("Fresh JLC Hardware Learning projects should render the protected default canvas.");
+  }
   if (toolsOnly) {
     console.log(
       `OK: JLC Hardware Learning MCP tools are available before the widget resource is built (${Math.round(startupMs)} ms).`,
     );
     break probe;
   }
+
+  const createdCanvas = await client.callTool({
+    name: "manage_hardware_learning_canvases",
+    arguments: { projectDir, action: "create", name: "Probe Canvas" },
+  });
+  const createdCanvasId = createdCanvas.structuredContent?.activeCanvasId;
+  const createdCanvasDir = createdCanvas.structuredContent?.activeCanvas?.canvasDir;
+  if (!createdCanvasId || createdCanvasId === "default" || !createdCanvasDir) {
+    throw new Error("JLC Hardware Learning canvas manager did not create and activate an independent canvas.");
+  }
+  const renamedCanvas = await client.callTool({
+    name: "manage_hardware_learning_canvases",
+    arguments: { projectDir, action: "rename", canvasId: createdCanvasId, name: "Renamed Probe Canvas" },
+  });
+  if (renamedCanvas.structuredContent?.activeCanvas?.name !== "Renamed Probe Canvas") {
+    throw new Error("JLC Hardware Learning canvas manager did not rename the active canvas.");
+  }
+  await client.callTool({
+    name: "manage_hardware_learning_canvases",
+    arguments: { projectDir, action: "activate", canvasId: "default" },
+  });
+  const recycledCanvas = await client.callTool({
+    name: "manage_hardware_learning_canvases",
+    arguments: { projectDir, action: "recycle", canvasId: createdCanvasId },
+  });
+  if (recycledCanvas.structuredContent?.activeCanvasId !== "default") {
+    throw new Error("Recycling a JLC Hardware Learning canvas should preserve the protected default canvas.");
+  }
+  await readFile(path.join(recycledCanvas.structuredContent.recycledDir, "pages", "manifest.json"), "utf8");
+  await assert.rejects(readFile(path.join(createdCanvasDir, "pages", "manifest.json"), "utf8"), { code: "ENOENT" });
 
   const stateResult = await client.callTool({
     name: "get_hardware_learning_canvas_state",

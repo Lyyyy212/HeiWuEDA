@@ -26,6 +26,9 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Scan public release boundary
+        run: node materials/scripts/scan-public-release.mjs
+
       - name: Install gateway
         run: python -m pip install ./packages/easyeda-gateway
 

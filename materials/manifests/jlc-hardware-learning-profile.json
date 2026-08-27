@@ -6,14 +6,17 @@
     "plugin": "jlc-hardware-learning",
     "skill": "jlc-hardware-learning",
     "integrationLock": "manifests/integrations.lock.json",
-    "version": "0.1.1"
+    "version": "0.1.6"
   },
   "purpose": [
     "infinite-canvas visual thinking",
     "official EasyEDA schematic evidence placement",
     "rectangle, arrow, freehand and text annotation",
     "selection-scoped hardware questions",
-    "evidence-backed tutoring annotations"
+    "evidence-backed tutoring annotations",
+    "project-local multi-canvas and page management",
+    "official page-netlist sidecars",
+    "guarded Feishu learning-note synchronization"
   ],
   "excludedCapabilities": [
     "image generation",
@@ -32,7 +35,12 @@
       "render_hardware_learning_canvas_widget",
       "get_hardware_learning_canvas_state",
       "get_hardware_learning_selection",
-      "read_hardware_learning_page_asset"
+      "read_hardware_learning_page_asset",
+      "read_hardware_learning_page_netlist",
+      "get_feishu_learning_note_state",
+      "inspect_feishu_learning_note_target",
+      "preview_feishu_learning_note_migration",
+      "preview_feishu_learning_note_sync"
     ],
     "widgetPersistenceAllowed": [
       "save_hardware_learning_canvas_state",
@@ -40,7 +48,8 @@
       "save_hardware_learning_view_state",
       "save_hardware_learning_reference_image",
       "save_hardware_learning_question",
-      "insert_hardware_learning_annotations"
+      "insert_hardware_learning_annotations",
+      "manage_hardware_learning_canvases"
     ],
     "conditionalEvidenceInsertion": {
       "tool": "insert_hardware_learning_image",
@@ -60,7 +69,34 @@
       "choose_hardware_learning_export_directory",
       "download_hardware_learning_file",
       "copy_hardware_learning_image_to_clipboard"
-    ]
+    ],
+    "pageNetlistAllowed": {
+      "attach": "attach_hardware_learning_page_netlist",
+      "read": "read_hardware_learning_page_netlist",
+      "constraints": {
+        "officialEasyedaEvidenceOnly": true,
+        "pageIdentityRequired": true,
+        "conflictingFirstImportRejected": true
+      }
+    },
+    "feishuLearningNotes": {
+      "verifiedLocalRegistryAllowed": [
+        "update_feishu_learning_note_state",
+        "link_feishu_learning_dialogue_from_record",
+        "bind_feishu_page_identity_from_learning_evidence"
+      ],
+      "confirmedRemoteWriteAllowed": [
+        "execute_feishu_learning_note_migration",
+        "execute_feishu_learning_note_sync"
+      ],
+      "constraints": {
+        "explicitConfirmation": true,
+        "planFingerprintRequired": true,
+        "expectedRevisionRequired": true,
+        "freshReadVerification": true,
+        "unrelatedDocumentBlocksPreserved": true
+      }
+    }
   },
   "easyedaBoundary": {
     "directAccessFromCanvas": false,

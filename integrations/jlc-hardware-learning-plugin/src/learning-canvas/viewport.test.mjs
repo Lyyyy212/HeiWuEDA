@@ -27,7 +27,9 @@ function fakeWindow() {
   const target = new FakeEventTarget()
   const visualViewport = new FakeEventTarget()
   const frames = new Map()
+  const timers = new Map()
   let nextFrameId = 1
+  let nextTimerId = 1
   return Object.assign(target, {
     visualViewport,
     requestAnimationFrame(callback) {
@@ -45,6 +47,22 @@ function fakeWindow() {
     },
     pendingFrames() {
       return frames.size
+    },
+    setTimeout(callback) {
+      const id = nextTimerId++
+      timers.set(id, callback)
+      return id
+    },
+    clearTimeout(id) {
+      timers.delete(id)
+    },
+    flushTimer() {
+      const pending = [...timers.values()]
+      timers.clear()
+      for (const callback of pending) callback()
+    },
+    pendingTimers() {
+      return timers.size
     }
   })
 }
@@ -77,6 +95,56 @@ test('initial layout retries recover when the root becomes visible without a win
   assert.equal(windowTarget.pendingFrames(), 0)
 
   dispose()
+})
+
+test('slow recovery survives a delayed first host layout without resize or focus events', () => {
+  const windowTarget = fakeWindow()
+  const documentTarget = new FakeEventTarget()
+  const bounds = { width: 0, height: 0 }
+  const sizes = []
+  const dispose = observeElementViewportSize(
+    { getBoundingClientRect: () => bounds },
+    (size) => sizes.push(size),
+    {
+      windowTarget,
+      documentTarget,
+      initialLayoutFrames: 2,
+      recoveryIntervalMs: 250
+    }
+  )
+
+  windowTarget.flushFrame()
+  windowTarget.flushFrame()
+  windowTarget.flushFrame()
+  assert.deepEqual(sizes, [])
+  assert.equal(windowTarget.pendingFrames(), 0)
+  assert.equal(windowTarget.pendingTimers(), 1)
+
+  bounds.width = 1440
+  bounds.height = 900
+  windowTarget.flushTimer()
+  assert.equal(windowTarget.pendingFrames(), 1)
+  windowTarget.flushFrame()
+  assert.deepEqual(sizes, [{ width: 1440, height: 900 }])
+  assert.equal(windowTarget.pendingTimers(), 0)
+
+  dispose()
+})
+
+test('slow recovery timer is removed when the viewport observer is disposed', () => {
+  const windowTarget = fakeWindow()
+  const documentTarget = new FakeEventTarget()
+  const dispose = observeElementViewportSize(
+    { getBoundingClientRect: () => ({ width: 0, height: 0 }) },
+    () => {},
+    { windowTarget, documentTarget, initialLayoutFrames: 0 }
+  )
+
+  windowTarget.flushFrame()
+  assert.equal(windowTarget.pendingTimers(), 1)
+  dispose()
+  assert.equal(windowTarget.pendingTimers(), 0)
+  assert.equal(windowTarget.pendingFrames(), 0)
 })
 
 test('root ResizeObserver publishes real size changes once and disconnects cleanly', () => {

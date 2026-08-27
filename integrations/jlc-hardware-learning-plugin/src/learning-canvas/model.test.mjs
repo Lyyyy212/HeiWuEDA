@@ -8,12 +8,14 @@ import {
   createArrowShape,
   createEllipseShape,
   createFrameShape,
+  createLearningPage,
   createLineShape,
   createNoteShape,
   createRectangleShape,
   createStrokeShape,
   createTextShape,
   deleteImportedImages,
+  deleteLearningPage,
   deleteLearningShapes,
   deleteSelectedShapes,
   duplicateLearningShapes,
@@ -28,6 +30,7 @@ import {
   normalizeCamera,
   pageBoundsForShape,
   resizeRectangleShape,
+  renameLearningPage,
   screenToPage,
   selectionState,
   setImageLockState,
@@ -37,6 +40,32 @@ import {
   updateLearningTextShapeContent,
   zoomCameraAt
 } from './model.js'
+
+test('learning pages can be created, renamed, and deleted without touching another page', () => {
+  const initial = fixtureSnapshot()
+  const created = createLearningPage(initial, '电源页')
+  assert.equal(created.page.name, '电源页')
+  assert.equal(Object.keys(initial.store).includes(created.page.id), false)
+
+  const renamed = renameLearningPage(created.snapshot, created.page.id, '接口页')
+  assert.equal(renamed.changed, true)
+  assert.equal(renamed.snapshot.store[created.page.id].name, '接口页')
+
+  const removed = deleteLearningPage(renamed.snapshot, 'page:page')
+  assert.equal(removed.deleted, true)
+  assert.deepEqual(removed.acknowledgedImageShapeDeletes, ['shape:source'])
+  assert.equal(removed.snapshot.store['page:page'], undefined)
+  assert.equal(removed.snapshot.store['shape:source'], undefined)
+  assert.equal(removed.snapshot.store['asset:source'], undefined)
+  assert.equal(removed.snapshot.store[created.page.id].name, '接口页')
+  assert.equal(removed.nextPageId, created.page.id)
+})
+
+test('learning page deletion refuses to remove the final page', () => {
+  const result = deleteLearningPage(fixtureSnapshot(), 'page:page')
+  assert.equal(result.deleted, false)
+  assert.equal(result.reason, 'last-page')
+})
 
 function fixtureSnapshot() {
   return {
@@ -365,8 +394,8 @@ test('text size is preserved in the standalone SVG export', () => {
   })
   snapshot = addShape(snapshot, text)
   const result = buildLearningCanvasSvg({ snapshot, pageId: 'page:page' })
-  assert.match(result.svg, /font-size="56"/u)
-  assert.match(result.svg, /dy="65">可调字号<\/tspan>/u)
+  assert.match(result.svg, /font-size="28"/u)
+  assert.match(result.svg, /dy="37">可调字号<\/tspan>/u)
 })
 
 test('text and notes derive visible bounds from their full content', () => {
@@ -430,16 +459,16 @@ test('font size changes grow notes so persisted and exported text is not clipped
   assert.equal(styled.snapshot.store[note.id].props.size, 'xl')
   assert.ok(styled.snapshot.store[note.id].props.h > note.props.h)
   const result = buildLearningCanvasSvg({ snapshot: styled.snapshot, pageId: 'page:page' })
-  assert.match(result.svg, /font-size="56"/u)
+  assert.match(result.svg, /font-size="28"/u)
   const exportedText = [...result.svg.matchAll(/<tspan[^>]*>(.*?)<\/tspan>/gu)].map((match) => match[1]).join('')
   assert.equal(exportedText, noteText)
 })
 
-test('text size controls use doubled metrics without changing learning frame bounds', () => {
-  assert.deepEqual(learningTextMetricsForSize('s'), { fontSize: 26, lineHeight: 36 })
-  assert.deepEqual(learningTextMetricsForSize('m'), { fontSize: 30, lineHeight: 40 })
-  assert.deepEqual(learningTextMetricsForSize('l'), { fontSize: 40, lineHeight: 54 })
-  assert.deepEqual(learningTextMetricsForSize('xl'), { fontSize: 56, lineHeight: 72 })
+test('text size controls use half-size metrics without changing learning frame bounds', () => {
+  assert.deepEqual(learningTextMetricsForSize('s'), { fontSize: 13, lineHeight: 18 })
+  assert.deepEqual(learningTextMetricsForSize('m'), { fontSize: 15, lineHeight: 20 })
+  assert.deepEqual(learningTextMetricsForSize('l'), { fontSize: 20, lineHeight: 27 })
+  assert.deepEqual(learningTextMetricsForSize('xl'), { fontSize: 28, lineHeight: 36 })
 
   let snapshot = fixtureSnapshot()
   const frame = createFrameShape({
@@ -463,7 +492,7 @@ test('text size controls use doubled metrics without changing learning frame bou
   assert.equal(after.meta.hardwareLearningFrameNumber, before.meta.hardwareLearningFrameNumber)
 })
 
-test('legacy text reflows once for doubled metrics while frames remain untouched', () => {
+test('version 2 text reflows once for half-size metrics while frames remain untouched', () => {
   let snapshot = fixtureSnapshot()
   const frame = createFrameShape({
     snapshot,
@@ -480,15 +509,17 @@ test('legacy text reflows once for doubled metrics while frames remain untouched
     style: { size: 'm' },
     id: 'shape:legacy-font-note'
   })
-  delete note.meta.hardwareLearningTextMetricsVersion
-  note.props.h = 120
-  note.meta.hardwareLearningBounds.h = 120
+  note.meta.hardwareLearningTextMetricsVersion = 2
+  note.props.h = 300
+  note.meta.hardwareLearningBounds.h = 300
   snapshot = addShape(snapshot, note)
   const frameBefore = structuredClone(snapshot.store[frame.id])
 
   const migrated = migrateLegacyLearningFrames(snapshot)
   assert.deepEqual(migrated.reflowedTextShapeIds, [note.id])
-  assert.ok(migrated.snapshot.store[note.id].props.h > 120)
+  assert.ok(migrated.snapshot.store[note.id].props.h >= 120)
+  assert.ok(migrated.snapshot.store[note.id].props.h < 300)
+  assert.equal(migrated.snapshot.store[note.id].meta.hardwareLearningTextMetricsVersion, 3)
   assert.deepEqual(migrated.snapshot.store[frame.id], frameBefore)
   assert.equal(migrateLegacyLearningFrames(migrated.snapshot).changed, false)
 })

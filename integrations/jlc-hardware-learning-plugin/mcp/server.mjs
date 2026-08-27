@@ -33,6 +33,17 @@ import {
   writeHardwareLearningSelectionState,
   writeHardwareLearningViewState,
 } from "./lib/canvas-storage.mjs";
+import {
+  attachHardwareLearningPageNetlist,
+  readHardwareLearningPageNetlist,
+} from "./lib/page-netlist.mjs";
+import {
+  activateHardwareLearningCanvas,
+  createHardwareLearningCanvas,
+  listHardwareLearningCanvases,
+  recycleHardwareLearningCanvas,
+  renameHardwareLearningCanvas,
+} from "./lib/canvas-catalog.mjs";
 import { pluginPath } from "./lib/plugin-root.mjs";
 import { inlineWidget, registerWidgetResource } from "./lib/widget-resource.mjs";
 import {
@@ -46,7 +57,19 @@ import {
   buildConversationLearningQuestion,
   conversationLearningIntents,
   conversationLearningLevels,
+  conversationLearningResponseModes,
 } from "./learning/conversation-question.mjs";
+import {
+  bindFeishuPageIdentityFromLearningEvidence,
+  executeFeishuLearningNoteMigration,
+  executeFeishuLearningNoteSync,
+  getFeishuLearningNoteState,
+  inspectFeishuLearningNoteTarget,
+  linkFeishuLearningDialogueFromRecord,
+  previewFeishuLearningNoteMigration,
+  previewFeishuLearningNoteSync,
+  updateFeishuLearningNoteState,
+} from "./feishu/service.mjs";
 
 const TOOL_RENDER_WIDGET = "render_hardware_learning_canvas_widget";
 const TOOL_GET_CANVAS_STATE = "get_hardware_learning_canvas_state";
@@ -62,6 +85,18 @@ const TOOL_DOWNLOAD_FILE = "download_hardware_learning_file";
 const TOOL_COPY_IMAGE_TO_CLIPBOARD = "copy_hardware_learning_image_to_clipboard";
 const TOOL_SAVE_LEARNING_QUESTION = "save_hardware_learning_question";
 const TOOL_INSERT_LEARNING_ANNOTATIONS = "insert_hardware_learning_annotations";
+const TOOL_MANAGE_CANVASES = "manage_hardware_learning_canvases";
+const TOOL_ATTACH_PAGE_NETLIST = "attach_hardware_learning_page_netlist";
+const TOOL_READ_PAGE_NETLIST = "read_hardware_learning_page_netlist";
+const TOOL_GET_FEISHU_NOTE_STATE = "get_feishu_learning_note_state";
+const TOOL_UPDATE_FEISHU_NOTE_STATE = "update_feishu_learning_note_state";
+const TOOL_INSPECT_FEISHU_NOTE_TARGET = "inspect_feishu_learning_note_target";
+const TOOL_PREVIEW_FEISHU_NOTE_MIGRATION = "preview_feishu_learning_note_migration";
+const TOOL_EXECUTE_FEISHU_NOTE_MIGRATION = "execute_feishu_learning_note_migration";
+const TOOL_LINK_FEISHU_DIALOGUE_FROM_RECORD = "link_feishu_learning_dialogue_from_record";
+const TOOL_BIND_FEISHU_PAGE_IDENTITY = "bind_feishu_page_identity_from_learning_evidence";
+const TOOL_PREVIEW_FEISHU_NOTE_SYNC = "preview_feishu_learning_note_sync";
+const TOOL_EXECUTE_FEISHU_NOTE_SYNC = "execute_feishu_learning_note_sync";
 
 const execFileAsync = promisify(execFile);
 
@@ -135,6 +170,7 @@ registerHardwareLearningWidget(server);
 registerHardwareLearningStateTools(server);
 registerHardwareLearningImageTools(server);
 registerHardwareLearningTools(server);
+registerFeishuLearningNoteTools(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
@@ -1395,11 +1431,12 @@ function registerHardwareLearningWidget(mcpServer) {
       },
     },
     async (input = {}) => {
+      const catalog = await listHardwareLearningCanvases(input);
       const { projectDir, canvasDir } = resolveHardwareLearningPaths(input);
       const title = nonEmptyString(input.title) || "JLC Hardware Learning Canvas";
       const preferredDisplayMode = normalizeDisplayMode(input.displayMode);
       const mode = HARDWARE_LEARNING_MODE;
-      await ensureHardwareLearningCanvasState(input);
+      await ensureHardwareLearningCanvasState({ ...input, projectDir, canvasDir });
       hardwareLearningCanvasDirs.add(canvasDir);
 
       return {
@@ -1418,6 +1455,7 @@ function registerHardwareLearningWidget(mcpServer) {
           resourceUri: HARDWARE_LEARNING_WIDGET_URI,
           projectDir,
           canvasDir,
+          canvasCatalog: catalog,
           preferredDisplayMode,
           mode,
         },
@@ -1430,10 +1468,320 @@ function registerHardwareLearningWidget(mcpServer) {
             resourceUri: HARDWARE_LEARNING_WIDGET_URI,
             projectDir,
             canvasDir,
+            canvasCatalog: catalog,
             preferredDisplayMode,
             mode,
           },
         },
+      };
+    },
+  );
+}
+
+function registerFeishuLearningNoteTools(mcpServer) {
+  mcpServer.registerTool(
+    TOOL_INSPECT_FEISHU_NOTE_TARGET,
+    {
+      title: "Inspect Feishu Hardware Learning Note",
+      description:
+        "Read one existing Feishu Docx twice through official lark-cli user identity, verify a stable revision, and identify its headings plus existing learning and module-index whiteboards. This tool performs no local or remote write.",
+      inputSchema: {
+        document: z.string().trim().min(1),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (input = {}) => {
+      const result = await inspectFeishuLearningNoteTarget(input);
+      return {
+        content: [{
+          type: "text",
+          text: `Inspected Feishu document ${result.document.docToken} at revision ${result.document.revisionId}; found ${result.whiteboards.length} whiteboard(s).`,
+        }],
+        structuredContent: result,
+      };
+    },
+  );
+
+  mcpServer.registerTool(
+    TOOL_PREVIEW_FEISHU_NOTE_MIGRATION,
+    {
+      title: "Preview Feishu Hardware Learning Note Migration",
+      description:
+        "Read the project-local legacy learning-note package and binding, freshly inspect its existing Feishu Docx, reuse both board tokens, and return the project-name directory and guarded sync plan. This preview performs no local or remote write.",
+      inputSchema: {
+        ...projectArgsSchema,
+        document: z.string().trim().min(1),
+        canvasPageId: z.string().trim().optional(),
+        projectId: z.string().trim().optional(),
+        projectUuid: z.string().trim().optional(),
+        projectName: z.string().trim().min(1),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (input = {}) => {
+      const result = await previewFeishuLearningNoteMigration(input);
+      return {
+        content: [{
+          type: "text",
+          text: `Previewed project-scoped migration for ${result.project.projectName}; reused the existing document and both Feishu whiteboards with ${result.syncPlan.actions.length} pending confirmed action(s).`,
+        }],
+        structuredContent: result,
+      };
+    },
+  );
+
+  mcpServer.registerTool(
+    TOOL_EXECUTE_FEISHU_NOTE_MIGRATION,
+    {
+      title: "Execute Confirmed Feishu Hardware Learning Note Migration",
+      description:
+        "Re-preview one legacy learning note, require the exact confirmed plan fingerprint and document revision, idempotently create its project-name Wiki hierarchy, move the existing Docx without replacing either whiteboard, minimally update legacy template text, fresh-read verify, and only then save the local registry.",
+      inputSchema: {
+        ...projectArgsSchema,
+        document: z.string().trim().min(1),
+        canvasPageId: z.string().trim().optional(),
+        projectId: z.string().trim().optional(),
+        projectUuid: z.string().trim().optional(),
+        projectName: z.string().trim().min(1),
+        planFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+        expectedDocumentRevisionId: z.number().int().nonnegative(),
+        confirmed: z.literal(true),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (input = {}) => {
+      const result = await executeFeishuLearningNoteMigration(input);
+      return {
+        content: [{
+          type: "text",
+          text: `Migrated ${result.page.title} into the project-scoped Feishu Wiki hierarchy, verified both existing whiteboards, and saved ${result.registryPath}.`,
+        }],
+        structuredContent: result,
+      };
+    },
+  );
+
+  mcpServer.registerTool(
+    TOOL_BIND_FEISHU_PAGE_IDENTITY,
+    {
+      title: "Bind Feishu Page Identity from Verified Learning Evidence",
+      description:
+        "Read the project-local learning note package, require every registered learning frame to reference one official EasyEDA schematic page from the same project, and persist that schematicPageUuid in the local Feishu registry. It performs no Feishu or EasyEDA write.",
+      inputSchema: {
+        ...projectArgsSchema,
+        canvasPageId: z.string().trim().regex(/^page:/),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input = {}) => {
+      const result = await bindFeishuPageIdentityFromLearningEvidence(input);
+      return {
+        content: [{
+          type: "text",
+          text: `${result.replayed ? "Reused" : "Bound"} ${result.binding.canvasPageId} to verified EasyEDA schematic page ${result.binding.schematicPageUuid}; Feishu was not modified.`,
+        }],
+        structuredContent: result,
+      };
+    },
+  );
+
+  mcpServer.registerTool(
+    TOOL_LINK_FEISHU_DIALOGUE_FROM_RECORD,
+    {
+      title: "Link Durable Learning Dialogue to Feishu Note",
+      description:
+        "Read one saved hardware-learning question/run/answer record, verify its immutable question and answer digests plus page-local frame numbers, and link it only in the local Feishu registry. It never scrapes chat history and performs no Feishu write.",
+      inputSchema: {
+        ...projectArgsSchema,
+        canvasPageId: z.string().trim().regex(/^page:/),
+        questionId: z.string().trim().regex(/^question:[0-9a-f-]{36}$/u),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input = {}) => {
+      const result = await linkFeishuLearningDialogueFromRecord(input);
+      return {
+        content: [{
+          type: "text",
+          text: `${result.replayed ? "Reused" : "Linked"} ${result.record.questionId} to learning frame(s) ${result.record.frameNumbers.join(", ")}; Feishu was not modified.`,
+        }],
+        structuredContent: result,
+      };
+    },
+  );
+
+  mcpServer.registerTool(
+    TOOL_PREVIEW_FEISHU_NOTE_SYNC,
+    {
+      title: "Preview Feishu Hardware Learning Note Sync",
+      description:
+        "Fresh-read every targeted Docx, verify the existing learning and module-index board tokens, load only durable linked question/answer records, and return exact managed block patches, a revision map, blockers, and a fingerprinted continuous-sync plan. This performs no local or remote write.",
+      inputSchema: {
+        ...projectArgsSchema,
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (input = {}) => {
+      const result = await previewFeishuLearningNoteSync(input);
+      return {
+        content: [{
+          type: "text",
+          text: result.blockers.length > 0
+            ? `Previewed ${result.syncPlan.actions.length} Feishu sync action(s), blocked by ${result.blockers.map((entry) => entry.code).join(", ")}; no write was performed.`
+            : `Previewed ${result.syncPlan.actions.length} confirmed Feishu sync action(s) across ${Object.keys(result.expectedDocumentRevisions).length} Docx target(s); no write was performed.`,
+        }],
+        structuredContent: result,
+      };
+    },
+  );
+
+  mcpServer.registerTool(
+    TOOL_EXECUTE_FEISHU_NOTE_SYNC,
+    {
+      title: "Execute Confirmed Feishu Hardware Learning Note Sync",
+      description:
+        "Re-preview the continuous sync, require confirmed=true plus the exact plan fingerprint and complete Docx revision map, update only JLC-managed module-index/dialogue block ranges, preserve both existing board tokens and unrelated content, fresh-read verify every result, and save the registry once after success.",
+      inputSchema: {
+        ...projectArgsSchema,
+        planFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+        expectedDocumentRevisions: z.record(
+          z.string().regex(/^[A-Za-z0-9_-]{3,128}$/u),
+          z.number().int().nonnegative(),
+        ),
+        confirmed: z.literal(true),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (input = {}) => {
+      const result = await executeFeishuLearningNoteSync(input);
+      return {
+        content: [{
+          type: "text",
+          text: result.executionJournal.length === 0
+            ? "Feishu learning notes were already synchronized; no write was needed."
+            : `Synchronized ${result.executionJournal.length} guarded Feishu action(s) and saved ${result.registryPath}.`,
+        }],
+        structuredContent: result,
+      };
+    },
+  );
+
+  mcpServer.registerTool(
+    TOOL_GET_FEISHU_NOTE_STATE,
+    {
+      title: "Get Feishu Hardware Learning Note State",
+      description:
+        "Read or preview the project-local Feishu learning-note registry, project-name directory plan, page-note bindings, and idempotent sync plan. This tool does not write Feishu or local state.",
+      inputSchema: {
+        ...projectArgsSchema,
+        projectId: z.string().trim().optional(),
+        projectUuid: z.string().trim().optional(),
+        projectName: z.string().trim().optional(),
+        schematicPages: z.array(z.object({
+          canvasPageId: z.string().trim(),
+          schematicPageUuid: z.string().trim().optional(),
+          pageName: z.string().trim(),
+          sourceRevision: z.string().trim().optional(),
+        })).optional(),
+        existingProjects: z.array(z.object({
+          projectId: z.string().trim().optional(),
+          projectUuid: z.string().trim().optional(),
+          projectName: z.string().trim(),
+        })).optional(),
+        updatedAt: z.string().trim().optional(),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input = {}) => {
+      const result = await getFeishuLearningNoteState(input);
+      return {
+        content: [{
+          type: "text",
+          text: result.registryExists
+            ? `Loaded Feishu learning-note state with ${result.syncPlan.actions.length} pending sync action(s).`
+            : `Previewed Feishu learning-note state with ${result.syncPlan.actions.length} pending sync action(s); no local registry was written.`,
+        }],
+        structuredContent: result,
+      };
+    },
+  );
+
+  mcpServer.registerTool(
+    TOOL_UPDATE_FEISHU_NOTE_STATE,
+    {
+      title: "Update Feishu Hardware Learning Note State",
+      description:
+        "Update only the project-local Feishu learning-note binding registry after an externally confirmed and freshly verified Feishu operation. It never calls Feishu or EasyEDA.",
+      inputSchema: {
+        ...projectArgsSchema,
+        action: z.enum([
+          "initialize",
+          "bind-root",
+          "bind-project",
+          "bind-section",
+          "bind-page",
+          "upsert-frame",
+          "link-dialogue",
+          "mark-project-homepage-synced",
+          "mark-page-synced",
+        ]),
+        payload: z.record(z.string(), z.unknown()).optional(),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input = {}) => {
+      const result = await updateFeishuLearningNoteState(input);
+      return {
+        content: [{
+          type: "text",
+          text: `${result.replayed ? "Reused" : "Updated"} local Feishu learning-note state at ${result.registryPath}.`,
+        }],
+        structuredContent: result,
       };
     },
   );
@@ -1453,6 +1801,8 @@ function registerHardwareLearningTools(mcpServer) {
         userQuestion: z.string().trim().min(1).max(4000).optional(),
         learningLevel: z.enum(conversationLearningLevels).optional(),
         intent: z.enum(conversationLearningIntents).optional(),
+        responseMode: z.enum(conversationLearningResponseModes).optional(),
+        annotationRequested: z.boolean().optional(),
         questionId: z.string().regex(/^question:/).optional(),
         screenshotDataUrl: z.string().optional(),
       },
@@ -1485,10 +1835,27 @@ function registerHardwareLearningTools(mcpServer) {
           userQuestion: input.userQuestion,
           learningLevel: input.learningLevel,
           intent: input.intent,
+          responseMode: input.responseMode,
+          annotationRequested: input.annotationRequested,
           questionId: input.questionId,
         });
         question = built.question;
         selectionSource = built.selectionSource;
+        const netlist = await readHardwareLearningPageNetlist({
+          ...input,
+          pageId: question.selection.canvasPageId,
+        });
+        question.pageEvidence = {
+          ...(question.pageEvidence ?? {}),
+          netlist: netlist.status === "verified"
+            ? {
+                status: "verified",
+                identity: netlist.identity,
+                artifact: netlist.artifact,
+                summary: netlist.summary,
+              }
+            : { status: "missing" },
+        };
       }
       const result = await saveLearningQuestion({ ...input, question });
       return {
@@ -1499,6 +1866,98 @@ function registerHardwareLearningTools(mcpServer) {
           canvasPageId: question.selection?.canvasPageId ?? null,
           selectionSource,
         },
+      };
+    },
+  );
+
+  registerAppTool(
+    mcpServer,
+    TOOL_ATTACH_PAGE_NETLIST,
+    {
+      title: "Attach Official EasyEDA Netlist to JLC Hardware Learning Page",
+      description:
+        "Attach a verified official EasyEDA JLCEDA netlist beside one saved canvas page. The first attachment is immutable and conflicting schematic evidence is rejected.",
+      inputSchema: {
+        ...projectArgsSchema,
+        pageId: z.string().trim().regex(/^page:/),
+        netlistPath: z.string().trim().min(1),
+        evidence: z.object({
+          source: z.literal("official-easyeda-export"),
+          format: z.literal("jlceda"),
+          identity: z.object({
+            projectUuid: z.string().trim().min(1),
+            documentUuid: z.string().trim().min(1),
+            documentType: z.string().trim().min(1),
+            schematicPageUuid: z.string().trim().optional(),
+            windowId: z.string().trim().optional(),
+          }),
+          artifactSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+          evidencePath: z.string().trim().min(1),
+          evidenceSha256: z.string().regex(/^[a-f0-9]{64}$/),
+          exportedAt: z.string().trim().optional(),
+        }),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      _meta: { ui: { visibility: ["model"] } },
+    },
+    async (input = {}) => {
+      if (!isHardwareLearningTarget(input)) throw new Error("page netlist tool requires hardware-learning mode");
+      const result = await attachHardwareLearningPageNetlist(input);
+      return {
+        content: [{
+          type: "text",
+          text: result.status === "already-attached"
+            ? `Official EasyEDA netlist is already attached to ${result.pageId}.`
+            : `Attached official EasyEDA netlist beside ${result.pageId}.`,
+        }],
+        structuredContent: result,
+      };
+    },
+  );
+
+  registerAppTool(
+    mcpServer,
+    TOOL_READ_PAGE_NETLIST,
+    {
+      title: "Read JLC Hardware Learning Page Netlist",
+      description:
+        "Read verified page-local EasyEDA netlist evidence. With no filters it returns only identity and summary; componentRefs or netNames return bounded connectivity details.",
+      inputSchema: {
+        ...projectArgsSchema,
+        pageId: z.string().trim().regex(/^page:/).optional(),
+        componentRefs: z.array(z.string().trim().min(1)).max(64).optional(),
+        netNames: z.array(z.string().trim().min(1)).max(64).optional(),
+        includeData: z.boolean().optional(),
+        maxComponents: z.number().int().min(1).max(500).optional(),
+        maxNets: z.number().int().min(1).max(500).optional(),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      _meta: { ui: { visibility: ["model"] } },
+    },
+    async (input = {}) => {
+      if (!isHardwareLearningTarget(input)) throw new Error("page netlist tool requires hardware-learning mode");
+      let pageId = input.pageId;
+      if (!pageId) pageId = (await readHardwareLearningViewState(input)).viewState?.currentPageId;
+      if (!pageId) throw new Error("No current canvas page is available; provide pageId explicitly.");
+      const result = await readHardwareLearningPageNetlist({ ...input, pageId });
+      return {
+        content: [{
+          type: "text",
+          text: result.status === "verified"
+            ? `Loaded verified official EasyEDA netlist evidence for ${pageId}.`
+            : `No official EasyEDA netlist is attached to ${pageId}.`,
+        }],
+        structuredContent: result,
       };
     },
   );
@@ -1549,6 +2008,61 @@ function registerHardwareLearningTools(mcpServer) {
 }
 
 function registerHardwareLearningStateTools(mcpServer) {
+  registerAppTool(
+    mcpServer,
+    TOOL_MANAGE_CANVASES,
+    {
+      title: "Manage JLC Hardware Learning Canvases",
+      description:
+        "List, create, activate, rename, or recoverably recycle project-local JLC Hardware Learning canvases. The default canvas remains under <projectDir>/canvas; additional canvases use managed IDs under <projectDir>/canvases.",
+      inputSchema: {
+        projectDir: z.string().trim().optional(),
+        action: z.enum(["list", "create", "activate", "rename", "recycle"]).default("list"),
+        canvasId: z.string().trim().optional(),
+        name: z.string().trim().max(64).optional(),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+      _meta: {
+        ui: { visibility: ["app"] },
+        "openai/widgetAccessible": true,
+      },
+    },
+    async (input = {}) => {
+      let result;
+      if (input.action === "create") {
+        result = await createHardwareLearningCanvas(input, input.name);
+      } else if (input.action === "activate") {
+        result = await activateHardwareLearningCanvas(input, input.canvasId);
+      } else if (input.action === "rename") {
+        result = await renameHardwareLearningCanvas(input, input.canvasId, input.name);
+      } else if (input.action === "recycle") {
+        result = await recycleHardwareLearningCanvas(input, input.canvasId);
+      } else {
+        result = await listHardwareLearningCanvases(input);
+      }
+      if (result.recycledCanvasDir) hardwareLearningCanvasDirs.delete(result.recycledCanvasDir);
+      if (["create", "activate"].includes(input.action)) {
+        await ensureHardwareLearningCanvasState({
+          projectDir: result.projectDir,
+          canvasDir: result.activeCanvas.canvasDir,
+        });
+      }
+      hardwareLearningCanvasDirs.add(result.activeCanvas.canvasDir);
+      return {
+        content: [{
+          type: "text",
+          text: `JLC Hardware Learning canvas ${input.action}: ${result.activeCanvas.name}.`,
+        }],
+        structuredContent: result,
+      };
+    },
+  );
+
   mcpServer.registerTool(
     TOOL_GET_CANVAS_STATE,
     {

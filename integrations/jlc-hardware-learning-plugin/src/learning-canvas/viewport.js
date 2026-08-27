@@ -1,4 +1,5 @@
 const DEFAULT_INITIAL_LAYOUT_FRAMES = 30
+const DEFAULT_RECOVERY_INTERVAL_MS = 250
 
 function finiteDimension(value) {
   const number = Number(value)
@@ -25,7 +26,8 @@ export function observeElementViewportSize(element, onSize, {
   windowTarget = globalThis.window,
   documentTarget = globalThis.document,
   ResizeObserverImpl = windowTarget?.ResizeObserver,
-  initialLayoutFrames = DEFAULT_INITIAL_LAYOUT_FRAMES
+  initialLayoutFrames = DEFAULT_INITIAL_LAYOUT_FRAMES,
+  recoveryIntervalMs = DEFAULT_RECOVERY_INTERVAL_MS
 } = {}) {
   if (!element || typeof onSize !== 'function') return () => {}
 
@@ -33,11 +35,30 @@ export function observeElementViewportSize(element, onSize, {
     || ((callback) => globalThis.setTimeout(callback, 16))
   const cancelFrame = windowTarget?.cancelAnimationFrame?.bind(windowTarget)
     || globalThis.clearTimeout
+  const setTimer = windowTarget?.setTimeout?.bind(windowTarget)
+    || globalThis.setTimeout
+  const clearTimer = windowTarget?.clearTimeout?.bind(windowTarget)
+    || globalThis.clearTimeout
   const visualViewport = windowTarget?.visualViewport
   let disposed = false
   let frameId = null
+  let recoveryTimerId = null
   let remainingInitialFrames = Math.max(0, Math.round(initialLayoutFrames))
   let lastSize = null
+
+  const cancelRecovery = () => {
+    if (recoveryTimerId === null) return
+    clearTimer(recoveryTimerId)
+    recoveryTimerId = null
+  }
+
+  const scheduleRecovery = () => {
+    if (disposed || recoveryTimerId !== null) return
+    recoveryTimerId = setTimer(() => {
+      recoveryTimerId = null
+      scheduleMeasure()
+    }, Math.max(16, Math.round(recoveryIntervalMs)))
+  }
 
   const measure = () => {
     frameId = null
@@ -46,6 +67,7 @@ export function observeElementViewportSize(element, onSize, {
     const nextSize = readElementViewportSize(element)
     if (hasUsableSize(nextSize)) {
       remainingInitialFrames = 0
+      cancelRecovery()
       if (!sameSize(lastSize, nextSize)) {
         lastSize = nextSize
         onSize(nextSize)
@@ -56,11 +78,15 @@ export function observeElementViewportSize(element, onSize, {
     if (remainingInitialFrames > 0) {
       remainingInitialFrames -= 1
       frameId = requestFrame(measure)
+      return
     }
+
+    scheduleRecovery()
   }
 
   const scheduleMeasure = () => {
     if (disposed || frameId !== null) return
+    cancelRecovery()
     frameId = requestFrame(measure)
   }
 
@@ -85,6 +111,7 @@ export function observeElementViewportSize(element, onSize, {
     visualViewport?.removeEventListener?.('resize', scheduleMeasure)
     documentTarget?.removeEventListener?.('visibilitychange', scheduleMeasure)
     if (frameId !== null) cancelFrame(frameId)
+    cancelRecovery()
     frameId = null
   }
 }

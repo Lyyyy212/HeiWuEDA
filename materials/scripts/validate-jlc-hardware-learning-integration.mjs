@@ -101,6 +101,10 @@ const governedTools = [
   ...profile.mcpPolicy.widgetPersistenceAllowed,
   profile.mcpPolicy.conditionalEvidenceInsertion.tool,
   ...profile.mcpPolicy.localExportAllowed,
+  profile.mcpPolicy.pageNetlistAllowed.attach,
+  profile.mcpPolicy.pageNetlistAllowed.read,
+  ...profile.mcpPolicy.feishuLearningNotes.verifiedLocalRegistryAllowed,
+  ...profile.mcpPolicy.feishuLearningNotes.confirmedRemoteWriteAllowed,
 ];
 for (const toolName of governedTools) {
   assert(toolNames.has(toolName), `profile references a missing MCP tool: ${toolName}`);
@@ -111,6 +115,9 @@ assert(profile.privacyPolicy.telemetry === "disabled", "telemetry must remain di
 assert(profile.migrationPolicy.legacyStorageWriteAllowed === false, "legacy storage must remain read-only");
 assert(profile.excludedCapabilities.includes("image generation"), "image generation must remain excluded");
 assert(profile.mcpPolicy.conditionalEvidenceInsertion.constraints.generatedBitmap === false, "generated bitmaps must remain disabled");
+assert(profile.mcpPolicy.pageNetlistAllowed.constraints.officialEasyedaEvidenceOnly === true, "page netlists must require official EasyEDA evidence");
+assert(profile.mcpPolicy.feishuLearningNotes.constraints.explicitConfirmation === true, "Feishu writes must require explicit confirmation");
+assert(profile.mcpPolicy.feishuLearningNotes.constraints.freshReadVerification === true, "Feishu writes must require fresh-read verification");
 
 process.stdout.write(`${JSON.stringify({
   status: "PASS",

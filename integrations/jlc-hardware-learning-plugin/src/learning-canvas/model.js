@@ -34,12 +34,12 @@ const LEARNING_FILLS = new Set(['none', 'semi', 'solid'])
 const LEARNING_DASHES = new Set(['draw', 'dashed', 'dotted', 'solid'])
 const LEARNING_SIZES = new Set(['s', 'm', 'l', 'xl'])
 const NEXT_FRAME_NUMBER_META = 'hardwareLearningNextFrameNumber'
-const LEARNING_TEXT_METRICS_VERSION = 2
+const LEARNING_TEXT_METRICS_VERSION = 3
 const LEARNING_TEXT_METRICS = Object.freeze({
-  s: Object.freeze({ fontSize: 26, lineHeight: 36 }),
-  m: Object.freeze({ fontSize: 30, lineHeight: 40 }),
-  l: Object.freeze({ fontSize: 40, lineHeight: 54 }),
-  xl: Object.freeze({ fontSize: 56, lineHeight: 72 })
+  s: Object.freeze({ fontSize: 13, lineHeight: 18 }),
+  m: Object.freeze({ fontSize: 15, lineHeight: 20 }),
+  l: Object.freeze({ fontSize: 20, lineHeight: 27 }),
+  xl: Object.freeze({ fontSize: 28, lineHeight: 36 })
 })
 
 export function normalizeLearningStyle(style = {}) {
@@ -209,6 +209,79 @@ export function pageRecords(snapshot) {
   return Object.values(snapshot?.store ?? {})
     .filter((record) => record?.typeName === 'page')
     .sort((left, right) => String(left.index ?? '').localeCompare(String(right.index ?? '')))
+}
+
+function normalizePageName(value, fallback) {
+  const name = String(value || '').trim()
+  return (name || fallback).slice(0, 64)
+}
+
+export function createLearningPage(snapshot, name) {
+  const pages = pageRecords(snapshot)
+  const id = createRecordId('page')
+  const page = {
+    id,
+    typeName: 'page',
+    name: normalizePageName(name, `图页 ${pages.length + 1}`),
+    index: generateKeyBetween(pages.at(-1)?.index ?? null, null),
+    meta: {}
+  }
+  const next = cloneSnapshot(snapshot)
+  next.store[id] = page
+  return { snapshot: next, page }
+}
+
+export function renameLearningPage(snapshot, pageId, name) {
+  const page = snapshot?.store?.[pageId]
+  if (page?.typeName !== 'page') return { snapshot, page: null, changed: false }
+  const nextName = normalizePageName(name, page.name || '图页')
+  if (nextName === page.name) return { snapshot, page, changed: false }
+  const next = cloneSnapshot(snapshot)
+  next.store[pageId] = { ...page, name: nextName }
+  return { snapshot: next, page: next.store[pageId], changed: true }
+}
+
+export function deleteLearningPage(snapshot, pageId) {
+  const pages = pageRecords(snapshot)
+  const page = snapshot?.store?.[pageId]
+  if (page?.typeName !== 'page') {
+    return { snapshot, deleted: false, reason: 'missing-page', acknowledgedImageShapeDeletes: [] }
+  }
+  if (pages.length <= 1) {
+    return { snapshot, deleted: false, reason: 'last-page', acknowledgedImageShapeDeletes: [] }
+  }
+  const next = cloneSnapshot(snapshot)
+  const removedIds = new Set([pageId, ...shapesForPage(snapshot, pageId).map((shape) => shape.id)])
+  const acknowledgedImageShapeDeletes = [...removedIds].filter((id) => snapshot.store[id]?.type === 'image')
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const record of Object.values(next.store)) {
+      if (removedIds.has(record.id)) continue
+      if (removedIds.has(record.parentId) || removedIds.has(record.fromId) || removedIds.has(record.toId)) {
+        removedIds.add(record.id)
+        changed = true
+      }
+    }
+  }
+  for (const id of removedIds) delete next.store[id]
+  const referencedAssetIds = new Set(Object.values(next.store)
+    .filter((record) => record?.typeName === 'shape' && record.type === 'image')
+    .map((record) => record.props?.assetId)
+    .filter(Boolean))
+  for (const record of Object.values(next.store)) {
+    if (record?.typeName === 'asset' && !referencedAssetIds.has(record.id)) delete next.store[record.id]
+  }
+  const remainingPages = pageRecords(next)
+  const deletedIndex = pages.findIndex((candidate) => candidate.id === pageId)
+  const nextPage = remainingPages[Math.min(deletedIndex, remainingPages.length - 1)] || remainingPages[0]
+  return {
+    snapshot: next,
+    deleted: true,
+    page,
+    nextPageId: nextPage?.id ?? null,
+    acknowledgedImageShapeDeletes,
+  }
 }
 
 export function pageIdForShape(store, shape) {

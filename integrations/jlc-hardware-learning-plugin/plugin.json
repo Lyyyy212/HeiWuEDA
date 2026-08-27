@@ -1,18 +1,18 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "jlc-hardware-learning",
-  "version": "0.1.3",
-  "description": "ZhiYuanEDA hardware-learning canvas for EasyEDA schematic evidence, selection-scoped questions, teaching annotations, and local exports.",
+  "version": "0.1.6",
+  "description": "面向 ZhiYuanEDA 原理图证据、选区提问、教学标注、本地导出与飞书项目学习笔记的持久化 JLC 硬件学习画板。",
   "author": {
-    "name": "Lyyyy"
+    "name": "ZhiYuanEDA Hardware Workbench"
   },
   "license": "MIT",
   "keywords": [
     "jlc",
-    "zhiyuaneda",
     "hardware-learning",
     "easyeda",
     "schematic",
-    "canvas"
+    "canvas",
+    "feishu"
   ]
 }

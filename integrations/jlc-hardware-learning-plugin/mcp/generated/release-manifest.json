@@ -1,9 +1,9 @@
 {
-  "version": "0.1.3",
+  "version": "0.1.6",
   "generatedBy": "scripts/build-release-artifacts.mjs",
   "artifacts": {
     "mcp-apps-global-script.mjs": "078a9634da1da9fa12a4f51796fff2043862401b7ddb7075280560896f3b7a61",
-    "hardware-learning-mcp.mjs": "fc7b0ea66fa6773c743374a40de1ed78318dcfa99c7e6083c1ea7ebae1c84106",
-    "hardware-learning-widget.html": "a544923892d5814378656832aae846a20a844c4faf23764cd5666d227a5e743c"
+    "hardware-learning-mcp.mjs": "0ee675afa5508c94d877aec9cc684a1041da0ae499cc9e909e46088b1f041d2a",
+    "hardware-learning-widget.html": "52072c8be3488e4445eadfa019dbfa2342fc6025d8cdb8753ac829188d3d6e6e"
   }
 }

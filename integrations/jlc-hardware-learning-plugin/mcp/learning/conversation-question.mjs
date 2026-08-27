@@ -9,6 +9,7 @@ const INTENTS = new Set([
   "compare-options",
 ]);
 const LEARNING_LEVELS = new Set(["beginner", "intermediate", "advanced"]);
+const RESPONSE_MODES = new Set(["quick", "deep"]);
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -222,6 +223,9 @@ export function buildConversationLearningQuestion({
   userQuestion,
   learningLevel = "intermediate",
   intent = "explain-selection",
+  responseMode = "quick",
+  annotationRequested = false,
+  pageEvidence = null,
   questionId = `question:${randomUUID()}`,
   requestedAt = new Date().toISOString(),
 } = {}) {
@@ -233,6 +237,8 @@ export function buildConversationLearningQuestion({
   }
   if (!INTENTS.has(intent)) throw new Error(`Unsupported learning intent: ${intent}`);
   if (!LEARNING_LEVELS.has(learningLevel)) throw new Error(`Unsupported learning level: ${learningLevel}`);
+  if (!RESPONSE_MODES.has(responseMode)) throw new Error(`Unsupported response mode: ${responseMode}`);
+  if (typeof annotationRequested !== "boolean") throw new Error("annotationRequested must be boolean.");
   if (typeof questionId !== "string" || !questionId.startsWith("question:")) {
     throw new Error("questionId must start with question:");
   }
@@ -302,6 +308,8 @@ export function buildConversationLearningQuestion({
     intent,
     userQuestion: userQuestion.trim(),
     learningLevel,
+    responseMode,
+    annotationRequested,
     selection: {
       ...selectionCore,
       selectionScreenshotAssetUrl: null,
@@ -318,6 +326,7 @@ export function buildConversationLearningQuestion({
       capturedAt: requestedAt,
       artifactSha256: canvasSnapshotSha256,
     },
+    pageEvidence: pageEvidence && typeof pageEvidence === "object" ? pageEvidence : null,
     requestedAt,
   };
   return { question, selectionSource: chosen.source };
@@ -325,3 +334,4 @@ export function buildConversationLearningQuestion({
 
 export const conversationLearningIntents = [...INTENTS];
 export const conversationLearningLevels = [...LEARNING_LEVELS];
+export const conversationLearningResponseModes = [...RESPONSE_MODES];

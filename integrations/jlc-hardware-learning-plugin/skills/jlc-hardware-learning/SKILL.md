@@ -1,6 +1,6 @@
 ---
 name: jlc-hardware-learning
-description: Open and use the persistent JLC hardware-learning canvas for selection-scoped schematic questions, local evidence capture, and whitelisted teaching annotations. Use when the user wants to frame or select a schematic region and ask how its hardware works; do not use for image generation, AI HTML, Slides, or direct EasyEDA writes.
+description: Open and use the persistent JLC hardware-learning canvas for selection-scoped schematic questions, local evidence capture, whitelisted teaching annotations, and project-scoped Feishu learning-note synchronization. Use when the user wants to frame or select a schematic region, ask how its hardware works, or organize verified learning records by project and schematic page in Feishu; do not use for image generation, AI HTML, Slides, or direct EasyEDA writes.
 ---
 
 # JLC Hardware Learning
@@ -29,7 +29,7 @@ creative-canvas UI. Its frontend keeps the established arrangement: page/actions
 at upper left, style controls at upper right, tools at bottom center, and
 zoom/minimap at lower left. It supports select/pan, explicit learning frame,
 pen, eraser, text, arrow, note, rectangle, ellipse, line, highlight, marquee
-multi-select, duplicate, undo/redo, protected delete, page switching, style
+multi-select, duplicate, undo/redo, protected delete, project-canvas and page management, style
 editing, fit, zoom, and keyboard shortcuts. A question region must be an
 explicit learning frame; never treat an ordinary rectangle as a selection
 frame. Imported schematic images remain protected from erase, ordinary
@@ -45,6 +45,25 @@ undo/redo history item. Ordinary Delete/Backspace remains annotation-only.
 Canceling or pressing Escape must leave the complete selection unchanged.
 Escape otherwise cancels the active gesture/editor and returns the canvas to
 the select tool.
+
+The top-left canvas selector manages project-local learning workspaces. Keep
+the legacy/default canvas at `<projectDir>/canvas`; store additional canvases
+only under `<projectDir>/canvases/<uuid>` and persist the active stable ID in
+`<projectDir>/canvases/manifest.json`. Creating a canvas activates an empty,
+independent store. Wait for all writes to the previous canvas before changing
+the client storage target, then reset history, selection, view polling, and
+hydrated asset caches before loading the new target. Renaming changes catalog
+metadata only. The default canvas cannot be deleted; deleting another canvas
+must move its whole directory to `<projectDir>/canvases/.trash/` before it is
+removed from the catalog. Never accept a user-provided directory or path as a
+managed canvas ID.
+
+Each canvas contains one or more independent tldraw pages. The page management
+control may create, rename, switch, and explicitly delete pages. Refuse to
+delete the final page. Page deletion must use an in-canvas confirmation, pass
+the exact image-shape IDs through the protected storage acknowledgement, and
+remain one undoable history operation. Canvas switching and page switching do
+not authorize an EasyEDA page activation, export, save, or write.
 
 Use the normal wheel to zoom around the pointer: wheel up zooms in and wheel
 down zooms out. `Ctrl/Cmd + wheel` remains zoom-compatible, and
@@ -128,8 +147,10 @@ shape once. Saving must not create a shape by itself; only the user's next
 explicit canvas click begins another editor. Escape exits to select. When a text or
 sticky-note shape is selected, the right-side
 `小 / 中 / 大 / 特大` size controls must change its font size immediately; the
-four font presets are `26 / 30 / 40 / 56` canvas units, with matching doubled
-line heights. The inline editor and PNG/SVG exports use the same persisted size.
+four font presets are `13 / 15 / 20 / 28` canvas units, with matching
+`18 / 20 / 27 / 36` line heights. The inline editor and PNG/SVG exports use the
+same persisted size. Version-2 text metrics must migrate once so existing text
+and note bounds are reflowed for the smaller presets without touching frames.
 Changing text size may reflow or grow only the text/sticky-note container; it
 must never alter a learning frame's position, width, height, stored bounds,
 number, or reference semantics. The style
@@ -182,32 +203,45 @@ Do not start the Bridge export until they answer. Map
 or recolor the image in the learning canvas.
 
 1. Persist the live EasyEDA `projectUuid`, `documentUuid`, and `documentType=1`.
-2. Resolve transport with lifecycle `learning-visual-import-route`. With no
+2. Before the first visual insertion on this canvas page, call
+   `mcp__jlc_hardware_learning_mcp__read_hardware_learning_page_netlist` with
+   the exact canvas `pageId`. If it reports `missing`, run the lifecycle's
+   official `schematic-netlist-export --format jlceda` once against the same
+   before-identity, re-read and exactly match the live identity, then run
+   `workbench.py learning-page-netlist-manifest`. Call the manifest's exact
+   `mcp__jlc_hardware_learning_mcp__attach_hardware_learning_page_netlist`
+   operation. The plugin stores `official-easyeda-netlist.net` and
+   `official-easyeda-netlist.meta.json` beside that page's
+   `hardware-learning-canvas.json`. Reusing the same digest is idempotent;
+   different identity or content must block evidence mixing. A failed netlist
+   export must be reported explicitly, but it does not delete the existing
+   canvas or silently substitute an unofficial netlist.
+3. Resolve transport with lifecycle `learning-visual-import-route`. With no
    explicit transport request it must return the default `pdf` route. Use the
    `png` override only when the user explicitly asks for native PNG, a smaller
    import, or a faster import. Appearance is independent: `默认配色` does not
    select PNG. Never call any blocked `current-page` visual route.
-3. For the default route, run
+4. For the default route, run
    `schematic-export --format PDF --scope current-schematic --theme
    <Default-or-Black-on-White>` exactly once. For an explicit native-PNG
    override, run `schematic-export --format PNG --scope current-schematic
    --theme <Default-or-Black-on-White>`.
-4. Re-read the live identity and require an exact match.
-5. If a sealed legacy execution rejected an official PNG-only ZIP only because
+5. Re-read the live identity and require an exact match.
+6. If a sealed legacy execution rejected an official PNG-only ZIP only because
    it expected a direct PNG signature, use the lifecycle gateway's local
    `schematic-native-png-normalize` command. It must report zero EasyEDA API
    calls and must retain the original failure evidence; never export again for
    this compatibility case.
-6. For native PNG, run `workbench.py learning-native-visual-import-manifest
+7. For native PNG, run `workbench.py learning-native-visual-import-manifest
    --visual-mode <default-or-black-white>` with the before, direct export or
    normalization execution, after, and requested canvas page ID.
-7. For PDF, run local-only `schematic-native-pdf-render` against the exact
+8. For PDF, run local-only `schematic-native-pdf-render` against the exact
    passing official PDF execution and both identity records. Keep the default
    6144 px longest edge unless a bounded alternative is justified. Require
    `easyedaApiCallCount=0`, then run
    `workbench.py learning-pdf-visual-import-manifest --visual-mode
    <default-or-black-white>` with its execution.
-8. For a direct PNG, call the manifest's exact tool and `toolArgs`. For an
+9. For a direct PNG, call the manifest's exact tool and `toolArgs`. For an
    official multi-page PNG bundle, call each exact `operations[]` item in order.
    Require
    `mcp__jlc_hardware_learning_mcp__insert_hardware_learning_image`,
@@ -218,7 +252,7 @@ or recolor the image in the learning canvas.
    For PDF-derived pages, call every exact `operations[]` item in order and
    require `evidenceSource=official-easyeda-pdf-render`, `displayWidth=1536`,
    no `displayHeight`, and the manifest-provided 120-unit margin.
-9. Read the JLC canvas state and verify every inserted image is on the
+10. Read the JLC canvas state and verify every inserted image is on the
    requested page with the expected native PNG digest, native bundle index,
    visual source, and captured document UUID. PDF-derived entries additionally
    require the source PDF digest, PDF page index, renderer identity, render
@@ -254,14 +288,119 @@ question never authorizes navigation. Page activation does not make an official
 
 ## Answer a selection question
 
-1. Call `mcp__jlc_hardware_learning_mcp__get_hardware_learning_selection`. Prefer explicit numbered references in the conversation. Otherwise prefer the current non-empty selection. If clicking the conversation cleared it, use `lastNonEmptySelection` only after its page and shape IDs still resolve in the saved canvas. If neither is available, ask the user to draw or select a frame; never guess.
-2. Call `mcp__jlc_hardware_learning_mcp__save_hardware_learning_question` with `projectDir`, the conversation text as `userQuestion`, an inferred `intent`, and `learningLevel` (`intermediate` by default). The tool creates the `questionId`, resolves one or more current-page frame numbers when present, builds a validated page-coordinate envelope, includes overlapping source images, and records the selected and explicitly referenced frame numbers.
-3. Resolve the returned immutable record under `<projectDir>/.easyeda-hardware-workbench/learning/questions/`. A `question:<uuid>` ID is stored as `question-<uuid>.json`.
-4. Run the `easyeda-hardware-lifecycle` command `workbench.py learning-answer-saved --project <projectDir> --question-id <questionId>`. This imports the conversation-backed record, verifies any saved PNG digest, creates or resumes the page-bound session, and idempotently stores evidence and a tutor answer.
-5. Use the returned durable answer as the baseline. Treat offline canvas shapes and images as offline artifacts; do not present them as live EasyEDA evidence. For a follow-up, reuse the same session ID; `workbench.py learning-resume` must recover the ordered local history after a restart.
-6. If live EasyEDA evidence is required, use only the official gateway and recheck project/document/page identity before and after capture. Page navigation requires the user's explicit request and the lifecycle navigator; never switch pages merely to answer a question.
-7. Explain at the requested learning level, separating evidence, inference, unknowns, and suggested checks. If `annotationRequest` is present, pass its exact page-bound operation to the annotation tool; retrying the same question must reuse the same IDs.
-8. Before ending the conversation turn, persist the exact response shown to the user through `workbench.py learning-dialogue-record`. This binds the normal conversation to the immutable question, current canvas page, selected/referenced frame numbers, and tutor-answer digest. Later Feishu learning-note synchronization must consume this record rather than attempting to scrape old Codex conversation UI.
+1. Call `mcp__jlc_hardware_learning_mcp__save_hardware_learning_question`
+   directly with `projectDir`, the conversation text as `userQuestion`, an
+   inferred `intent`, `learningLevel` (`intermediate` by default), and
+   `responseMode=quick`. This one call resolves explicit frame numbers, current
+   selection, or validated `lastNonEmptySelection`; do not issue a preliminary
+   selection-tool round trip. Use `responseMode=deep` only when the user asks
+   for deep analysis or the question genuinely requires live/high-stakes
+   evidence. Set `annotationRequested=true` only when the user explicitly asks
+   to add a note, highlight, rectangle, or arrow to the canvas.
+2. Resolve the returned immutable record under
+   `<projectDir>/.easyeda-hardware-workbench/learning/questions/`. A
+   `question:<uuid>` ID is stored as `question-<uuid>.json`. The record also
+   reports whether a verified page-local official netlist is available.
+3. Run `workbench.py learning-answer-saved --project <projectDir>
+   --question-id <questionId>` and use its durable offline answer as the quick
+   baseline. For component references or connectivity, call
+   `mcp__jlc_hardware_learning_mcp__read_hardware_learning_page_netlist` with
+   bounded `componentRefs` or `netNames`; never load the whole netlist merely
+   because it exists.
+4. Ordinary explanations stay local: do not open live EasyEDA, browse the web,
+   or perform distributor/datasheet research unless the question requests deep
+   analysis, current procurement facts, component selection, or another source
+   that cannot be answered from saved visual and netlist evidence.
+5. Explain at the requested learning level, separating evidence, inference,
+   unknowns, and suggested checks. Never create a sticky note automatically.
+   Only after explicit annotation intent may the exact page-bound operation be
+   passed to the annotation tool; retrying must reuse the same IDs.
+6. Before ending the conversation turn, persist the exact response shown to the
+   user through `workbench.py learning-dialogue-record`. For a follow-up, reuse
+   the same session ID; `workbench.py learning-resume` recovers the ordered
+   local history after a restart.
+
+## Synchronize Feishu learning notes
+
+Organize Feishu notes by readable project name, but bind them by stable
+`projectId/projectUuid`. A canvas page maps to one long-lived Feishu Docx, one
+reused main `whiteboardToken`, and one reused `moduleIndexWhiteboardToken`;
+learning-frame numbers remain page-local. Never use a
+renamed title, duplicate page name, or frame number alone as an identity.
+
+1. For an existing legacy learning note, first call
+   `mcp__jlc_hardware_learning_mcp__inspect_feishu_learning_note_target`. It uses
+   official `lark-cli` with user identity and requires outline/full fresh reads
+   to return the same document token and revision. Then call
+   `mcp__jlc_hardware_learning_mcp__preview_feishu_learning_note_migration` with
+   the verified EasyEDA project name/UUID and project directory. The preview
+   must reuse the existing Docx plus both existing whiteboard tokens and must
+   report zero local and remote writes.
+2. Otherwise call `mcp__jlc_hardware_learning_mcp__get_feishu_learning_note_state` with
+   the project identity and known canvas/schematic pages. This is a read-only
+   preview and returns the compact project-homepage layout, current local registry,
+   and deterministic pending sync actions.
+   The `00..99` categories are headings inside the one project homepage; never
+   create one empty Wiki/Docx node per category. Only real schematic pages are
+   direct child Docx nodes of the project.
+3. Use Feishu user identity for personal Wiki/Docs resources. Route Wiki node
+   creation through the Feishu Wiki capability, Docx content through the Feishu
+   Docs capability, and both existing boards through the Feishu Whiteboard
+   capability. Existing `board_token` values must be updated; never replace
+   either with a new blank board. A cross-project Base index is optional and does not replace
+   the per-project Wiki/Docx hierarchy.
+4. Before any remote write, show the exact target nodes/documents and obtain the
+   user's confirmation. Reuse the sync plan's stable idempotency key for retries.
+   After every write, freshly read the resulting node, document, or board token.
+5. For an approved legacy migration, call
+   `mcp__jlc_hardware_learning_mcp__execute_feishu_learning_note_migration` with
+   `confirmed=true`, the exact preview `planFingerprint`, and the previewed
+   `expectedDocumentRevisionId`. The tool must re-preview before writing, create
+   or reuse only unique exact-name Wiki nodes, move the original Docx, preserve
+   both board tokens, apply only local text replacements, fresh-read verify, and
+   save the registry only after every verification succeeds. A fingerprint or
+   revision change requires a new preview and confirmation.
+6. For independently verified atomic operations, only after the fresh read succeeds, call
+   `mcp__jlc_hardware_learning_mcp__update_feishu_learning_note_state` to store
+   the verified binding locally. Supported actions are `initialize`,
+   `bind-root`, `bind-project`, the legacy-compatible `bind-section`, `bind-page`,
+   `upsert-frame`, `link-dialogue`, `mark-project-homepage-synced`, and
+   `mark-page-synced`. Do not use `bind-section` in the compact layout.
+7. `link-dialogue` must consume the durable `questionId`, canvas page, frame
+   numbers, and answer digest from the saved learning dialogue. It must not
+   scrape previous Codex messages. Call `mark-page-synced` only after a fresh
+   Docx read verifies the page template and module index represented by the
+   current content digest.
+8. Before continuous Docx synchronization, call
+   `mcp__jlc_hardware_learning_mcp__bind_feishu_page_identity_from_learning_evidence`
+   when `schematicPageUuid` is missing. It may persist the local identity only
+   when every registered frame resolves through the saved note package to one
+   official EasyEDA schematic page in the same project; never infer identity
+   from a title. Link a completed question with
+   `mcp__jlc_hardware_learning_mcp__link_feishu_learning_dialogue_from_record`,
+   which must verify the saved question/run/answer records and their digests.
+9. Call `mcp__jlc_hardware_learning_mcp__preview_feishu_learning_note_sync`
+   before every continuous sync. Show its exact target Docx tokens, both reused
+   board tokens, managed block patches, complete `expectedDocumentRevisions`,
+   blockers, and `planFingerprint`. Only after the user confirms that exact
+   preview may `mcp__jlc_hardware_learning_mcp__execute_feishu_learning_note_sync`
+   be called with `confirmed=true`, the same fingerprint, and the complete
+   revision map. The executor may insert or replace only the JLC-managed module
+   index and dialogue ranges. It must preserve unrelated Docx blocks and both
+   existing board tokens, fresh-read verify both managed digests, and save the
+   registry once after all verification succeeds.
+
+The local registry lives at
+`<projectDir>/.easyeda-hardware-workbench/learning/feishu-learning-note-registry.json`.
+The inspect and migration-preview tools call Feishu read-only; the state tools
+do not call Feishu. None grants remote-write permission. The default hierarchy
+is `硬件学习笔记 / <项目名称> / <真实原理图页>`; `00..99` lives inside the
+project homepage as headings. An existing standalone Drive Docx is moved
+directly under the project instead of being copied into a duplicate document
+or placed under an empty category Docx.
+If authentication, scope, target identity, or fresh-read verification is
+missing, leave the pending sync action unresolved and do not record a guessed
+token.
 
 ## Add teaching annotations
 

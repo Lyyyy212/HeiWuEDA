@@ -1,0 +1,206 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  bindFeishuProjectNode,
+  bindFeishuLearningRoot,
+  buildFeishuLearningDirectoryPlan,
+  createFeishuLearningRegistry,
+  feishuProjectDisplayTitle,
+  feishuPageContentDigest,
+  linkFeishuDialogue,
+  markFeishuProjectHomepageSynced,
+  markFeishuPageContentSynced,
+  resolveFeishuLearningTarget,
+  upsertFeishuFrameNote,
+  upsertFeishuPageBinding,
+} from "./note-model.mjs";
+
+const project = {
+  projectId: "00000000000000000000000000000001",
+  projectUuid: "00000000000000000000000000000001",
+  projectName: "主控板",
+};
+
+const pages = [
+  { canvasPageId: "page:main", schematicPageUuid: "FixtureSchematicPageUuid01", pageName: "主控板原理图" },
+  { canvasPageId: "page:power", schematicPageUuid: "FixtureSchematicPageUuid02", pageName: "电源板原理图" },
+];
+
+test("project names remain readable and add a stable suffix only for collisions", () => {
+  assert.equal(feishuProjectDisplayTitle(project), "主控板");
+  const collisionTitle = feishuProjectDisplayTitle(project, [{
+    projectId: "another-project",
+    projectName: "主控板",
+  }]);
+  assert.match(collisionTitle, /^主控板〔[a-f0-9]{8}〕$/u);
+  assert.equal(feishuProjectDisplayTitle(project, [{
+    projectId: project.projectId,
+    projectName: "主控板",
+  }]), "主控板");
+});
+
+test("directory plans keep categories in one project homepage and pages as direct children", () => {
+  const plan = buildFeishuLearningDirectoryPlan({ project, schematicPages: pages });
+  assert.equal(plan.namespace.title, "硬件学习笔记");
+  assert.equal(plan.root.title, "主控板");
+  assert.equal(plan.root.layoutMode, "compact-project-homepage");
+  assert.deepEqual(plan.root.sections.map((section) => section.title), [
+    "00 项目总览",
+    "01 方案设计",
+    "02 模块详细设计",
+    "03 原理图学习",
+    "04 原理图检查",
+    "05 BOM与器件选型",
+    "06 调试与实验记录",
+    "99 历史归档",
+  ]);
+  assert.deepEqual(plan.root.children.map((page) => page.title), [
+    "01 主控板原理图",
+    "02 电源板原理图",
+  ]);
+  assert.equal(plan.root.children[0].page.canvasPageId, "page:main");
+  assert.equal(plan.root.children[0].parentLogicalId, plan.root.logicalId);
+});
+
+test("duplicate schematic page names stay readable but receive stable disambiguators", () => {
+  const plan = buildFeishuLearningDirectoryPlan({
+    project,
+    schematicPages: [
+      { canvasPageId: "page:a", pageName: "接口页" },
+      { canvasPageId: "page:b", pageName: "接口页" },
+    ],
+  });
+  const pageTitles = plan.root.children.map((page) => page.title);
+  assert.match(pageTitles[0], /^01 接口页〔[a-f0-9]{8}〕$/u);
+  assert.match(pageTitles[1], /^02 接口页〔[a-f0-9]{8}〕$/u);
+  assert.notEqual(pageTitles[0], pageTitles[1]);
+});
+
+test("page-local frame notes and dialogue bindings resolve to one Feishu target", () => {
+  let registry = createFeishuLearningRegistry(project, { updatedAt: "2026-08-26T00:00:00.000Z" });
+  registry = bindFeishuLearningRoot(registry, {
+    projectId: project.projectId,
+    spaceId: "FixtureSpaceId01",
+    learningRootNodeToken: "FixtureNodeToken01",
+    learningRootDocToken: "doccn-learning-root",
+    updatedAt: "2026-08-26T00:00:30.000Z",
+  });
+  registry = bindFeishuProjectNode(registry, {
+    projectId: project.projectId,
+    spaceId: "FixtureSpaceId01",
+    projectNodeToken: "FixtureNodeToken02",
+    projectDocToken: "doccn-project",
+    updatedAt: "2026-08-26T00:01:00.000Z",
+  });
+  registry = upsertFeishuPageBinding(registry, {
+    projectId: project.projectId,
+    ...pages[0],
+    nodeToken: "FixtureNodeToken03",
+    docToken: "doccn-main",
+    whiteboardToken: "FixtureWhiteboardToken01",
+    moduleIndexWhiteboardToken: "FixtureModuleIndexWhiteboardToken01",
+    updatedAt: "2026-08-26T00:03:00.000Z",
+  });
+  registry = upsertFeishuFrameNote(registry, {
+    projectId: project.projectId,
+    canvasPageId: "page:main",
+    frameNumber: 5,
+    status: "question-open",
+    updatedAt: "2026-08-26T00:04:00.000Z",
+  });
+  registry = linkFeishuDialogue(registry, {
+    projectId: project.projectId,
+    canvasPageId: "page:main",
+    frameNumbers: [5, 7],
+    questionId: "question:abc",
+    answerDigest: "a".repeat(64),
+    docBlockId: "block-answer-abc",
+    linkedAt: "2026-08-26T00:05:00.000Z",
+  });
+
+  const target = resolveFeishuLearningTarget(registry, {
+    canvasPageId: "page:main",
+    frameNumbers: [7, 5],
+  });
+  assert.equal(target.ready, true);
+  assert.equal(target.page.docToken, "doccn-main");
+  assert.equal(target.page.whiteboardToken, "FixtureWhiteboardToken01");
+  assert.equal(target.page.moduleIndexWhiteboardToken, "FixtureModuleIndexWhiteboardToken01");
+  assert.deepEqual(target.frames.map((frame) => frame.frameNumber), [5, 7]);
+  assert.deepEqual(registry.pages["page:main"].frames["5"].questionIds, ["question:abc"]);
+  assert.deepEqual(registry.pages["page:main"].frames["7"].answerDigests, ["a".repeat(64)]);
+});
+
+test("marking a compact project homepage clears legacy section-document bindings", () => {
+  const registry = createFeishuLearningRegistry(project);
+  registry.sections.schematics.nodeToken = "FixtureNodeToken04";
+  registry.sections.schematics.docToken = "legacy-section-doc";
+  const compact = markFeishuProjectHomepageSynced(registry, {
+    projectId: project.projectId,
+    indexDigest: "c".repeat(64),
+    updatedAt: "2026-08-27T00:00:00.000Z",
+  });
+  assert.equal(compact.wiki.layoutMode, "compact-project-homepage");
+  assert.equal(compact.wiki.projectHomepageTemplateVersion, 1);
+  assert.equal(compact.sections.schematics.nodeToken, null);
+  assert.equal(compact.sections.schematics.docToken, null);
+});
+
+test("project, page and frame identity mismatches fail instead of falling back", () => {
+  let registry = createFeishuLearningRegistry(project, { updatedAt: "2026-08-26T00:00:00.000Z" });
+  assert.throws(() => upsertFeishuPageBinding(registry, {
+    projectId: "wrong-project",
+    ...pages[0],
+  }), /project identity mismatch/u);
+  registry = upsertFeishuPageBinding(registry, { projectId: project.projectId, ...pages[0] });
+  assert.throws(() => upsertFeishuPageBinding(registry, {
+    projectId: project.projectId,
+    ...pages[0],
+    schematicPageUuid: "FixtureSchematicPageUuid03",
+  }), /schematic identity mismatch/u);
+  assert.throws(() => upsertFeishuFrameNote(registry, {
+    projectId: project.projectId,
+    canvasPageId: "page:missing",
+    frameNumber: 1,
+  }), /page binding not found/u);
+  assert.throws(() => upsertFeishuPageBinding(registry, {
+    projectId: project.projectId,
+    ...pages[1],
+    learningFrameMarkerStyle: {
+      ...registry.pages["page:main"].learningFrameMarkerStyle,
+      numberBadgeStyle: {
+        ...registry.pages["page:main"].learningFrameMarkerStyle.numberBadgeStyle,
+        offsetX: Number.NaN,
+      },
+    },
+  }), /offsetX must be finite/u);
+});
+
+test("dialogue replays are immutable and page content digests track note changes", () => {
+  let registry = createFeishuLearningRegistry(project, { updatedAt: "2026-08-26T00:00:00.000Z" });
+  registry = upsertFeishuPageBinding(registry, { projectId: project.projectId, ...pages[0] });
+  const dialogue = {
+    projectId: project.projectId,
+    canvasPageId: "page:main",
+    frameNumbers: [1],
+    questionId: "question:stable",
+    answerDigest: "b".repeat(64),
+    linkedAt: "2026-08-26T00:01:00.000Z",
+  };
+  registry = linkFeishuDialogue(registry, dialogue);
+  const digest = feishuPageContentDigest(registry, "page:main");
+  assert.equal(digest.length, 64);
+  assert.deepEqual(linkFeishuDialogue(registry, dialogue), registry);
+  assert.throws(() => linkFeishuDialogue(registry, {
+    ...dialogue,
+    docBlockId: "different-block",
+  }), /Immutable Feishu dialogue binding differs/u);
+  const synced = markFeishuPageContentSynced(registry, {
+    projectId: project.projectId,
+    canvasPageId: "page:main",
+    updatedAt: "2026-08-26T00:02:00.000Z",
+  });
+  assert.equal(synced.pages["page:main"].syncedContentDigest, digest);
+  assert.equal(synced.pages["page:main"].noteTemplateVersion, 1);
+});

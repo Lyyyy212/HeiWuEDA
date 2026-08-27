@@ -41,12 +41,14 @@ import {
   copyHardwareLearningImageToClipboard,
   downloadHardwareLearningFile,
   loadHardwareLearningCanvasState,
+  manageHardwareLearningCanvases,
   pullHardwareLearningAnnotations,
   readHardwareLearningPageAsset,
   refreshHardwareLearningCanvasSnapshot,
   saveHardwareLearningCanvasSnapshot,
   saveHardwareLearningSelectionState,
-  saveHardwareLearningViewState
+  saveHardwareLearningViewState,
+  setHardwareLearningStorageTarget
 } from '../hardwareLearningClient.js'
 import { applyLearningAnnotationOperations } from './annotations.js'
 import {
@@ -54,6 +56,7 @@ import {
   createArrowShape,
   createEllipseShape,
   createFrameShape,
+  createLearningPage,
   createLineShape,
   createNoteShape,
   createRectangleShape,
@@ -61,6 +64,7 @@ import {
   createTextShape,
   DEFAULT_LEARNING_STYLE,
   deleteLearningShapes,
+  deleteLearningPage,
   deleteSelectedShapes,
   duplicateLearningShapes,
   fitCamera,
@@ -70,6 +74,7 @@ import {
   normalizeLearningStyle,
   pageBoundsForShape,
   pageRecords,
+  renameLearningPage,
   resizeRectangleShape,
   screenToPage,
   selectionState,
@@ -225,6 +230,7 @@ export default function HardwareLearningCanvas() {
   const selectionRevisionRef = useRef(0)
   const historyRef = useRef(createHistoryManager({ limit: 100 }))
   const annotationPollingRef = useRef(false)
+  const switchingCanvasRef = useRef(false)
   const spacePressedRef = useRef(false)
   const lastTextEditPointerActivationRef = useRef(null)
   const [snapshot, setSnapshot] = useState(null)
@@ -252,8 +258,13 @@ export default function HardwareLearningCanvas() {
   const [spacePanActive, setSpacePanActive] = useState(false)
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 })
   const [pendingDeleteIds, setPendingDeleteIds] = useState([])
+  const [canvasCatalog, setCanvasCatalog] = useState(null)
+  const [managementDialog, setManagementDialog] = useState(null)
+  const [managementName, setManagementName] = useState('')
+  const [managementBusy, setManagementBusy] = useState(false)
 
   const pages = useMemo(() => pageRecords(snapshot), [snapshot])
+  const activeCanvas = canvasCatalog?.canvases?.find((canvas) => canvas.id === canvasCatalog.activeCanvasId) || null
   const pageId = view.currentPageId || pages[0]?.id || null
   const camera = view.camera || DEFAULT_CAMERA
   const pageShapes = useMemo(
@@ -356,34 +367,62 @@ export default function HardwareLearningCanvas() {
     })
   }, [])
 
+  const applyLoadedCanvasState = useCallback(async (loaded, readyMessage = null) => {
+    if (!loaded.snapshot) throw new Error('学习画布尚未初始化。')
+    const migration = migrateLegacyLearningFrames(loaded.snapshot)
+    const loadedPages = pageRecords(migration.snapshot)
+    const requestedPage = loaded.viewState?.currentPageId
+    const currentPageId = loadedPages.some((page) => page.id === requestedPage)
+      ? requestedPage
+      : loadedPages[0]?.id
+    const loadedView = {
+      version: 1,
+      currentPageId,
+      camera: normalizeCamera(loaded.viewState?.camera || DEFAULT_CAMERA)
+    }
+    const emptyAssets = new Map()
+    assetSourcesRef.current = emptyAssets
+    setAssetSources(emptyAssets)
+    setSelectedIds([])
+    setGesture(null)
+    setDraftShape(null)
+    setDraftShapes([])
+    setMarqueeBounds(null)
+    setNoteDraft(null)
+    setPendingDeleteIds([])
+    snapshotRef.current = migration.snapshot
+    historyRef.current.clear()
+    setHistoryVersion((value) => value + 1)
+    remoteSignatureRef.current = snapshotSignature(migration.snapshot)
+    viewRef.current = loadedView
+    setSnapshot(migration.snapshot)
+    setView(loadedView)
+    setStatus({
+      kind: 'saved',
+      text: readyMessage || (migration.changed ? '学习画布兼容迁移完成' : '学习画布已就绪')
+    })
+    if (migration.changed) await persistSnapshot(migration.snapshot, '学习画布兼容迁移完成')
+  }, [persistSnapshot])
+
   useEffect(() => {
     const controller = new AbortController()
     async function load() {
       try {
-        const loaded = await loadHardwareLearningCanvasState(controller.signal)
-        if (!loaded.snapshot) throw new Error('学习画布尚未初始化。')
-        const migration = migrateLegacyLearningFrames(loaded.snapshot)
-        const loadedPages = pageRecords(migration.snapshot)
-        const requestedPage = loaded.viewState?.currentPageId
-        const currentPageId = loadedPages.some((page) => page.id === requestedPage)
-          ? requestedPage
-          : loadedPages[0]?.id
-        const loadedView = {
-          version: 1,
-          currentPageId,
-          camera: normalizeCamera(loaded.viewState?.camera || DEFAULT_CAMERA)
+        setHardwareLearningStorageTarget(null)
+        try {
+          const catalog = await manageHardwareLearningCanvases('list')
+          if (catalog?.activeCanvas?.canvasDir) {
+            setHardwareLearningStorageTarget({
+              projectDir: catalog.projectDir,
+              canvasDir: catalog.activeCanvas.canvasDir
+            })
+          }
+          setCanvasCatalog(catalog)
+        } catch (catalogError) {
+          console.error(catalogError)
         }
-        snapshotRef.current = migration.snapshot
-        historyRef.current.clear()
-        remoteSignatureRef.current = snapshotSignature(migration.snapshot)
-        viewRef.current = loadedView
-        setSnapshot(migration.snapshot)
-        setView(loadedView)
-        setStatus({
-          kind: 'saved',
-          text: migration.changed ? '学习画布兼容迁移完成' : '学习画布已就绪'
-        })
-        if (migration.changed) await persistSnapshot(migration.snapshot, '学习画布兼容迁移完成')
+        const loaded = await loadHardwareLearningCanvasState(controller.signal)
+        await applyLoadedCanvasState(loaded)
       } catch (error) {
         if (error.name === 'AbortError') return
         console.error(error)
@@ -392,7 +431,7 @@ export default function HardwareLearningCanvas() {
     }
     load()
     return () => controller.abort()
-  }, [persistSnapshot])
+  }, [applyLoadedCanvasState])
 
   const ensureAssetSources = useCallback(async (targetPageId, { signal, strict = false, shapes } = {}) => {
     const currentSnapshot = snapshotRef.current
@@ -437,6 +476,7 @@ export default function HardwareLearningCanvas() {
 
   useEffect(() => {
     if (!snapshot || !pageId) return
+    if (switchingCanvasRef.current) return
     selectionRevisionRef.current += 1
     const payload = selectionState(snapshot, pageId, selectedIds, selectionRevisionRef.current)
     saveHardwareLearningSelectionState(payload).catch((error) => console.error(error))
@@ -444,6 +484,7 @@ export default function HardwareLearningCanvas() {
 
   useEffect(() => {
     if (!pageId) return
+    if (switchingCanvasRef.current) return
     const timer = window.setTimeout(() => {
       saveHardwareLearningViewState({
         version: 1,
@@ -459,6 +500,7 @@ export default function HardwareLearningCanvas() {
     if (!pageId) return
     let stopped = false
     async function refresh() {
+      if (switchingCanvasRef.current) return
       if (Date.now() - localMutationRef.current < 1200) return
       try {
         const remote = await refreshHardwareLearningCanvasSnapshot()
@@ -487,6 +529,7 @@ export default function HardwareLearningCanvas() {
   useEffect(() => {
     if (!pageId || !snapshot) return
     async function pollAnnotations() {
+      if (switchingCanvasRef.current) return
       if (annotationPollingRef.current) return
       annotationPollingRef.current = true
       try {
@@ -512,6 +555,13 @@ export default function HardwareLearningCanvas() {
   useEffect(() => {
     function keyDown(event) {
       if (isTextEditingTarget(event.target)) return
+      if (managementDialog) {
+        if (event.key === 'Escape' && !managementBusy) {
+          event.preventDefault()
+          setManagementDialog(null)
+        }
+        return
+      }
       if (pendingDeleteIds.length) {
         if (event.key === 'Escape') {
           event.preventDefault()
@@ -1374,6 +1424,123 @@ export default function HardwareLearningCanvas() {
     }
   }
 
+  function clearCanvasSurfaceForSwitch() {
+    snapshotRef.current = null
+    remoteSignatureRef.current = ''
+    const emptyView = { ...EMPTY_VIEW_STATE, camera: { ...EMPTY_VIEW_STATE.camera } }
+    viewRef.current = emptyView
+    assetSourcesRef.current = new Map()
+    historyRef.current.clear()
+    annotationPollingRef.current = false
+    setSnapshot(null)
+    setView(emptyView)
+    setAssetSources(new Map())
+    setSelectedIds([])
+    setGesture(null)
+    setDraftShape(null)
+    setDraftShapes([])
+    setMarqueeBounds(null)
+    setNoteDraft(null)
+    setPendingDeleteIds([])
+    setOpenMenu(null)
+  }
+
+  async function transitionCanvas(action, options, readyMessage) {
+    if (managementBusy) return
+    setManagementBusy(true)
+    setStatus({ kind: 'saving', text: '正在切换画板…' })
+    try {
+      await saveQueueRef.current.catch(() => undefined)
+      switchingCanvasRef.current = true
+      const catalog = await manageHardwareLearningCanvases(action, options)
+      clearCanvasSurfaceForSwitch()
+      setHardwareLearningStorageTarget({
+        projectDir: catalog.projectDir,
+        canvasDir: catalog.activeCanvas.canvasDir
+      })
+      setCanvasCatalog(catalog)
+      const loaded = await loadHardwareLearningCanvasState()
+      await applyLoadedCanvasState(loaded, readyMessage || `已切换到“${catalog.activeCanvas.name}”`)
+      setManagementDialog(null)
+    } catch (error) {
+      console.error(error)
+      setStatus({ kind: 'error', text: `画板操作失败：${error.message}` })
+    } finally {
+      switchingCanvasRef.current = false
+      setManagementBusy(false)
+    }
+  }
+
+  function openManagementDialog(kind, target = null) {
+    const defaults = {
+      'create-canvas': `画板 ${Math.max(2, (canvasCatalog?.canvases?.length || 1) + 1)}`,
+      'rename-canvas': target?.name || '',
+      'create-page': `图页 ${pages.length + 1}`,
+      'rename-page': target?.name || ''
+    }
+    setManagementName(defaults[kind] || '')
+    setManagementDialog({ kind, target })
+    setOpenMenu(null)
+  }
+
+  async function submitManagementDialog(event) {
+    event?.preventDefault()
+    if (!managementDialog || managementBusy) return
+    const { kind, target } = managementDialog
+    if (kind === 'create-canvas') {
+      await transitionCanvas('create', { name: managementName }, `已新建并切换到“${managementName.trim()}”`)
+      return
+    }
+    if (kind === 'delete-canvas') {
+      await transitionCanvas('recycle', { canvasId: target.id }, `“${target.name}”已移入项目回收目录`)
+      return
+    }
+    if (kind === 'rename-canvas') {
+      setManagementBusy(true)
+      try {
+        const catalog = await manageHardwareLearningCanvases('rename', { canvasId: target.id, name: managementName })
+        setCanvasCatalog(catalog)
+        setManagementDialog(null)
+        setStatus({ kind: 'saved', text: `画板已改名为“${managementName.trim()}”` })
+      } catch (error) {
+        console.error(error)
+        setStatus({ kind: 'error', text: `画板改名失败：${error.message}` })
+      } finally {
+        setManagementBusy(false)
+      }
+      return
+    }
+    if (kind === 'create-page') {
+      const result = createLearningPage(snapshotRef.current, managementName)
+      setSelectedIds([])
+      setViewState((current) => ({ ...current, currentPageId: result.page.id, camera: DEFAULT_CAMERA }))
+      await commitSnapshot(result.snapshot, { message: `已新建“${result.page.name}”` })
+      setManagementDialog(null)
+      return
+    }
+    if (kind === 'rename-page') {
+      const result = renameLearningPage(snapshotRef.current, target.id, managementName)
+      if (result.changed) await commitSnapshot(result.snapshot, { message: `图页已改名为“${result.page.name}”` })
+      setManagementDialog(null)
+      return
+    }
+    if (kind === 'delete-page') {
+      const result = deleteLearningPage(snapshotRef.current, target.id)
+      if (!result.deleted) {
+        setStatus({ kind: 'error', text: result.reason === 'last-page' ? '至少保留一个图页' : '图页不存在' })
+        setManagementDialog(null)
+        return
+      }
+      setSelectedIds([])
+      setViewState((current) => ({ ...current, currentPageId: result.nextPageId, camera: DEFAULT_CAMERA }))
+      await commitSnapshot(result.snapshot, {
+        message: `已删除“${target.name}”，可使用撤销恢复`,
+        acknowledgedImageShapeDeletes: result.acknowledgedImageShapeDeletes
+      })
+      setManagementDialog(null)
+    }
+  }
+
   const previewById = new Map(draftShapes.map((shape) => [shape.id, shape]))
   if (draftShape) previewById.set(draftShape.id, draftShape)
   const selectedShape = selectedIds.length === 1 ? snapshot?.store?.[selectedIds[0]] : null
@@ -1395,6 +1562,10 @@ export default function HardwareLearningCanvas() {
   const gridStep = Math.max(2, 28 * camera.z)
   const gridOriginX = ((camera.x % gridStep) + gridStep) % gridStep
   const gridOriginY = ((camera.y % gridStep) + gridStep) % gridStep
+  const managementNameMode = ['create-canvas', 'rename-canvas', 'create-page', 'rename-page'].includes(managementDialog?.kind)
+  const managementTargetImageCount = managementDialog?.kind === 'delete-page' && snapshot
+    ? shapesForPage(snapshot, managementDialog.target?.id).filter((shape) => shape.type === 'image').length
+    : 0
 
   return (
     <main className="learning-canvas-shell" data-engine="jlc-hardware-learning-canvas-v1">
@@ -1499,6 +1670,33 @@ export default function HardwareLearningCanvas() {
           )}
         </div>
 
+        {canvasCatalog?.canvases?.length > 0 && (
+          <>
+            <select
+              aria-label="切换画板"
+              className="jlc-learning-page-select jlc-learning-canvas-select"
+              data-testid="learning-canvas-select"
+              disabled={managementBusy}
+              onChange={(event) => transitionCanvas('activate', { canvasId: event.target.value })}
+              title={activeCanvas?.name || '切换画板'}
+              value={canvasCatalog.activeCanvasId}
+            >
+              {canvasCatalog.canvases.map((canvas) => <option key={canvas.id} value={canvas.id}>{canvas.name}</option>)}
+            </select>
+            <div className="jlc-learning-popover-anchor">
+              <MenuButton active={openMenu === 'canvases'} disabled={managementBusy} Icon={Plus} label="管理画板" onClick={() => setOpenMenu(openMenu === 'canvases' ? null : 'canvases')} testId="learning-canvas-menu" />
+              {openMenu === 'canvases' && (
+                <div className="jlc-learning-menu jlc-learning-menu-left" role="menu">
+                  <button data-testid="learning-create-canvas" onClick={() => openManagementDialog('create-canvas')} role="menuitem" type="button">新建画板</button>
+                  <button disabled={!activeCanvas} onClick={() => openManagementDialog('rename-canvas', activeCanvas)} role="menuitem" type="button">重命名当前画板</button>
+                  <button className="jlc-learning-danger-menu-item" disabled={!activeCanvas?.canDelete} onClick={() => openManagementDialog('delete-canvas', activeCanvas)} role="menuitem" type="button">移入回收目录</button>
+                </div>
+              )}
+            </div>
+            <span className="jlc-learning-control-separator" />
+          </>
+        )}
+
         <select
           aria-label="切换图页"
           className="jlc-learning-page-select"
@@ -1513,6 +1711,17 @@ export default function HardwareLearningCanvas() {
         >
           {pages.map((page, index) => <option key={page.id} value={page.id}>{page.name || `Page ${index + 1}`}</option>)}
         </select>
+
+        <div className="jlc-learning-popover-anchor">
+          <MenuButton active={openMenu === 'pages'} disabled={!snapshot || managementBusy} Icon={Plus} label="管理图页" onClick={() => setOpenMenu(openMenu === 'pages' ? null : 'pages')} testId="learning-page-menu" />
+          {openMenu === 'pages' && (
+            <div className="jlc-learning-menu jlc-learning-menu-left" role="menu">
+              <button data-testid="learning-create-page" disabled={!snapshot} onClick={() => openManagementDialog('create-page')} role="menuitem" type="button">新建图页</button>
+              <button disabled={!pageId} onClick={() => openManagementDialog('rename-page', snapshot?.store?.[pageId])} role="menuitem" type="button">重命名当前图页</button>
+              <button className="jlc-learning-danger-menu-item" disabled={pages.length <= 1} onClick={() => openManagementDialog('delete-page', snapshot?.store?.[pageId])} role="menuitem" type="button">删除当前图页…</button>
+            </div>
+          )}
+        </div>
 
         <span className="jlc-learning-control-separator" />
         <MenuButton disabled={!canUndo} Icon={Undo2} label="撤销" onClick={undo} testId="learning-undo" />
@@ -1604,7 +1813,7 @@ export default function HardwareLearningCanvas() {
         </label>
         <StyleOptions label="填充" onChange={(fill) => applyStyle({ fill })} options={FILL_OPTIONS} value={panelStyle.fill} />
         <StyleOptions label="线条" onChange={(dash) => applyStyle({ dash })} options={DASH_OPTIONS} value={panelStyle.dash} />
-        <StyleOptions label="大小" onChange={(size) => applyStyle({ size })} options={SIZE_OPTIONS} value={panelStyle.size} />
+        <StyleOptions label="字号（13 / 15 / 20 / 28）" onChange={(size) => applyStyle({ size })} options={SIZE_OPTIONS} value={panelStyle.size} />
       </aside>
 
       <nav aria-label="学习画布工具" className="jlc-learning-bottom-toolbar">
@@ -1651,6 +1860,66 @@ export default function HardwareLearningCanvas() {
             })}
             {viewportBounds && <rect fill="none" height={viewportBounds.h} stroke="#2563eb" strokeWidth={Math.max(2, contentBounds.w / 160)} width={viewportBounds.w} x={viewportBounds.x} y={viewportBounds.y} />}
           </svg>
+        </div>
+      )}
+
+      {managementDialog && (
+        <div
+          className="learning-confirm-backdrop"
+          data-testid="learning-management-dialog-backdrop"
+          onPointerDown={(event) => {
+            if (event.target === event.currentTarget && !managementBusy) setManagementDialog(null)
+          }}
+        >
+          <form
+            aria-modal="true"
+            className="learning-confirm-dialog learning-management-dialog"
+            data-testid="learning-management-dialog"
+            onSubmit={submitManagementDialog}
+            role={managementNameMode ? 'dialog' : 'alertdialog'}
+          >
+            <h2>{({
+              'create-canvas': '新建画板',
+              'rename-canvas': '重命名画板',
+              'delete-canvas': '将画板移入回收目录？',
+              'create-page': '新建图页',
+              'rename-page': '重命名图页',
+              'delete-page': '删除当前图页？'
+            })[managementDialog.kind]}</h2>
+            {managementNameMode ? (
+              <label className="learning-management-name">
+                <span>名称</span>
+                <input
+                  autoFocus
+                  data-testid="learning-management-name"
+                  maxLength={64}
+                  onChange={(event) => setManagementName(event.target.value)}
+                  value={managementName}
+                />
+              </label>
+            ) : managementDialog.kind === 'delete-canvas' ? (
+              <p>
+                “{managementDialog.target?.name}”的独立目录会移动到项目内 <code>canvases/.trash</code>，不会删除默认画板，也不会修改嘉立创 EDA 工程。
+              </p>
+            ) : (
+              <p>
+                将删除“{managementDialog.target?.name}”及其中全部内容
+                {managementTargetImageCount > 0 ? `（含 ${managementTargetImageCount} 张原理图）` : ''}。
+                不会修改嘉立创 EDA 工程；本次会进入画布撤销历史。
+              </p>
+            )}
+            <div className="learning-confirm-actions">
+              <button disabled={managementBusy} onClick={() => setManagementDialog(null)} type="button">取消</button>
+              <button
+                className={!managementNameMode ? 'is-danger' : undefined}
+                data-testid="learning-management-confirm"
+                disabled={managementBusy || (managementNameMode && !managementName.trim())}
+                type="submit"
+              >
+                {managementBusy ? '处理中…' : managementDialog.kind === 'delete-canvas' ? '移入回收目录' : managementDialog.kind === 'delete-page' ? '删除图页' : '确定'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

@@ -13,6 +13,7 @@ const TOOL_DOWNLOAD_FILE = 'download_hardware_learning_file'
 const TOOL_COPY_IMAGE_TO_CLIPBOARD = 'copy_hardware_learning_image_to_clipboard'
 const TOOL_INSERT_HTML_DRAFT = 'insert_hardware_learning_html_draft'
 const TOOL_INSERT_LEARNING_ANNOTATIONS = 'insert_hardware_learning_annotations'
+const TOOL_MANAGE_CANVASES = 'manage_hardware_learning_canvases'
 const WIDGET_PAYLOAD_TIMEOUT_MS = 5000
 // Keep each JSON-RPC tool request comfortably below host message limits. The
 // decoded chunk is 36 KiB and the base64 field is 48 KiB before JSON overhead.
@@ -21,6 +22,8 @@ const DOWNLOAD_TOOL_TIMEOUT_MS = 45_000
 const DOWNLOAD_TOOL_MAX_ATTEMPTS = 2
 
 globalThis.__JLC_HARDWARE_LEARNING_WIDGET_FETCH_GUARD__ = true
+
+let activeStorageTarget = null
 
 export const IS_JLC_HARDWARE_LEARNING_WIDGET_BUILD =
   typeof __JLC_HARDWARE_LEARNING_WIDGET_BUILD__ !== 'undefined' && __JLC_HARDWARE_LEARNING_WIDGET_BUILD__
@@ -37,16 +40,27 @@ function currentWidgetPayload() {
 
 function hasWidgetStorageTarget() {
   const payload = currentWidgetPayload()
-  return Boolean(payload.projectDir || payload.canvasDir)
+  return Boolean(activeStorageTarget?.projectDir || activeStorageTarget?.canvasDir || payload.projectDir || payload.canvasDir)
 }
 
 function serverToolArgs(extra = {}) {
   const payload = currentWidgetPayload()
   return removeUndefined({
-    projectDir: payload.projectDir,
-    canvasDir: payload.canvasDir,
+    projectDir: activeStorageTarget?.projectDir || payload.projectDir,
+    canvasDir: activeStorageTarget?.canvasDir || payload.canvasDir,
     ...extra
   })
+}
+
+export function setHardwareLearningStorageTarget(target = null) {
+  activeStorageTarget = target
+    ? removeUndefined({ projectDir: target.projectDir, canvasDir: target.canvasDir })
+    : null
+  return activeStorageTarget
+}
+
+export function getHardwareLearningStorageTarget() {
+  return activeStorageTarget ? { ...activeStorageTarget } : null
 }
 
 function removeUndefined(value) {
@@ -127,6 +141,8 @@ export async function loadHardwareLearningCanvasState(signal) {
       { signal }
     )
     return {
+      projectDir: state.projectDir,
+      canvasDir: state.canvasDir,
       snapshot: state.snapshot,
       viewState: state.viewState ?? null,
       storage: state.storage,
@@ -144,6 +160,19 @@ export async function loadHardwareLearningCanvasState(signal) {
     storage: canvasData.storage,
     skippedRecords: []
   }
+}
+
+export async function manageHardwareLearningCanvases(action = 'list', options = {}) {
+  if (!hasHardwareLearningWidgetBridge()) {
+    throw new Error('当前预览环境不支持多个项目画板；请在 Codex 画板中使用。')
+  }
+  const result = await callHardwareLearningServerTool(TOOL_MANAGE_CANVASES, {
+    canvasDir: undefined,
+    action,
+    canvasId: options.canvasId,
+    name: options.name
+  })
+  return result
 }
 
 export async function refreshHardwareLearningCanvasSnapshot(signal) {

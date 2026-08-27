@@ -11,6 +11,7 @@ const SELECTION_FILE_NAME = "hardware-learning-selection.json";
 const LEGACY_SELECTION_FILE_NAME = "cowart-selection.json";
 const VIEW_STATE_FILE_NAME = "hardware-learning-view-state.json";
 const LEGACY_VIEW_STATE_FILE_NAME = "cowart-view-state.json";
+const activeCanvasDirs = new Map();
 
 const mimeTypes = new Map([
   [".apng", "image/apng"],
@@ -33,6 +34,17 @@ export function pathResolve(value) {
   return resolve(String(value));
 }
 
+export function setActiveHardwareLearningCanvasDir(projectDirValue, canvasDirValue) {
+  const projectDir = pathResolve(projectDirValue);
+  const canvasDir = pathResolve(canvasDirValue);
+  activeCanvasDirs.set(projectDir, canvasDir);
+  return { projectDir, canvasDir };
+}
+
+export function clearActiveHardwareLearningCanvasDir(projectDirValue) {
+  activeCanvasDirs.delete(pathResolve(projectDirValue));
+}
+
 export function resolveHardwareLearningPaths(args = {}) {
   const explicitProjectDir = nonEmptyString(args.projectDir);
   const explicitCanvasDir = nonEmptyString(args.canvasDir);
@@ -48,7 +60,7 @@ export function resolveHardwareLearningPaths(args = {}) {
     ? pathResolve(explicitCanvasDir)
     : envCanvasDir
       ? pathResolve(envCanvasDir)
-      : join(projectDir, "canvas");
+      : activeCanvasDirs.get(projectDir) || join(projectDir, "canvas");
 
   return { projectDir, canvasDir };
 }
@@ -79,6 +91,18 @@ export function pageDirName(pageId) {
 
 export function pageAssetUrl(pageId, fileName) {
   return `${PAGE_ASSETS_ROUTE}${pageDirName(pageId)}/${encodeURIComponent(fileName)}`;
+}
+
+export function resolveHardwareLearningPageDir(args = {}, pageId) {
+  const normalizedPageId = nonEmptyString(pageId);
+  if (!normalizedPageId?.startsWith(PAGE_ID_PREFIX)) {
+    throw new Error("pageId must be a non-empty JLC Hardware Learning page id.");
+  }
+  return join(resolveCanvasDir(args), "pages", pageDirName(normalizedPageId));
+}
+
+export function resolveHardwareLearningPageFile(args = {}, pageId) {
+  return join(resolveHardwareLearningPageDir(args, pageId), CANVAS_FILE_NAME);
 }
 
 function canvasFile(args = {}) {

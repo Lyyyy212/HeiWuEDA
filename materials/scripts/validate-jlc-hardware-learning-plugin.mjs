@@ -97,6 +97,18 @@ const expected = [
   "copy_hardware_learning_image_to_clipboard",
   "save_hardware_learning_question",
   "insert_hardware_learning_annotations",
+  "manage_hardware_learning_canvases",
+  "attach_hardware_learning_page_netlist",
+  "read_hardware_learning_page_netlist",
+  "get_feishu_learning_note_state",
+  "update_feishu_learning_note_state",
+  "inspect_feishu_learning_note_target",
+  "preview_feishu_learning_note_migration",
+  "execute_feishu_learning_note_migration",
+  "link_feishu_learning_dialogue_from_record",
+  "bind_feishu_page_identity_from_learning_evidence",
+  "preview_feishu_learning_note_sync",
+  "execute_feishu_learning_note_sync",
 ];
 assert.deepEqual([...names].sort(), [...expected].sort());
 assert.ok(!names.some((name) => /cowart|analytics|html_draft/iu.test(name)));

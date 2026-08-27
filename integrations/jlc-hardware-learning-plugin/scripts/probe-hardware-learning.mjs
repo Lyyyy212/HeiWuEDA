@@ -78,8 +78,10 @@ const learningShapeSource = await readFile(
   new URL("../src/learning-canvas/LearningShape.jsx", import.meta.url),
   "utf8",
 );
-assert.match(modelSource, /fontSize: 26, lineHeight: 36/);
-assert.match(modelSource, /fontSize: 56, lineHeight: 72/);
+assert.match(modelSource, /fontSize: 13, lineHeight: 18/);
+assert.match(modelSource, /fontSize: 28, lineHeight: 36/);
+assert.match(modelSource, /LEARNING_TEXT_METRICS_VERSION = 3/);
+assert.match(learningCanvasSource, /字号（13 \/ 15 \/ 20 \/ 28）/);
 assert.match(modelSource, /MAX_CAMERA_ZOOM = 4/);
 assert.match(modelSource, /MIN_CAMERA_ZOOM = 0\.08/);
 assert.match(modelSource, /export function shapeIntersectsViewport/);
@@ -134,7 +136,18 @@ assert.match(serverSource, /shapeMeta\.evidenceSource = evidenceSource/);
 assert.match(serverSource, /does not match the admitted evidenceSource/);
 assert.match(serverSource, /TOOL_SAVE_LEARNING_QUESTION[\s\S]*?visibility: \["model", "app"\]/);
 assert.match(serverSource, /buildConversationLearningQuestion/);
-assert.match(serverSource, /await ensureHardwareLearningCanvasState\(input\)/);
+assert.match(serverSource, /await ensureHardwareLearningCanvasState\(\{ \.\.\.input, projectDir, canvasDir \}\)/);
+assert.match(serverSource, /TOOL_MANAGE_CANVASES/);
+assert.match(serverSource, /recycleHardwareLearningCanvas/);
+
+const catalogSource = await readFile(
+  new URL("../mcp/lib/canvas-catalog.mjs", import.meta.url),
+  "utf8",
+);
+assert.match(catalogSource, /join\(projectDir, "canvases"\)/);
+assert.match(catalogSource, /\.trash/);
+assert.match(catalogSource, /DEFAULT_CANVAS_ID = "default"/);
+assert.match(catalogSource, /CANVAS_ID_PATTERN/);
 
 const selectionStorageSource = await readFile(
   new URL("../mcp/lib/canvas-storage.mjs", import.meta.url),

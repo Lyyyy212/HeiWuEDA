@@ -1,6 +1,6 @@
 {
   "schemaVersion": "easyeda.github-public-release.v1",
-  "generatedAt": "2026-08-27T20:02:21.6186583+08:00",
+  "generatedAt": "2026-08-27T20:25:44.1776122+08:00",
   "publisher": "Lyyyy",
   "product": "ZhiYuanEDA",
   "license": "PolyForm-Noncommercial-1.0.0",
@@ -104,14 +104,25 @@
     "evidence/**",
     "backups/**",
     ".runtime/**",
-    ".easyeda-hardware-workbench/**"
+    ".easyeda-hardware-workbench/**",
+    "integrations/jlc-hardware-learning-plugin/docs/evidence/**"
   ],
   "components": [
     {
       "path": "integrations/jlc-hardware-learning-plugin",
-      "sourceCommit": "c811392e5c00f8c9b0e2c07efcc7fd41df209840",
-      "copiedTrackedFiles": 64,
-      "historyIncluded": false
+      "version": "0.1.6",
+      "sourceCommit": "6f8b9e0116eed82140edd71326ca0acc16aa2c75",
+      "copiedTrackedFiles": 93,
+      "historyIncluded": false,
+      "excludedTrackedFiles": [
+        "docs/evidence/feishu-compact-migration-2026-08-27.md"
+      ],
+      "sanitization": {
+        "testFixtureFiles": 11,
+        "feishuTenantUrls": "example.feishu.cn",
+        "liveTokensIncluded": false,
+        "liveProjectOrPageIdsIncluded": false
+      }
     },
     {
       "path": "integrations/zhiyuaneda-gateway",
