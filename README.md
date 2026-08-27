@@ -5,77 +5,153 @@
 ![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange.svg)](LICENSE)
 
-> 面向嘉立创EDA专业版的受控硬件设计工作台：连接官方 EasyEDA API，组织硬件生命周期，并把每次操作沉淀为可复核证据。
+> 面向嘉立创EDA专业版的模块化硬件工作台，围绕“硬件设计全生命周期”和“硬件学习与知识沉淀”两条核心链路组织功能。
 
-`ZhiYuanEDA` 由个人开发者 **Lyyyy** 独立开发。项目使用官方 EasyEDA API，
+`ZhiYuanEDA` 由个人开发者 **Lyyyy** 独立开发。项目连接官方 EasyEDA API，
 但不是嘉立创EDA官方产品，也不代表嘉立创或 EasyEDA 的认可与背书。
 
-本仓库是面向 GitHub 的公开源码版本，不包含本地工程、现场证据、备份、账号信息、
-访问凭据或 EasyEDA 项目数据。原创部分依据
-[PolyForm Noncommercial 1.0.0](LICENSE) 提供，**禁止商业使用，也不提供商业授权**。
+本仓库是面向 GitHub 的公开源码版本，不包含真实工程、现场证据、账号信息、访问凭据或
+EasyEDA 项目数据。原创部分依据 [PolyForm Noncommercial 1.0.0](LICENSE) 提供，
+**禁止商业使用，也不提供商业授权**。
 
-## 它解决什么问题
+## 项目组成
 
-直接调用 EDA API 很容易把“读到了数据”“切换了页面”“导出成功”和“设计可以投产”混为一谈。
-ZhiYuanEDA 在官方 Bridge 与上层工作流之间增加身份绑定、能力白名单、证据封存和写入授权：
+ZhiYuanEDA 不是一个单独的 API 脚本，而是一组职责隔离、通过明确契约协作的模块：
 
-| 能力 | ZhiYuanEDA 的处理方式 |
-| --- | --- |
-| API 调用 | 只允许锁定清单中的官方 `eda.*` 方法，不向业务模块开放任意 JavaScript |
-| 页面切换 | 按工程、文档和页面 UUID 精确导航；不保存设计；遍历结束恢复原页面 |
-| 原理图审查 | 快照、DRC、BOM、网表、PDF、EPRO 分开执行并交叉核对 |
-| PCB 检查 | 设计报告、固定源码版本的 18 项 DFM、制造 SVG、GenCAD 与装配 BOM |
-| BOM 回填 | 只允许四个采购字段，并要求独立授权、验收报告和写后回读 |
-| 证据留存 | 为请求、响应、目标窗口、Bridge 身份和产物记录 SHA-256 |
-| 硬件学习 | 本地画板、结构化问答和 MCP 集成，与 EDA 持久写入隔离 |
+| 模块 | 位置 | 主要功能 | 服务链路 |
+| --- | --- | --- | --- |
+| API 契约与注册表 | `easyeda_gateway/contract.py`、`api-manifest.json` | 锁定官方方法 ID、签名、枚举和风险等级；拒绝未知 API | 两条链路共享 |
+| Bridge 客户端与窗口守卫 | `client.py`、`window_guard.py`、`executor.py` | 自动发现本地 Bridge、验证 `easyeda-bridge` 握手、绑定窗口/工程/文档身份 | 两条链路共享 |
+| 页面与板级文档导航 | `page_navigator.py`、`board_navigator.py` | 列出页面、按 UUID 精确切换、跨页遍历并恢复原页；不保存设计 | 两条链路共享 |
+| 原理图读取与证据 | `composite.py`、`exporter.py`、`formal_exporter.py`、`drc.py` | 元件/引脚/网络/拓扑读取，PNG/PDF、BOM、网表、EPRO、DRC 和证据包 | 设计链；为学习链供证 |
+| PCB 分析与制造数据 | `official_plugins.py`、`ibom.py` | PCB 设计报告、18 项 DFM、制造 SVG、GenCAD 1.4、交互装配 BOM | 设计链 |
+| BOM 与器件工具 | `bom.py`、`device_match.py`、`intelligence.py` | BOM 差异、器件候选评分、连接关系分析；候选结果不自动绑定器件 | 设计链；为学习链供证 |
+| 导出安全与证据归档 | `export_safety.py`、`artifact_io.py`、`consistency.py`、`evidence_archive.py` | 能力矩阵、单飞熔断、不可覆盖落盘、跨产物一致性、SHA-256 归档 | 两条链路共享 |
+| 生命周期编排器 | `skills/easyeda-hardware-lifecycle/` | 管理阶段、产物、门禁、失效传播和受控推进 | 设计链主控 |
+| 学习编排模块 | `hwlifecycle/learning/` | 视觉导入路由、选区问题、证据请求、导师回答、会话恢复和笔记包 | 学习链主控 |
+| 硬件学习画板插件 | `integrations/jlc-hardware-learning-plugin/` | 多图页画布、框选、箭头/文字/自由笔、教学标注、本地状态与导出 | 学习链交互层 |
+| API 材料与来源锁 | `materials/` | API 类型、JSON Schema、示例索引、固定 commit 的上游源码和许可证 | 两条链路共享 |
+| 发布与质量检查 | `.github/workflows/`、`scripts/release/` | 单元测试、契约校验、插件探测、wheel 许可证检查和公开包净化 | 发布链路 |
 
-## 架构
-
-```mermaid
-flowchart LR
-    U[用户 / AI Agent] --> L[硬件生命周期]
-    U --> C[硬件学习画板]
-    C --> L
-    L --> G[Guarded Gateway]
-    G --> B[官方 EasyEDA Bridge]
-    B --> E[嘉立创EDA专业版]
-    G --> A[本地证据与归档]
-    L --> A
-```
-
-- [`packages/easyeda-gateway/`](packages/easyeda-gateway/)：受控的 EasyEDA Bridge/API 适配层。
-- [`skills/easyeda-hardware-lifecycle/`](skills/easyeda-hardware-lifecycle/)：从概念到 BOM 回填的五阶段硬件工作流。
-- [`integrations/jlc-hardware-learning-plugin/`](integrations/jlc-hardware-learning-plugin/)：本地硬件学习画板和 MCP 集成。
-- [`materials/`](materials/)：API 清单、契约、来源锁及固定版本的上游参考源码。
-
-## 当前能力
-
-| 分类 | 已实现能力 | 状态与边界 |
-| --- | --- | --- |
-| 连接与身份 | 自动发现 `49620-49629`、Bridge 握手、窗口与工程/文档身份核对 | 可用；只连接 `localhost` / `127.0.0.1` |
-| 页面导航 | 列出原理图页、精确切页、逐页遍历、列出/激活板级文档 | 可用；临时 UI 状态，不保存设计 |
-| 原理图读取 | 元件、引脚、网络、连接拓扑、分组 BOM | 可用；网表失败时明确降级 |
-| 正式证据 | whole-schematic PNG/PDF、BOM CSV、JLCEDA 网表、EPRO、严格 DRC | 按能力矩阵受控放行 |
-| PCB 分析 | 设计统计、网络长度、DRC 规则组摘要 | 只读 |
-| PCB 制造数据 | 18 项 DFM、分层制造 SVG、GenCAD 1.4 | 可用；检查通过不等于投产批准 |
-| BOM 工具 | CSV/TSV/TXT/JSON 差异、自包含 `assembly-lite.v1` HTML BOM | 可用；HTML BOM 不是完整几何复刻 |
-| 器件建议 | 官方器件库搜索和 100/85/60 评分 dry-run | 只给建议，不绑定、不改字段、不保存 |
-| EPRO 图像 | 从 EPRO 生成审查图片 | `DISABLED_BY_POLICY`；EPRO 仅用于归档 |
-
-完整命令和每项限制见
+底层 Python Gateway 的完整类与命令见
 [`packages/easyeda-gateway/README.md`](packages/easyeda-gateway/README.md)。
 
-## 环境要求
+## 两大核心链路
 
-- Python 3.11+
-- Node.js 18+（仅硬件学习插件、构建与完整质量检查需要）
-- 嘉立创EDA专业版
-- 官方 [Run API Gateway](https://jlc-ext.com/item/oshwhub/run-api-gateway) 扩展
-- 启动本地 Bridge 时，需要官方 `easyeda-api` Skill 的 Node.js 依赖
+```mermaid
+flowchart TB
+    EDA[嘉立创EDA专业版] <--> G[Guarded Gateway<br/>官方 API、身份守卫、证据封存]
+
+    subgraph D[链路一：硬件设计全生命周期]
+        D1[需求与系统架构] --> D2[模块设计]
+        D2 --> D3[原理图审查]
+        D3 --> D4[BOM 选型]
+        D4 --> D5[受控 BOM 回填]
+    end
+
+    subgraph L[链路二：硬件学习与知识沉淀]
+        L1[导入官方证据] --> L2[画板选区与提问]
+        L2 --> L3[证据驱动讲解]
+        L3 --> L4[教学标注]
+        L4 --> L5[会话恢复与学习笔记]
+    end
+
+    G --> D3
+    G --> L1
+    D3 --> EV[可复核证据]
+    EV --> L1
+    L5 -.学习结论只形成建议，不直接修改设计.-> D2
+```
+
+### 链路一：硬件设计全生命周期
+
+这条链路把硬件开发拆成五个可追踪阶段。每一阶段都必须提交结构化产物并通过门禁，
+不能仅凭对话中的一句“完成了”直接进入下一阶段。
+
+| 阶段 | 主要功能 | 核心产物与门禁 |
+| --- | --- | --- |
+| `concept` | 梳理需求、优先级、系统分区、电源域、接口、方案备选和验证策略 | 需求必须可测量、有负责人；架构和验证覆盖完整 |
+| `module_design` | 为每个模块定义用途、输入输出、电气约束、接口、计算、实现选项和验证计划 | 模块与接口必须互相引用一致，约束必须显式 |
+| `schematic_review` | 绑定当前工程/图页，采集原理图、BOM、网表、PDF/EPRO、DRC，分析连接和风险 | 报告必须绑定当前快照；P0/P1 问题关闭后才能放行 |
+| `bom_selection` | 核对 MPN、封装、规格、生命周期、库存、价格和替代料，形成最终 BOM | 不允许歧义/未匹配项；关键器件要有替代料；最终 BOM 固化摘要 |
+| `bom_writeback` | 冻结 BOM、生成计划、做可恢复验收、刷新计划、授权保存、写后回读 | 只写四个采购字段；必须验证受保护字段、连接关系和 DRC 未受损 |
+
+设计链的主要能力还包括：
+
+- 原理图页和板级文档按 UUID 导航，跨页采集后恢复原页面。
+- 原理图元件、引脚、网络、连接拓扑和分组 BOM 分析。
+- whole-schematic PNG/PDF、BOM CSV、JLCEDA 网表、EPRO 与严格 DRC 证据包。
+- PCB 元件/焊盘/过孔/走线统计、网络长度和规则组摘要。
+- 固定源码版本的 18 项 PCB DFM、分层制造 SVG、GenCAD 1.4 与装配 BOM。
+- 器件标准化 dry-run：只输出候选和评分，不绑定、不修改、不保存。
+- 上游需求、接口、封装或选型变化时，自动使受影响阶段及下游结论失效。
+
+设计链的数据流：
+
+```text
+需求与约束
+  -> 系统架构
+  -> 模块接口与计算
+  -> UUID 绑定的原理图/PCB 证据
+  -> 审查结论与整改门禁
+  -> 可采购的最终 BOM
+  -> 显式授权的四字段回填
+  -> 保存后回读与一致性确认
+```
+
+### 链路二：硬件学习与知识沉淀
+
+这条链路把 EasyEDA 中的设计转成可框选、可提问、可解释、可恢复的学习材料。
+画板负责表达“我在问哪里”，生命周期层负责取得证据和组织回答，两者不会绕过 Gateway。
+
+| 环节 | 主要功能 | 输出 |
+| --- | --- | --- |
+| 官方证据导入 | 从已封存的官方 PDF 渲染高清逐页 PNG；也支持显式选择原生 PNG 路线 | 带工程/文档身份、主题和 SHA-256 的页面素材 |
+| 画板组织 | 多图页管理、底图锁定、框选、多选、缩放、小地图、矩形、箭头、自由笔和文字 | 本地画板状态、选区和视图状态 |
+| 选区提问 | 保留画板 shape ID、图片资产、选区范围和 EasyEDA document UUID | `LearningQuestion` / `SelectionEnvelope` |
+| 证据补充 | 按问题读取图元、网络、器件属性、BOM 或数据手册证据 | 归一化 `LearningContext` |
+| 硬件导师 | 解释电源路径、信号链、器件用途、连接拓扑、BOM 选择和设计风险 | 区分证据、推断、未知项和安全提示的 `TutorAnswer` |
+| 教学标注 | 把简短结论写成普通文本、矩形、高亮或箭头 | 幂等画板标注，不修改 EasyEDA |
+| 知识沉淀 | 保存问题、回答、会话和画板；导出 PNG/SVG/JSON；生成结构化学习笔记包 | 可恢复会话和可迁移学习笔记 |
+
+学习链当前支持六类问题路由：
+
+- `explain-selection`：框选电路在做什么。
+- `trace-signal`：信号从哪里来、到哪里去。
+- `explain-component`：芯片、阻容和外围器件为什么这样选择。
+- `power-path`：电源如何变换、分配和去耦。
+- `review-concept`：当前设计思路可能存在哪些风险。
+- `compare-options`：两种器件或电路方案的差异与取舍。
+
+学习链的数据流：
+
+```text
+官方 EasyEDA 证据
+  -> 本地高清页面素材
+  -> 画板选区与自然语言问题
+  -> UUID 绑定的补充证据
+  -> 硬件导师解释
+  -> 文本/矩形/高亮/箭头标注
+  -> 会话恢复、PNG/SVG/JSON 和学习笔记包
+```
+
+学习模式明确禁用图片生成、按标注改图、遥测、隐式切页、跨页证据混合和 EasyEDA 持久写入。
+学习结论如果要变成设计修改，必须重新进入设计链，形成正式产物并通过对应门禁。
+
+## 两条链路如何协同
+
+| 共享能力 | 设计链中的作用 | 学习链中的作用 |
+| --- | --- | --- |
+| API Registry | 约束审查、导出和写回所需的官方方法 | 约束学习证据读取方法 |
+| 身份守卫 | 防止对错误工程、页面或 PCB 操作 | 防止图片、选区和讲解上下文错页 |
+| 页面导航 | 多图页审查和跨页证据采集 | 为指定页面准备官方证据；不隐式切页 |
+| 证据封存 | 支撑审查、BOM、DRC 和发布门禁 | 支撑可追溯的硬件讲解 |
+| BOM/网表/拓扑 | 支撑设计判断和器件决策 | 支撑器件解释、信号追踪和方案比较 |
+| 生命周期状态 | 决定当前可推进的设计阶段 | 保存学习会话与设计上下文的关联 |
 
 ## 快速开始
 
-### 1. 克隆并安装 Gateway
+### 安装 Gateway
 
 仓库包含固定 commit 的上游 Git submodule，请递归克隆：
 
@@ -86,15 +162,10 @@ python -m pip install ./packages/easyeda-gateway
 python -m easyeda_gateway --version
 ```
 
-如果已经普通克隆：
+环境要求：Python 3.11+、Node.js 18+、嘉立创EDA专业版，以及官方
+[Run API Gateway](https://jlc-ext.com/item/oshwhub/run-api-gateway) 扩展。
 
-```bash
-git submodule update --init --recursive
-```
-
-### 2. 连接嘉立创EDA
-
-在嘉立创EDA专业版中安装并启用官方 Run API Gateway，允许外部交互，然后执行：
+### 连接并确认身份
 
 ```bash
 python skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py start-bridge
@@ -103,62 +174,10 @@ python skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py windows
 python skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py export-capabilities
 ```
 
-`discover` 会验证服务标识为 `easyeda-bridge`。`windows` 用于取得后续命令必须绑定的
-工程 UUID、当前文档 UUID 和窗口信息。
+`discover` 会扫描 `49620-49629` 并验证服务标识为 `easyeda-bridge`；`windows` 返回后续操作
+需要绑定的窗口、工程 UUID 和当前文档 UUID。
 
-### 3. 列出并切换原理图页面
-
-先保留 `windows` 返回的当前工程和当前原理图页 UUID：
-
-```bash
-python skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py schematic-pages --project-uuid <project-uuid> --document-uuid <origin-page-uuid> --evidence-dir evidence/page-navigation
-
-python skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py schematic-page-activate --page-uuid <target-page-uuid> --project-uuid <project-uuid> --document-uuid <origin-page-uuid> --evidence-dir evidence/page-navigation
-```
-
-需要逐页采集时，使用会在结束后恢复原页面的遍历命令：
-
-```bash
-python skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py schematic-page-traverse --project-uuid <project-uuid> --document-uuid <origin-page-uuid> --evidence-dir evidence/page-navigation
-```
-
-页面激活不会调用保存。单独使用 `schematic-page-activate` 后，如需返回原页，应把当前目标页
-作为 `--document-uuid` 身份守卫，再把原页传给 `--page-uuid`；不要把当前 UI 页面当成持久工程状态。
-
-### 4. 生成审查证据
-
-原理图证据包会串行执行 PDF、BOM、网表、EPRO 和 DRC，并在本地做一致性检查：
-
-```bash
-python skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py schematic-evidence-bundle --project-uuid <project-uuid> --document-uuid <schematic-uuid> --evidence-dir evidence/schematic
-```
-
-常用 PCB 只读检查与导出：
-
-```bash
-python skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py pcb-report --project-uuid <project-uuid> --document-uuid <pcb-uuid>
-
-python skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py pcb-dfm-report --material FR4 --thickness-mm 1.6 --project-uuid <project-uuid> --document-uuid <pcb-uuid>
-
-python skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py pcb-manufacturing-svg-export --project-uuid <project-uuid> --document-uuid <pcb-uuid>
-
-python skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py pcb-gencad-export --project-uuid <project-uuid> --document-uuid <pcb-uuid>
-
-python skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py ibom-export --project-uuid <project-uuid> --document-uuid <pcb-uuid>
-```
-
-每次 Bridge 请求只执行一个官方调用。若 HTTP 超时，网关不会自动重试，因为 EDA 内部操作
-可能仍在继续；请先核对当前页面、导出目录和熔断器状态。
-
-## 硬件生命周期
-
-工作流包含五个显式阶段：
-
-```text
-concept -> module_design -> schematic_review -> bom_selection -> bom_writeback
-```
-
-初始化一个独立工程：
+### 初始化设计链
 
 ```bash
 python skills/easyeda-hardware-lifecycle/scripts/workbench.py init --project <project-directory> --name demo
@@ -166,17 +185,7 @@ python skills/easyeda-hardware-lifecycle/scripts/workbench.py scaffold --project
 python skills/easyeda-hardware-lifecycle/scripts/workbench.py status --project <project-directory>
 ```
 
-阶段推进依赖可核验产物，而不是只修改一个状态值。BOM 持久回填是单独的受控步骤，当前只允许：
-
-- `Manufacturer`
-- `Manufacturer Part`
-- `Supplier`
-- `Supplier Part`
-
-## 硬件学习插件
-
-学习插件提供本地画板、结构化提问、批注与证据引用，并通过 MCP 与工作台交互。
-它不会因为画板操作而自动保存 EasyEDA 设计。
+### 启动学习画板开发环境
 
 ```bash
 cd integrations/jlc-hardware-learning-plugin
@@ -185,26 +194,29 @@ npm run quality
 npm run dev
 ```
 
-插件说明见
+学习插件的安装、数据目录和开发说明见
 [`integrations/jlc-hardware-learning-plugin/README.md`](integrations/jlc-hardware-learning-plugin/README.md)。
 
-## 官方扩展能力移植
+## 安全边界
 
-以下能力基于固定 commit 的官方 EasyEDA 扩展源码进行受控适配，而不是直接执行未经约束的上游 UI：
+- 默认只读；所有实时操作都应绑定明确的工程和文档 UUID。
+- 页面切换属于 `EPHEMERAL_NAVIGATION`，不保存、不关闭页面，也不修改文档内容。
+- 普通业务模块不能提交任意 JavaScript，只能使用锁定的官方方法或固定模板。
+- BOM 持久回填只允许 `Manufacturer`、`Manufacturer Part`、`Supplier`、`Supplier Part`。
+- Bridge 超时不自动重试；EDA 内部操作可能在 HTTP 超时后仍继续执行。
+- 未完成资格验证的导出组合会在调用前拒绝；EPRO 图像路线为 `DISABLED_BY_POLICY`。
+- DRC 零错误、DFM 通过、导出成功或证据一致都不等于可制造性和量产批准。
 
-| 上游扩展 | 本地能力 |
-| --- | --- |
-| `eext-netlist-explorer` | 原理图网表与拓扑分析 |
-| `eext-export-design-report` | PCB 设计报告 |
-| `eext-bom-compare` | BOM 规范化与逐位号差异 |
-| `eext-interactive-html-bom` | 轻量交互装配 BOM |
-| `eext-jlc-order-dfm-checker` | 固定 18 项 PCB DFM |
-| `eext-export-pcb-to-svg` | 分层制造 SVG |
-| `eext-export-gencad` | GenCAD 1.4 |
-| `eext-ai-device-standardization` | 器件匹配 dry-run |
-| `easyeda-api-skill` | 本地 Bridge 与服务握手 |
+发现安全问题时请遵循 [`SECURITY.md`](SECURITY.md)，不要在公开 Issue 中上传真实工程、
+UUID、BOM、网表、截图、Bridge 日志、凭据或本地绝对路径。
 
-每个仓库的锁定 commit、参考文件、许可证和移植边界见
+## 上游能力移植
+
+已受控适配的固定源码来源包括 Netlist Explorer、Export Design Report、BOM Compare、
+Interactive HTML BOM、JLC PCB DFM、PCB to SVG、GenCAD、AI Device Standardization 和
+EasyEDA API Skill。
+
+每个仓库的锁定 commit、参考文件、许可证与移植边界见
 [`MIGRATION_SOURCES.md`](packages/easyeda-gateway/MIGRATION_SOURCES.md)、
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 和
 [`materials/manifests/sources.lock.json`](materials/manifests/sources.lock.json)。
@@ -213,88 +225,45 @@ npm run dev
 
 ```text
 ZhiYuanEDA/
-├─ packages/easyeda-gateway/             # Python Gateway 与测试
-├─ skills/easyeda-hardware-lifecycle/    # 五阶段工作流与 CLI
-├─ integrations/jlc-hardware-learning-plugin/ # 学习画板与 MCP
-├─ materials/manifests/                  # API 清单、来源锁、契约索引
-├─ materials/sources/                    # 固定版本的上游子模块与 API 类型
-├─ examples/api-plans/                   # 只读计划示例
-└─ scripts/release/                      # GitHub 发布检查
+├─ packages/easyeda-gateway/                  # 受控 API、导航、导出、PCB/BOM 与证据模块
+├─ skills/easyeda-hardware-lifecycle/         # 设计链与学习链编排器
+├─ integrations/jlc-hardware-learning-plugin/ # 学习画板、MCP 和本地存储
+├─ materials/manifests/                       # API 清单、来源锁和集成配置
+├─ materials/contracts/                       # 生命周期与学习数据契约
+├─ materials/references/                      # 架构、边界和开发规格
+├─ materials/sources/                         # 固定版本的上游子模块与 API 类型
+├─ examples/api-plans/                        # 只读 API 计划示例
+└─ scripts/release/                           # GitHub 发布与许可证检查
 ```
-
-## 安全边界
-
-- 默认只读；所有操作都应绑定明确的工程和文档 UUID。
-- 页面切换是 `EPHEMERAL_NAVIGATION`，不保存、不关闭页面，也不修改文档内容。
-- 普通业务模块不能提交任意 JavaScript，只能调用清单中的官方方法或固定模板。
-- BOM 持久写只允许四个采购字段，且必须具备明确授权、验收报告和写后回读。
-- Bridge 超时不自动重试；未知或未完成资格验证的导出组合会在调用前拒绝。
-- current-page PNG/PDF/SVG、whole-schematic SVG、BOM XLSX、Protel2 网表和 EPRO2
-  当前不在放行矩阵中。
-- DRC 零错误、DFM 通过、导出成功和证据一致都不等于可制造性或量产批准。
-
-发现安全问题时请遵循 [`SECURITY.md`](SECURITY.md)，不要在公开 Issue 中上传真实工程、
-UUID、BOM、网表、截图、Bridge 日志、凭据或本地绝对路径。
 
 ## 兼容性标识
 
-公开展示品牌已经更名为 ZhiYuanEDA。以下技术标识继续保留，避免破坏安装脚本、
-本地证据和既有学习数据：
+公开展示品牌为 ZhiYuanEDA。以下既有技术标识继续保留，避免破坏安装脚本、本地证据和学习数据：
 
 - Python 分发包：`easyeda-workbench-gateway`
 - Python 模块与 CLI：`easyeda_gateway` / `easyeda-gateway`
 - 本地状态目录：`.easyeda-hardware-workbench/`
 - Schema 与 API 契约中的既有 `easyeda.*` 标识
 
-## 离线验证
+## 验证与发布状态
 
 GitHub Actions 会执行 Gateway 单元测试、wheel 许可证检查、生命周期测试、学习契约校验、
-插件冷安装探测和 MCP 探测。也可以在本地运行同一组核心检查：
+插件冷安装探测和 MCP 探测。离线测试只证明代码、契约和发布包一致；真实 EasyEDA 验收
+仍需连接官方 Bridge，并记录操作前后的工程与文档身份。
 
-```bash
-python -m unittest discover -s packages/easyeda-gateway/tests -t packages/easyeda-gateway -v
-cd skills/easyeda-hardware-lifecycle/scripts
-python -m unittest discover -s tests -v
-cd ../../..
-node materials/scripts/validate-learning-design.mjs
-node materials/scripts/validate-jlc-hardware-learning-integration.mjs
-node materials/scripts/validate-jlc-hardware-learning-plugin.mjs integrations/jlc-hardware-learning-plugin
-cd integrations/jlc-hardware-learning-plugin
-npm ci
-npm run quality
-cd ../..
-```
+- Gateway：`0.8.0`。
+- 硬件学习插件：`0.1.3`。
+- GitHub 源码发布：已就绪，默认分支为 `main`。
+- 嘉立创EDA拓展广场：当前仓库不是可直接安装的 `.eext` 包；上架版本仍需单独制作、签名和真实环境验收。
 
-构建并核对 Python 发布包：
-
-```bash
-python -m pip wheel --no-deps --wheel-dir dist ./packages/easyeda-gateway
-python scripts/release/verify_wheel.py dist/easyeda_workbench_gateway-0.8.0-py3-none-any.whl
-```
-
-这些测试只证明离线代码、契约和发布包的一致性。真实 EasyEDA 验收必须连接官方 Bridge，
-记录操作前后的工程/文档身份，并继续遵守只读和显式授权边界。
-
-## 参与贡献
-
-欢迎提交用于非商业场景的 Issue 和 Pull Request。修改前请阅读
-[`CONTRIBUTING.md`](CONTRIBUTING.md)，并确保没有提交真实工程数据、凭据、现场证据或来源不明的第三方代码。
+参与贡献前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)，版本变化见
+[`CHANGELOG.md`](CHANGELOG.md)，发布步骤见 [`PUBLISHING.md`](PUBLISHING.md)。
 
 ## 许可证
 
 Lyyyy 原创部分采用 [PolyForm Noncommercial 1.0.0](LICENSE)，禁止商业使用。
 由于这一限制，本项目属于 **source-available**，而不是 OSI 定义的开源软件。
 
-第三方子模块、运行时和硬件学习组件继续遵循 Apache-2.0、MIT、BSD-3-Clause、tldraw
-等各自条款。特别注意：当前 tldraw 许可证不允许在没有相应授权的情况下用于生产环境；
-详见 [`LICENSE_SCOPE.md`](LICENSE_SCOPE.md) 和
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
-
-## 发布状态
-
-- GitHub 源码发布：已就绪，默认分支为 `main`。
-- Gateway：`0.8.0`。
-- 硬件学习插件：`0.1.3`。
-- 嘉立创EDA拓展广场：当前仓库不是可直接安装的 `.eext` 包；上架版本仍需单独制作、签名和真实环境验收。
-
-版本变化见 [`CHANGELOG.md`](CHANGELOG.md)，发布步骤见 [`PUBLISHING.md`](PUBLISHING.md)。
+第三方子模块、运行时和硬件学习组件继续遵循各自许可证。特别注意：当前 tldraw 条款
+不允许在没有相应授权的情况下用于生产环境；详见
+[`LICENSE_SCOPE.md`](LICENSE_SCOPE.md) 和 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
