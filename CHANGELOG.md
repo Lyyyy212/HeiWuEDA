@@ -14,6 +14,8 @@
   fresh-read verification.
 - Added a CI public-boundary scanner for private evidence directories, local
   paths, credentials, tenant URLs and live-looking identity literals.
+- Normalized Vite source text before bundling so tracked Widget artifacts are
+  reproducible across Windows and Linux checkouts.
 
 ### Changed
 

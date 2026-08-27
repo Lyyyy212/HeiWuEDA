@@ -91,6 +91,7 @@ async function buildWidgetArtifact(outDir) {
   await viteBuild({
     root: ROOT_DIR,
     logLevel: "warning",
+    plugins: [normalizeBuildSourceTextPlugin()],
     build: {
       outDir,
       emptyOutDir: true,
@@ -307,6 +308,28 @@ function escapeInlineStyle(source) {
 
 function sha256(contents) {
   return createHash("sha256").update(contents).digest("hex");
+}
+
+function normalizeBuildSourceTextPlugin() {
+  return {
+    name: "jlc-hardware-learning-normalize-build-source-text",
+    enforce: "pre",
+    transform(source, id) {
+      const cleanId = id.split("?", 1)[0];
+      if (!path.isAbsolute(cleanId)) return null;
+      const relative = path.relative(ROOT_DIR, cleanId);
+      if (
+        !relative
+        || relative.startsWith(`..${path.sep}`)
+        || path.isAbsolute(relative)
+        || relative.split(path.sep).includes("node_modules")
+      ) {
+        return null;
+      }
+      const normalized = String(source).replace(/\r\n?/gu, "\n");
+      return normalized === source ? null : { code: normalized, map: null };
+    },
+  };
 }
 
 function normalizeGeneratedText(value) {

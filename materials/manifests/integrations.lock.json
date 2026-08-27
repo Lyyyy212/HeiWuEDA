@@ -22,7 +22,7 @@
         },
         "releaseManifest": {
           "path": "../integrations/jlc-hardware-learning-plugin/mcp/generated/release-manifest.json",
-          "sha256": "4b4adc28023da1c446866bd95ac69db337a18e3b824c9e6d1a879e464f4f6aa5"
+          "sha256": "8cd82dae0d0fb6eb85eceab82fddfd9d411ad4001963a5901afda780fbd02788"
         }
       },
       "runtime": {
