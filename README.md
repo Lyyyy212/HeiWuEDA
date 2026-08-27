@@ -1,11 +1,13 @@
-# EasyEDA Hardware Workbench
+# ZhiYuanEDA
 
 > 个人开发者：**Lyyyy**。本项目自研部分依据
 > `PolyForm-Noncommercial-1.0.0` 公开源码，仅允许非商业用途，不提供商业授权。
 > 第三方代码继续遵循其原始许可证；详见 [`LICENSE_SCOPE.md`](LICENSE_SCOPE.md)
 > 和 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。本项目不是嘉立创EDA官方产品。
 
-这是面向 GitHub 发布的净化版本，不包含本地工程、现场证据、备份、账号信息或 EasyEDA 项目数据。项目提供以下相互隔离的能力：
+`ZhiYuanEDA` 是 Lyyyy 独立开发的硬件设计工作台，使用官方 EasyEDA API，
+但不是嘉立创EDA官方产品。这是面向 GitHub 发布的净化版本，不包含本地工程、
+现场证据、备份、账号信息或 EasyEDA 项目数据。项目提供以下相互隔离的能力：
 
 - `packages/easyeda-gateway/`：受控的 EasyEDA 官方 Bridge/API 适配层。
 - `skills/easyeda-hardware-lifecycle/`：`concept -> module_design -> schematic_review -> bom_selection -> bom_writeback` 五阶段硬件工作流。
@@ -32,8 +34,8 @@
 克隆时需要拉取锁定的上游子模块：
 
 ```bash
-git clone --recursive <repository-url>
-cd easyeda-hardware-workbench
+git clone --recursive https://github.com/Lyyyy212/ZhiYuanEDA.git
+cd ZhiYuanEDA
 ```
 
 ## 安装
@@ -61,6 +63,16 @@ python workbench.py status --project <project-directory>
 ```
 
 底层命令和移植能力详见 [`packages/easyeda-gateway/README.md`](packages/easyeda-gateway/README.md)。
+
+### 兼容性标识
+
+本次只更改公开展示品牌。以下既有技术标识继续保留，避免破坏安装脚本、
+本地证据和已有学习数据：
+
+- Python 包：`easyeda-workbench-gateway`
+- Python 模块：`easyeda_gateway`
+- 本地状态目录：`.easyeda-hardware-workbench/`
+- Schema 与 API 契约中的既有 `easyeda.*` 标识
 
 ## 离线验证
 

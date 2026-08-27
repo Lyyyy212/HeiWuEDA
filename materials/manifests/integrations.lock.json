@@ -18,7 +18,7 @@
       "sourceEvidence": {
         "pluginManifest": {
           "path": "../integrations/jlc-hardware-learning-plugin/.codex-plugin/plugin.json",
-          "sha256": "2a03399a392e64eebcba6482069523453d43519fc1fa400cd6db1d3cdb256110"
+          "sha256": "36ba324affeb0d97b2c7d08ed74d6e10cf9604adf98742b167b47a21498c477b"
         },
         "releaseManifest": {
           "path": "../integrations/jlc-hardware-learning-plugin/mcp/generated/release-manifest.json",

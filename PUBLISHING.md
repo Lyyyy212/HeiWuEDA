@@ -4,8 +4,8 @@
 
 - Copyright holder: `Lyyyy`
 - Developer and publisher display name: `Lyyyy`
-- Product display name: `硬件设计工作台`
-- Repository name: `easyeda-hardware-workbench`
+- Product display name: `ZhiYuanEDA`
+- Repository name: `ZhiYuanEDA`
 - Python package: `easyeda-workbench-gateway`
 - First-party license: `PolyForm-Noncommercial-1.0.0`
 - Commercial licensing: not offered
@@ -35,7 +35,7 @@ license terms with the root noncommercial license.
 
 Suggested repository description:
 
-> Guarded EasyEDA API gateway and traceable hardware lifecycle workbench for noncommercial use.
+> ZhiYuanEDA: guarded EasyEDA API access and a traceable hardware lifecycle workbench for noncommercial use.
 
 Suggested topics: `easyeda`, `jlc`, `eda`, `pcb`, `schematic`, `hardware-design`,
 `bom`, `python`, `noncommercial`.
@@ -50,8 +50,8 @@ Candidate identity:
 
 ```json
 {
-  "name": "hardware-workbench",
-  "displayName": "硬件设计工作台",
+  "name": "zhiyuaneda",
+  "displayName": "ZhiYuanEDA",
   "publisher": "Lyyyy",
   "license": "PolyForm-Noncommercial-1.0.0",
   "categories": ["Schematic", "PCB", "Project"]

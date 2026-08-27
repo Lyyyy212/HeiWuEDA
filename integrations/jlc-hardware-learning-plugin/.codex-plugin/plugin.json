@@ -1,13 +1,14 @@
 {
   "name": "jlc-hardware-learning",
   "version": "0.1.3",
-  "description": "A persistent JLC Hardware Learning canvas for selection-scoped schematic questions, official EasyEDA visual evidence, teaching annotations, and local exports.",
+  "description": "The ZhiYuanEDA hardware-learning canvas for selection-scoped schematic questions, official EasyEDA visual evidence, teaching annotations, and local exports.",
   "author": {
-    "name": "EasyEDA Hardware Workbench"
+    "name": "Lyyyy"
   },
   "license": "MIT",
   "keywords": [
     "jlc",
+    "zhiyuaneda",
     "hardware-learning",
     "easyeda",
     "schematic",
@@ -19,7 +20,7 @@
     "displayName": "JLC Hardware Learning",
     "shortDescription": "Learn from official EasyEDA schematic visual evidence.",
     "longDescription": "A dedicated JLC SVG hardware-learning canvas for framing schematic regions, asking questions in the normal Codex conversation, adding teaching annotations, importing identity-verified EasyEDA PNG or locally rendered PDF evidence, switching canvas pages, and exporting PNG, SVG, or JSON files. The canvas keeps project-local state, protects imported schematic evidence, supports render-safe zoom and viewport image culling, and disables generation, telemetry, and direct EasyEDA writes.",
-    "developerName": "EasyEDA Hardware Workbench",
+    "developerName": "ZhiYuanEDA",
     "category": "Productivity",
     "capabilities": [
       "Hardware learning canvas",

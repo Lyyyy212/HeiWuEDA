@@ -1,4 +1,4 @@
-# EasyEDA Workbench Gateway
+# ZhiYuanEDA Gateway
 
 这是工作台的底层 EasyEDA API 适配层。它复用官方 `easyeda-api` Bridge Server 与官方 `Run API Gateway` 扩展，不修改上游材料快照，也不向业务模块暴露任意 JavaScript 执行入口。
 

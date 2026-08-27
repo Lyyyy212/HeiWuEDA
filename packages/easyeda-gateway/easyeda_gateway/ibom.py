@@ -134,7 +134,7 @@ _HTML_TEMPLATE = """<!doctype html>
 </style>
 </head>
 <body>
-<header><div><h1 id="title">Interactive BOM</h1><small id="meta"></small></div><small>EasyEDA Workbench · assembly-lite.v1</small></header>
+<header><div><h1 id="title">Interactive BOM</h1><small id="meta"></small></div><small>ZhiYuanEDA · assembly-lite.v1</small></header>
 <div class="toolbar"><input id="search" placeholder="搜索位号、型号、封装"><select id="side"><option value="all">全部面</option><option value="front">正面</option><option value="back">背面</option></select><select id="tracks"><option value="all">全部走线</option><option value="front">仅顶层</option><option value="back">仅底层</option><option value="none">隐藏走线</option></select></div>
 <main><section class="card"><div class="stats" id="stats"></div><div class="table-wrap"><table><thead><tr><th>完成</th><th>位号</th><th>数量</th><th>值</th><th>封装</th><th>制造商料号</th><th>立创编号</th><th>面</th></tr></thead><tbody id="bom"></tbody></table></div></section><section class="card"><svg class="board" id="board" role="img" aria-label="PCB assembly preview"></svg></section></main>
 <script type="application/json" id="ibom-data">__IBOM_DATA__</script>

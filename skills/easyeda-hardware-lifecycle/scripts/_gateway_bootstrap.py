@@ -25,7 +25,7 @@ def find_workbench_root() -> Path:
             return resolved
     raise RuntimeError(
         "EasyEDA workbench materials are unavailable; set EASYEDA_WORKBENCH_ROOT "
-        "to the easyeda-hardware-workbench checkout"
+        "to the ZhiYuanEDA checkout"
     )
 
 

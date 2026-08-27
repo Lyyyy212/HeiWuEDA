@@ -1,6 +1,6 @@
 # EasyEDA 官方 API 资料索引
 
-本目录是 `easyeda-hardware-workbench` 的第一阶段资料包，只整理公开资料、版本和示例，不连接或修改 EasyEDA 工程。
+本目录是 `ZhiYuanEDA` 的第一阶段资料包，只整理公开资料、版本和示例，不连接或修改 EasyEDA 工程。
 
 ## 当前快照
 
