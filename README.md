@@ -5,6 +5,10 @@
 ![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange.svg)](LICENSE)
 
+<p align="center">
+  <img src="docs/assets/zhiyuaneda-hero.png" alt="ZhiYuanEDA 连接硬件设计、受控 API 网关与学习画板" width="100%">
+</p>
+
 > 面向嘉立创EDA专业版的模块化硬件工作台，围绕“硬件设计全生命周期”和“硬件学习与知识沉淀”两条核心链路组织功能。
 
 `ZhiYuanEDA` 由个人开发者 **Lyyyy** 独立开发。项目连接官方 EasyEDA API，
@@ -13,6 +17,38 @@
 本仓库是面向 GitHub 的公开源码版本，不包含真实工程、现场证据、账号信息、访问凭据或
 EasyEDA 项目数据。原创部分依据 [PolyForm Noncommercial 1.0.0](LICENSE) 提供，
 **禁止商业使用，也不提供商业授权**。
+
+## 第一次来？先看这里
+
+可以把嘉立创EDA理解成真正绘制和保存电路的“设计桌”，把 ZhiYuanEDA 理解成桌旁的
+“硬件协作助手”：它先确认你正在操作哪个工程、哪一张图，再帮助检查设计、整理证据、
+选择器件，或者把电路放到学习画板上讲明白。
+
+它主要解决三件事：
+
+| 你遇到的问题 | ZhiYuanEDA 怎么帮你 |
+| --- | --- |
+| **设计过程容易乱** | 把需求、模块设计、原理图审查、BOM 选型和回填拆成有产物、有门禁的步骤 |
+| **API 操作怕跑错工程** | 每次连接都核对窗口、工程和文档 UUID，只允许清单中的官方方法，并保留执行证据 |
+| **原理图看不懂、知识难沉淀** | 把官方证据导入学习画板，框选某段电路提问，得到带证据的讲解、标注和学习笔记 |
+
+### 30 秒导览
+
+1. **连接设计**：打开嘉立创EDA工程，通过官方 Bridge 接入当前窗口。
+2. **确认对象**：ZhiYuanEDA 核对工程、图页和文档类型，防止对错页面操作。
+3. **选择链路**：要推进项目就进入“硬件设计链”；要理解电路就进入“硬件学习链”。
+4. **留下证据**：读取、审查、导出和受控写回都会生成可核对记录，而不是只返回一句结论。
+
+| 如果你现在想…… | 从这里开始 |
+| --- | --- |
+| 从需求开始做一个硬件项目 | `concept`，进入硬件设计链 |
+| 审查已有原理图或 PCB | `schematic_review`，采集正式证据 |
+| 确定器件和采购信息 | `bom_selection`，形成有依据的最终 BOM |
+| 看懂某一段原理图 | 学习画板框选后使用 `explain-selection` |
+| 追踪信号、电源或比较方案 | 使用 `trace-signal`、`power-path` 或 `compare-options` |
+
+> 关键原则：学习链只负责“看懂、解释和记录”，不会直接修改 EasyEDA；需要修改设计时，
+> 结论必须重新进入设计链并通过相应门禁。
 
 ## 项目组成
 
@@ -38,30 +74,12 @@ ZhiYuanEDA 不是一个单独的 API 脚本，而是一组职责隔离、通过�
 
 ## 两大核心链路
 
-```mermaid
-flowchart TB
-    EDA[嘉立创EDA专业版] <--> G[Guarded Gateway<br/>官方 API、身份守卫、证据封存]
+<p align="center">
+  <img src="docs/assets/zhiyuaneda-two-core-flows.png" alt="ZhiYuanEDA 两大核心链路：硬件设计链与硬件学习链" width="100%">
+</p>
 
-    subgraph D[链路一：硬件设计全生命周期]
-        D1[需求与系统架构] --> D2[模块设计]
-        D2 --> D3[原理图审查]
-        D3 --> D4[BOM 选型]
-        D4 --> D5[受控 BOM 回填]
-    end
-
-    subgraph L[链路二：硬件学习与知识沉淀]
-        L1[导入官方证据] --> L2[画板选区与提问]
-        L2 --> L3[证据驱动讲解]
-        L3 --> L4[教学标注]
-        L4 --> L5[会话恢复与学习笔记]
-    end
-
-    G --> D3
-    G --> L1
-    D3 --> EV[可复核证据]
-    EV --> L1
-    L5 -.学习结论只形成建议，不直接修改设计.-> D2
-```
+两条链路共享受控 API、身份守卫和证据层：设计链产出的正式证据可以进入学习链；
+学习链形成的理解和建议不会反向自动写入设计。
 
 ### 链路一：硬件设计全生命周期
 
