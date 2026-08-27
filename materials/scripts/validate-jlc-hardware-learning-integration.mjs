@@ -8,7 +8,10 @@ const MATERIALS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const readJson = (filePath) => JSON.parse(fs.readFileSync(filePath, "utf8"));
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 const fromMaterials = (relativePath) => path.resolve(MATERIALS_ROOT, ...relativePath.split("/"));
-const sha256 = (filePath) => crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+const sha256PortableText = (filePath) => crypto
+  .createHash("sha256")
+  .update(fs.readFileSync(filePath, "utf8").replace(/\r\n?/gu, "\n"), "utf8")
+  .digest("hex");
 const git = (repoPath, ...args) => execFileSync("git", ["-C", repoPath, ...args], { encoding: "utf8" }).trim();
 
 async function listMcpTools(pluginRoot) {
@@ -64,9 +67,12 @@ if (integration.distributionMode === "public-vendored-source") {
   assert(git(sourceRepository, "rev-parse", "HEAD") === integration.sourceCommit, "independent source commit mismatch");
   assert(git(sourceRepository, "remote") === "", "independent source repository must not retain an upstream remote");
 }
-assert(sha256(fromMaterials(integration.licensePath)) === integration.licenseSha256, "license hash mismatch");
+assert(
+  sha256PortableText(fromMaterials(integration.licensePath)) === integration.licenseSha256,
+  "license hash mismatch",
+);
 for (const evidence of Object.values(integration.sourceEvidence)) {
-  const actualSha256 = sha256(fromMaterials(evidence.path));
+  const actualSha256 = sha256PortableText(fromMaterials(evidence.path));
   assert(
     actualSha256 === evidence.sha256,
     `source hash mismatch: ${evidence.path}; expected ${evidence.sha256}; actual ${actualSha256}`,

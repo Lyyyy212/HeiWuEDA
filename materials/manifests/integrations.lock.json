@@ -14,11 +14,11 @@
       "version": "0.1.3",
       "license": "MIT",
       "licensePath": "../integrations/jlc-hardware-learning-plugin/LICENSE",
-      "licenseSha256": "3c08a70917d02378b2618646bd70a1e189645a17b4161f2cfbc3e1e276cb7b33",
+      "licenseSha256": "88d04c44750ac737fe777281ac4f8bbbb20ee4e77a328a9b5c940663df555c74",
       "sourceEvidence": {
         "pluginManifest": {
           "path": "../integrations/jlc-hardware-learning-plugin/.codex-plugin/plugin.json",
-          "sha256": "5b9bca76b1e3eabe819fb24bfbe5a500e4a9f339d3ec382f562810a1d036f325"
+          "sha256": "2a03399a392e64eebcba6482069523453d43519fc1fa400cd6db1d3cdb256110"
         },
         "releaseManifest": {
           "path": "../integrations/jlc-hardware-learning-plugin/mcp/generated/release-manifest.json",
