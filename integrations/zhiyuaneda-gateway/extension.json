@@ -1,0 +1,104 @@
+{
+	"name": "zhiyuaneda-gateway",
+	"uuid": "647e863e3bd34060949c51f22d52de05",
+	"displayName": "ZhiYuanEDA Gateway",
+	"description": "面向 ZhiYuanEDA 硬件设计与学习链路的嘉立创EDA专属网关",
+	"version": "0.1.0",
+	"publisher": "Lyyyy",
+	"engines": {
+		"eda": "~3.2.0"
+	},
+	"license": "PolyForm-Noncommercial-1.0.0",
+	"repository": {
+		"type": "github",
+		"url": "https://github.com/Lyyyy212/ZhiYuanEDA"
+	},
+	"categories": ["Project", "Other"],
+	"keywords": [
+		"ZhiYuanEDA",
+		"Gateway",
+		"Bridge",
+		"AI"
+	],
+	"homepage": "https://github.com/Lyyyy212/ZhiYuanEDA",
+	"bugs": "https://github.com/Lyyyy212/ZhiYuanEDA/issues",
+	"activationEvents": {
+		"onStartupFinished": true
+	},
+	"entry": "./dist/index",
+	"dependentExtensions": {},
+	"headerMenus": {
+		"home": [
+			{
+				"id": "ZhiYuanEDAGatewayHome",
+				"title": "ZhiYuanEDA Gateway",
+				"menuItems": [
+					{ "id": "ZhiYuanEDAReconnectHome", "title": "重新连接网关", "registerFn": "reconnect" },
+					{ "id": "ZhiYuanEDAStopHome", "title": "停止网关连接", "registerFn": "stopConnection" },
+					{ "id": "ZhiYuanEDAAutoHome", "title": "切换自动连接", "registerFn": "toggleAutoConnect" },
+					{ "id": "ZhiYuanEDAAboutHome", "title": "网关状态", "registerFn": "about" }
+				]
+			}
+		],
+		"blank": [
+			{
+				"id": "ZhiYuanEDAGatewayBlank",
+				"title": "ZhiYuanEDA Gateway",
+				"menuItems": [
+					{ "id": "ZhiYuanEDAReconnectBlank", "title": "重新连接网关", "registerFn": "reconnect" },
+					{ "id": "ZhiYuanEDAStopBlank", "title": "停止网关连接", "registerFn": "stopConnection" },
+					{ "id": "ZhiYuanEDAAutoBlank", "title": "切换自动连接", "registerFn": "toggleAutoConnect" },
+					{ "id": "ZhiYuanEDAAboutBlank", "title": "网关状态", "registerFn": "about" }
+				]
+			}
+		],
+		"sch": [
+			{
+				"id": "ZhiYuanEDAGatewaySchematic",
+				"title": "ZhiYuanEDA Gateway",
+				"menuItems": [
+					{ "id": "ZhiYuanEDAReconnectSchematic", "title": "重新连接网关", "registerFn": "reconnect" },
+					{ "id": "ZhiYuanEDAStopSchematic", "title": "停止网关连接", "registerFn": "stopConnection" },
+					{ "id": "ZhiYuanEDAAutoSchematic", "title": "切换自动连接", "registerFn": "toggleAutoConnect" },
+					{ "id": "ZhiYuanEDAAboutSchematic", "title": "网关状态", "registerFn": "about" }
+				]
+			}
+		],
+		"symbol": [
+			{
+				"id": "ZhiYuanEDAGatewaySymbol",
+				"title": "ZhiYuanEDA Gateway",
+				"menuItems": [
+					{ "id": "ZhiYuanEDAReconnectSymbol", "title": "重新连接网关", "registerFn": "reconnect" },
+					{ "id": "ZhiYuanEDAStopSymbol", "title": "停止网关连接", "registerFn": "stopConnection" },
+					{ "id": "ZhiYuanEDAAutoSymbol", "title": "切换自动连接", "registerFn": "toggleAutoConnect" },
+					{ "id": "ZhiYuanEDAAboutSymbol", "title": "网关状态", "registerFn": "about" }
+				]
+			}
+		],
+		"pcb": [
+			{
+				"id": "ZhiYuanEDAGatewayPcb",
+				"title": "ZhiYuanEDA Gateway",
+				"menuItems": [
+					{ "id": "ZhiYuanEDAReconnectPcb", "title": "重新连接网关", "registerFn": "reconnect" },
+					{ "id": "ZhiYuanEDAStopPcb", "title": "停止网关连接", "registerFn": "stopConnection" },
+					{ "id": "ZhiYuanEDAAutoPcb", "title": "切换自动连接", "registerFn": "toggleAutoConnect" },
+					{ "id": "ZhiYuanEDAAboutPcb", "title": "网关状态", "registerFn": "about" }
+				]
+			}
+		],
+		"footprint": [
+			{
+				"id": "ZhiYuanEDAGatewayFootprint",
+				"title": "ZhiYuanEDA Gateway",
+				"menuItems": [
+					{ "id": "ZhiYuanEDAReconnectFootprint", "title": "重新连接网关", "registerFn": "reconnect" },
+					{ "id": "ZhiYuanEDAStopFootprint", "title": "停止网关连接", "registerFn": "stopConnection" },
+					{ "id": "ZhiYuanEDAAutoFootprint", "title": "切换自动连接", "registerFn": "toggleAutoConnect" },
+					{ "id": "ZhiYuanEDAAboutFootprint", "title": "网关状态", "registerFn": "about" }
+				]
+			}
+		]
+	}
+}

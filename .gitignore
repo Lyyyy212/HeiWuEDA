@@ -8,6 +8,11 @@ node_modules/
 build/
 dist/
 
+# Keep the ZhiYuanEDA Gateway packager source while excluding generated packages.
+!integrations/zhiyuaneda-gateway/build/
+integrations/zhiyuaneda-gateway/build/dist/
+!integrations/zhiyuaneda-gateway/build/packaged.ts
+
 .runtime/
 .easyeda-hardware-workbench/
 artifacts/

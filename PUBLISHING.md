@@ -50,10 +50,16 @@ Candidate identity:
 
 ```json
 {
-  "name": "zhiyuaneda",
-  "displayName": "ZhiYuanEDA",
+  "name": "zhiyuaneda-gateway",
+  "displayName": "ZhiYuanEDA Gateway",
   "publisher": "Lyyyy",
   "license": "PolyForm-Noncommercial-1.0.0",
-  "categories": ["Schematic", "PCB", "Project"]
+  "categories": ["Project", "Other"]
 }
 ```
+
+The source under `integrations/zhiyuaneda-gateway/` is version `0.1.0` and is
+a GitHub developer preview. Do not upload that package to the marketplace while
+the compatibility `execute` message remains enabled. The marketplace build must
+use a fixed audited operation set, include a custom logo/banner and complete a
+fresh EasyEDA runtime acceptance pass.

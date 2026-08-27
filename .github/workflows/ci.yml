@@ -46,6 +46,14 @@ jobs:
       - name: Verify gateway wheel licenses
         run: python scripts/release/verify_wheel.py dist/easyeda_workbench_gateway-0.8.0-py3-none-any.whl
 
+      - name: Install ZhiYuanEDA Gateway extension dependencies
+        working-directory: integrations/zhiyuaneda-gateway
+        run: npm ci
+
+      - name: Test and package ZhiYuanEDA Gateway extension
+        working-directory: integrations/zhiyuaneda-gateway
+        run: npm run quality
+
       - name: Test lifecycle
         working-directory: skills/easyeda-hardware-lifecycle/scripts
         run: python -m unittest discover -s tests -v

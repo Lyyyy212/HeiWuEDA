@@ -1,6 +1,6 @@
 {
   "schemaVersion": "easyeda.github-public-release.v1",
-  "generatedAt": "2026-08-27T09:47:10.0891784+08:00",
+  "generatedAt": "2026-08-27T20:02:21.6186583+08:00",
   "publisher": "Lyyyy",
   "product": "ZhiYuanEDA",
   "license": "PolyForm-Noncommercial-1.0.0",
@@ -112,6 +112,13 @@
       "sourceCommit": "c811392e5c00f8c9b0e2c07efcc7fd41df209840",
       "copiedTrackedFiles": 64,
       "historyIncluded": false
+    },
+    {
+      "path": "integrations/zhiyuaneda-gateway",
+      "version": "0.1.0",
+      "copiedTrackedFiles": 14,
+      "historyIncluded": false,
+      "releaseStatus": "github-developer-preview"
     }
   ]
 }

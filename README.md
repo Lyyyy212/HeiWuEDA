@@ -58,6 +58,7 @@ ZhiYuanEDA 不是一个单独的 API 脚本，而是一组职责隔离、通过�
 | --- | --- | --- | --- |
 | API 契约与注册表 | `easyeda_gateway/contract.py`、`api-manifest.json` | 锁定官方方法 ID、签名、枚举和风险等级；拒绝未知 API | 两条链路共享 |
 | Bridge 客户端与窗口守卫 | `client.py`、`window_guard.py`、`executor.py` | 自动发现本地 Bridge、验证 `easyeda-bridge` 握手、绑定窗口/工程/文档身份 | 两条链路共享 |
+| ZhiYuanEDA Gateway 扩展 | `integrations/zhiyuaneda-gateway/` | 嘉立创EDA侧专属连接器、并行发现、重连、心跳和连接状态 | 两条链路共享 |
 | 页面与板级文档导航 | `page_navigator.py`、`board_navigator.py` | 列出页面、按 UUID 精确切换、跨页遍历并恢复原页；不保存设计 | 两条链路共享 |
 | 原理图读取与证据 | `composite.py`、`exporter.py`、`formal_exporter.py`、`drc.py` | 元件/引脚/网络/拓扑读取，PNG/PDF、BOM、网表、EPRO、DRC 和证据包 | 设计链；为学习链供证 |
 | PCB 分析与制造数据 | `official_plugins.py`、`ibom.py` | PCB 设计报告、18 项 DFM、制造 SVG、GenCAD 1.4、交互装配 BOM | 设计链 |
@@ -180,7 +181,8 @@ python -m pip install ./packages/easyeda-gateway
 python -m easyeda_gateway --version
 ```
 
-环境要求：Python 3.11+、Node.js 18+、嘉立创EDA专业版，以及官方
+环境要求：Python 3.11+、Node.js 18+、嘉立创EDA专业版，以及本仓库的
+ZhiYuanEDA Gateway 开发预览包或官方
 [Run API Gateway](https://jlc-ext.com/item/oshwhub/run-api-gateway) 扩展。
 
 ### 连接并确认身份
@@ -194,6 +196,17 @@ python skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py export-capab
 
 `discover` 会扫描 `49620-49629` 并验证服务标识为 `easyeda-bridge`；`windows` 返回后续操作
 需要绑定的窗口、工程 UUID 和当前文档 UUID。
+
+### 构建专属 ZhiYuanEDA Gateway
+
+```bash
+cd integrations/zhiyuaneda-gateway
+npm ci
+npm run quality
+```
+
+开发预览包输出到 `build/dist/zhiyuaneda-gateway_v0.1.0.eext`。当前版本用于本地联调，
+仍保留官方 Bridge 的兼容执行协议，不应直接作为扩展广场正式提交包。
 
 ### 初始化设计链
 
@@ -246,6 +259,7 @@ ZhiYuanEDA/
 ├─ packages/easyeda-gateway/                  # 受控 API、导航、导出、PCB/BOM 与证据模块
 ├─ skills/easyeda-hardware-lifecycle/         # 设计链与学习链编排器
 ├─ integrations/jlc-hardware-learning-plugin/ # 学习画板、MCP 和本地存储
+├─ integrations/zhiyuaneda-gateway/            # 嘉立创EDA侧专属 Gateway 扩展
 ├─ materials/manifests/                       # API 清单、来源锁和集成配置
 ├─ materials/contracts/                       # 生命周期与学习数据契约
 ├─ materials/references/                      # 架构、边界和开发规格
@@ -269,10 +283,12 @@ GitHub Actions 会执行 Gateway 单元测试、wheel 许可证检查、生命�
 插件冷安装探测和 MCP 探测。离线测试只证明代码、契约和发布包一致；真实 EasyEDA 验收
 仍需连接官方 Bridge，并记录操作前后的工程与文档身份。
 
-- Gateway：`0.8.0`。
+- ZhiYuanEDA 项目发布：`0.8.1`。
+- Python Gateway：`0.8.0`。
+- ZhiYuanEDA Gateway 扩展：`0.1.0` GitHub 开发预览。
 - 硬件学习插件：`0.1.3`。
 - GitHub 源码发布：已就绪，默认分支为 `main`。
-- 嘉立创EDA拓展广场：当前仓库不是可直接安装的 `.eext` 包；上架版本仍需单独制作、签名和真实环境验收。
+- 嘉立创EDA扩展广场：当前仓库提供开发预览 `.eext` 的构建源码；正式上架版本仍需收紧协议、补齐商店素材并完成真实环境验收。
 
 参与贡献前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)，版本变化见
 [`CHANGELOG.md`](CHANGELOG.md)，发布步骤见 [`PUBLISHING.md`](PUBLISHING.md)。
