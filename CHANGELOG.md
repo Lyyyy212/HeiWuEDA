@@ -23,6 +23,8 @@
   Feishu note content while retaining them in internal registries and evidence.
 - Replaced real-project demonstration screenshots with repository-contained
   abstract tutorial diagrams.
+- Updated the official GitHub checkout, runtime setup and artifact upload
+  actions to their current Node-compatible v7 release line.
 
 ### Verification boundary
 
