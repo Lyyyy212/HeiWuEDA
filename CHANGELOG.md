@@ -36,7 +36,7 @@
 
 ### Added
 
-- Added the first public source release of `ZhiYuanEDA Gateway` `0.1.0` under
+- Added the first public source release of `黑五EDA Gateway` `0.1.0` under
   `integrations/zhiyuaneda-gateway/`.
 - Added isolated gateway, WebSocket, MessageBus and storage identities without
   modifying the pinned official Run API Gateway submodule.

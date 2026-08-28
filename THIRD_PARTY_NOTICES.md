@@ -1,7 +1,7 @@
 # Third-party notices
 
 This file records the main third-party works referenced or distributed by
-ZhiYuanEDA. It does not replace the corresponding license text.
+黑五EDA. It does not replace the corresponding license text.
 Pinned source revisions are also recorded in `.gitmodules`,
 `materials/manifests/sources.lock.json`, and
 `packages/easyeda-gateway/MIGRATION_SOURCES.md`.

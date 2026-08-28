@@ -1,5 +1,5 @@
 /**
- * ZhiYuanEDA Gateway extension for EasyEDA.
+ * 黑五EDA Gateway extension for EasyEDA.
  *
  * This extension keeps the official `easyeda-bridge` wire protocol so the
  * guarded workbench adapter can use it, while owning an isolated connection
@@ -236,7 +236,7 @@ function cancelConnectionFlow(resetRetryCount = true): void {
 }
 
 function performReconnect(): void {
-	eda.sys_Message.showToastMessage('ZhiYuanEDA Gateway 正在重新连接…');
+	eda.sys_Message.showToastMessage('黑五EDA Gateway 正在重新连接…');
 	cancelConnectionFlow();
 	void scanAndConnect(true);
 }
@@ -245,7 +245,7 @@ function performStopConnection(showToast = true): void {
 	cancelConnectionFlow();
 	lastError = 'Connection stopped by user';
 	if (showToast) {
-		eda.sys_Message.showToastMessage('已停止 ZhiYuanEDA Gateway 连接');
+		eda.sys_Message.showToastMessage('已停止 黑五EDA Gateway 连接');
 	}
 }
 
@@ -258,7 +258,7 @@ async function dispatchControlCommand(command: GatewayControlRequest['command'])
 		) as GatewayControlResponse;
 		if (response?.handled) {
 			if (command === 'stop') {
-				eda.sys_Message.showToastMessage('已停止 ZhiYuanEDA Gateway 连接');
+				eda.sys_Message.showToastMessage('已停止 黑五EDA Gateway 连接');
 			}
 			return;
 		}
@@ -335,7 +335,7 @@ export async function about(): Promise<void> {
 				? `等待重连：${Math.max(0, statusInfo.nextRetryAt - Date.now())} ms`
 				: '未连接';
 	const details = [
-		`ZhiYuanEDA Gateway v${extensionConfig.version}`,
+		`黑五EDA Gateway v${extensionConfig.version}`,
 		connectionText,
 		`Gateway ID: ${GATEWAY_ID}`,
 		`Protocol: ${PROTOCOL_VERSION}`,
@@ -346,7 +346,7 @@ export async function about(): Promise<void> {
 		details.push(`最后错误：${statusInfo.lastError}`);
 	}
 
-	eda.sys_Dialog.showInformationMessage(details.join('\n'), 'ZhiYuanEDA Gateway');
+	eda.sys_Dialog.showInformationMessage(details.join('\n'), '黑五EDA Gateway');
 }
 
 // ─── Discovery and connection ─────────────────────────────────────
@@ -378,7 +378,7 @@ async function scanAndConnect(force = false): Promise<void> {
 		if (!candidate) {
 			retryCount += 1;
 			lastError = `No ${SERVICE_ID} service found on ${PORT_START}-${PORT_END}`;
-			console.warn(`[ZhiYuanEDA] ${lastError}`);
+			console.warn(`[黑五EDA] ${lastError}`);
 			if (autoConnectEnabled) {
 				scheduleRetry(sessionId);
 			}
@@ -425,7 +425,7 @@ async function scanAndConnect(force = false): Promise<void> {
 		void persistPreferredPort(candidate.port);
 		startHeartbeat(sessionId);
 		const mode = candidate.dedicated ? '专属' : '官方兼容';
-		eda.sys_Message.showToastMessage(`ZhiYuanEDA Gateway 已连接（${candidate.port}，${mode}）`);
+		eda.sys_Message.showToastMessage(`黑五EDA Gateway 已连接（${candidate.port}，${mode}）`);
 	}
 	finally {
 		if (isConnectionSessionActive(sessionId)) {
@@ -439,7 +439,7 @@ async function persistPreferredPort(port: number): Promise<void> {
 		await eda.sys_Storage.setExtensionUserConfig(STORAGE_KEY_PREFERRED_PORT, port);
 	}
 	catch (error: unknown) {
-		console.warn('[ZhiYuanEDA] Failed to persist preferred bridge port:', error);
+		console.warn('[黑五EDA] Failed to persist preferred bridge port:', error);
 	}
 }
 
@@ -545,7 +545,7 @@ function tryConnectToPort(port: number, sessionId: number): Promise<ConnectionCa
 						message = JSON.parse(String(event.data)) as BridgeMessage;
 					}
 					catch (error: unknown) {
-						console.warn(`[ZhiYuanEDA] Invalid bridge message on ${port}:`, error);
+						console.warn(`[黑五EDA] Invalid bridge message on ${port}:`, error);
 						return;
 					}
 
@@ -579,7 +579,7 @@ function tryConnectToPort(port: number, sessionId: number): Promise<ConnectionCa
 			);
 		}
 		catch (error: unknown) {
-			console.warn(`[ZhiYuanEDA] WebSocket registration failed on ${port}:`, error);
+			console.warn(`[黑五EDA] WebSocket registration failed on ${port}:`, error);
 			settle(null);
 		}
 	});
@@ -651,7 +651,7 @@ function sendHeartbeat(sessionId: number, socketId: string): void {
 }
 
 function reconnectAfterTransportFailure(): void {
-	console.warn(`[ZhiYuanEDA] ${lastError ?? 'Transport disconnected'}, reconnecting...`);
+	console.warn(`[黑五EDA] ${lastError ?? 'Transport disconnected'}, reconnecting...`);
 	cancelConnectionFlow();
 	if (autoConnectEnabled) {
 		void scanAndConnect();

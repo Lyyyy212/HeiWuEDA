@@ -2,7 +2,7 @@
 
 ## 1. 文档状态
 
-- 设计范围：`ZhiYuanEDA` 的 JLC Hardware Learning 硬件学习画板子系统。
+- 设计范围：`黑五EDA` 的 JLC Hardware Learning 硬件学习画板子系统。
 - JLC Hardware Learning 基线：0.1.27，固定提交见 [`../manifests/integrations.lock.json`](../manifests/integrations.lock.json)。
 - EasyEDA API 基线：`@jlceda/pro-api-types` 0.4.15。
 - 设计基线：详细设计。

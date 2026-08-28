@@ -1,8 +1,8 @@
 {
 	"name": "zhiyuaneda-gateway",
 	"uuid": "647e863e3bd34060949c51f22d52de05",
-	"displayName": "ZhiYuanEDA Gateway",
-	"description": "面向 ZhiYuanEDA 硬件设计与学习链路的嘉立创EDA专属网关",
+	"displayName": "黑五EDA Gateway",
+	"description": "面向 黑五EDA 硬件设计与学习链路的嘉立创EDA专属网关",
 	"version": "0.1.0",
 	"publisher": "Lyyyy",
 	"engines": {
@@ -15,7 +15,7 @@
 	},
 	"categories": ["Project", "Other"],
 	"keywords": [
-		"ZhiYuanEDA",
+		"黑五EDA",
 		"Gateway",
 		"Bridge",
 		"AI"
@@ -31,7 +31,7 @@
 		"home": [
 			{
 				"id": "ZhiYuanEDAGatewayHome",
-				"title": "ZhiYuanEDA Gateway",
+				"title": "黑五EDA Gateway",
 				"menuItems": [
 					{ "id": "ZhiYuanEDAReconnectHome", "title": "重新连接网关", "registerFn": "reconnect" },
 					{ "id": "ZhiYuanEDAStopHome", "title": "停止网关连接", "registerFn": "stopConnection" },
@@ -43,7 +43,7 @@
 		"blank": [
 			{
 				"id": "ZhiYuanEDAGatewayBlank",
-				"title": "ZhiYuanEDA Gateway",
+				"title": "黑五EDA Gateway",
 				"menuItems": [
 					{ "id": "ZhiYuanEDAReconnectBlank", "title": "重新连接网关", "registerFn": "reconnect" },
 					{ "id": "ZhiYuanEDAStopBlank", "title": "停止网关连接", "registerFn": "stopConnection" },
@@ -55,7 +55,7 @@
 		"sch": [
 			{
 				"id": "ZhiYuanEDAGatewaySchematic",
-				"title": "ZhiYuanEDA Gateway",
+				"title": "黑五EDA Gateway",
 				"menuItems": [
 					{ "id": "ZhiYuanEDAReconnectSchematic", "title": "重新连接网关", "registerFn": "reconnect" },
 					{ "id": "ZhiYuanEDAStopSchematic", "title": "停止网关连接", "registerFn": "stopConnection" },
@@ -67,7 +67,7 @@
 		"symbol": [
 			{
 				"id": "ZhiYuanEDAGatewaySymbol",
-				"title": "ZhiYuanEDA Gateway",
+				"title": "黑五EDA Gateway",
 				"menuItems": [
 					{ "id": "ZhiYuanEDAReconnectSymbol", "title": "重新连接网关", "registerFn": "reconnect" },
 					{ "id": "ZhiYuanEDAStopSymbol", "title": "停止网关连接", "registerFn": "stopConnection" },
@@ -79,7 +79,7 @@
 		"pcb": [
 			{
 				"id": "ZhiYuanEDAGatewayPcb",
-				"title": "ZhiYuanEDA Gateway",
+				"title": "黑五EDA Gateway",
 				"menuItems": [
 					{ "id": "ZhiYuanEDAReconnectPcb", "title": "重新连接网关", "registerFn": "reconnect" },
 					{ "id": "ZhiYuanEDAStopPcb", "title": "停止网关连接", "registerFn": "stopConnection" },
@@ -91,7 +91,7 @@
 		"footprint": [
 			{
 				"id": "ZhiYuanEDAGatewayFootprint",
-				"title": "ZhiYuanEDA Gateway",
+				"title": "黑五EDA Gateway",
 				"menuItems": [
 					{ "id": "ZhiYuanEDAReconnectFootprint", "title": "重新连接网关", "registerFn": "reconnect" },
 					{ "id": "ZhiYuanEDAStopFootprint", "title": "停止网关连接", "registerFn": "stopConnection" },

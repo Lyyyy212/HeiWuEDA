@@ -2,7 +2,7 @@
 	"name": "@lyyyy/zhiyuaneda-gateway",
 	"version": "0.1.0",
 	"private": true,
-	"description": "ZhiYuanEDA 的嘉立创EDA专属网关扩展",
+	"description": "黑五EDA 的嘉立创EDA专属网关扩展",
 	"author": "Lyyyy",
 	"license": "PolyForm-Noncommercial-1.0.0",
 	"engines": {

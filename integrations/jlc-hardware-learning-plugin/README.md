@@ -1,6 +1,6 @@
 # JLC Hardware Learning
 
-面向 Codex 的独立 ZhiYuanEDA 硬件学习画板插件。它以官方 EDA Bridge 导出的 PNG 或本地渲染的 PDF 页面作为视觉证据，支持框选原理图区域、在正常对话栏提问、接收教学标注、管理多个画板和图页，以及导出 PNG、SVG 和 JSON。
+面向 Codex 的独立 黑五EDA 硬件学习画板插件。它以官方 EDA Bridge 导出的 PNG 或本地渲染的 PDF 页面作为视觉证据，支持框选原理图区域、在正常对话栏提问、接收教学标注、管理多个画板和图页，以及导出 PNG、SVG 和 JSON。
 
 该插件不生成图片，不上传遥测数据，也不直接写入 EasyEDA 工程。EasyEDA 访问始终由硬件生命周期层通过官方 `eda.*` API 以只读方式完成。
 

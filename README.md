@@ -1,4 +1,4 @@
-# ZhiYuanEDA
+# 黑五EDA
 
 [![CI](https://github.com/Lyyyy212/ZhiYuanEDA/actions/workflows/ci.yml/badge.svg)](https://github.com/Lyyyy212/ZhiYuanEDA/actions/workflows/ci.yml)
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
@@ -6,12 +6,12 @@
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange.svg)](LICENSE)
 
 <p align="center">
-  <img src="docs/assets/zhiyuaneda-hero.png" alt="ZhiYuanEDA 连接硬件设计、受控 API 网关与学习画板" width="100%">
+  <img src="docs/assets/zhiyuaneda-hero.png" alt="黑五EDA 连接硬件设计、受控 API 网关与学习画板" width="100%">
 </p>
 
 > 面向嘉立创EDA专业版的模块化硬件工作台，围绕“硬件设计全生命周期”和“硬件学习与知识沉淀”两条核心链路组织功能。
 
-`ZhiYuanEDA` 由个人开发者 **Lyyyy** 独立开发。项目连接官方 EasyEDA API，
+`黑五EDA` 由个人开发者 **Lyyyy** 独立开发。项目连接官方 EasyEDA API，
 但不是嘉立创EDA官方产品，也不代表嘉立创或 EasyEDA 的认可与背书。
 
 本仓库是面向 GitHub 的公开源码版本，不包含真实工程、现场证据、账号信息、访问凭据或
@@ -20,13 +20,13 @@ EasyEDA 项目数据。原创部分依据 [PolyForm Noncommercial 1.0.0](LICENSE
 
 ## 第一次来？先看这里
 
-可以把嘉立创EDA理解成真正绘制和保存电路的“设计桌”，把 ZhiYuanEDA 理解成桌旁的
+可以把嘉立创EDA理解成真正绘制和保存电路的“设计桌”，把 黑五EDA 理解成桌旁的
 “硬件协作助手”：它先确认你正在操作哪个工程、哪一张图，再帮助检查设计、整理证据、
 选择器件，或者把电路放到学习画板上讲明白。
 
 它主要解决三件事：
 
-| 你遇到的问题 | ZhiYuanEDA 怎么帮你 |
+| 你遇到的问题 | 黑五EDA 怎么帮你 |
 | --- | --- |
 | **设计过程容易乱** | 把需求、模块设计、原理图审查、BOM 选型和回填拆成有产物、有门禁的步骤 |
 | **API 操作怕跑错工程** | 每次连接都核对窗口、工程和文档 UUID，只允许清单中的官方方法，并保留执行证据 |
@@ -35,7 +35,7 @@ EasyEDA 项目数据。原创部分依据 [PolyForm Noncommercial 1.0.0](LICENSE
 ### 30 秒导览
 
 1. **连接设计**：打开嘉立创EDA工程，通过官方 Bridge 接入当前窗口。
-2. **确认对象**：ZhiYuanEDA 核对工程、图页和文档类型，防止对错页面操作。
+2. **确认对象**：黑五EDA 核对工程、图页和文档类型，防止对错页面操作。
 3. **选择链路**：要推进项目就进入“硬件设计链”；要理解电路就进入“硬件学习链”。
 4. **留下证据**：读取、审查、导出和受控写回都会生成可核对记录，而不是只返回一句结论。
 
@@ -52,13 +52,13 @@ EasyEDA 项目数据。原创部分依据 [PolyForm Noncommercial 1.0.0](LICENSE
 
 ## 项目组成
 
-ZhiYuanEDA 不是一个单独的 API 脚本，而是一组职责隔离、通过明确契约协作的模块：
+黑五EDA 不是一个单独的 API 脚本，而是一组职责隔离、通过明确契约协作的模块：
 
 | 模块 | 位置 | 主要功能 | 服务链路 |
 | --- | --- | --- | --- |
 | API 契约与注册表 | `easyeda_gateway/contract.py`、`api-manifest.json` | 锁定官方方法 ID、签名、枚举和风险等级；拒绝未知 API | 两条链路共享 |
 | Bridge 客户端与窗口守卫 | `client.py`、`window_guard.py`、`executor.py` | 自动发现本地 Bridge、验证 `easyeda-bridge` 握手、绑定窗口/工程/文档身份 | 两条链路共享 |
-| ZhiYuanEDA Gateway 扩展 | `integrations/zhiyuaneda-gateway/` | 嘉立创EDA侧专属连接器、并行发现、重连、心跳和连接状态 | 两条链路共享 |
+| 黑五EDA Gateway 扩展 | `integrations/zhiyuaneda-gateway/` | 嘉立创EDA侧专属连接器、并行发现、重连、心跳和连接状态 | 两条链路共享 |
 | 页面与板级文档导航 | `page_navigator.py`、`board_navigator.py` | 列出页面、按 UUID 精确切换、跨页遍历并恢复原页；不保存设计 | 两条链路共享 |
 | 原理图读取与证据 | `composite.py`、`exporter.py`、`formal_exporter.py`、`drc.py` | 元件/引脚/网络/拓扑读取，PNG/PDF、BOM、网表、EPRO、DRC 和证据包 | 设计链；为学习链供证 |
 | PCB 分析与制造数据 | `official_plugins.py`、`ibom.py` | PCB 设计报告、18 项 DFM、制造 SVG、GenCAD 1.4、交互装配 BOM | 设计链 |
@@ -76,7 +76,7 @@ ZhiYuanEDA 不是一个单独的 API 脚本，而是一组职责隔离、通过�
 ## 两大核心链路
 
 <p align="center">
-  <img src="docs/assets/zhiyuaneda-two-core-flows.png" alt="ZhiYuanEDA 两大核心链路：硬件设计链与硬件学习链" width="100%">
+  <img src="docs/assets/zhiyuaneda-two-core-flows.png" alt="黑五EDA 两大核心链路：硬件设计链与硬件学习链" width="100%">
 </p>
 
 两条链路共享受控 API、身份守卫和证据层：设计链产出的正式证据可以进入学习链；
@@ -188,7 +188,7 @@ python -m easyeda_gateway --version
 ```
 
 环境要求：Python 3.11+、Node.js 18+、嘉立创EDA专业版，以及本仓库的
-ZhiYuanEDA Gateway 开发预览包或官方
+黑五EDA Gateway 开发预览包或官方
 [Run API Gateway](https://jlc-ext.com/item/oshwhub/run-api-gateway) 扩展。
 
 ### 连接并确认身份
@@ -203,7 +203,7 @@ python skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py export-capab
 `discover` 会扫描 `49620-49629` 并验证服务标识为 `easyeda-bridge`；`windows` 返回后续操作
 需要绑定的窗口、工程 UUID 和当前文档 UUID。
 
-### 构建专属 ZhiYuanEDA Gateway
+### 构建专属 黑五EDA Gateway
 
 ```bash
 cd integrations/zhiyuaneda-gateway
@@ -276,12 +276,16 @@ ZhiYuanEDA/
 
 ## 兼容性标识
 
-公开展示品牌为 ZhiYuanEDA。以下既有技术标识继续保留，避免破坏安装脚本、本地证据和学习数据：
+公开展示品牌为 黑五EDA。以下既有技术标识继续保留，避免破坏安装脚本、本地证据和学习数据：
 
 - Python 分发包：`easyeda-workbench-gateway`
 - Python 模块与 CLI：`easyeda_gateway` / `easyeda-gateway`
 - 本地状态目录：`.easyeda-hardware-workbench/`
 - Schema 与 API 契约中的既有 `easyeda.*` 标识
+- 当前 GitHub 仓库 slug 与克隆目录：`ZhiYuanEDA`
+- 专属网关目录与 npm 包：`zhiyuaneda-gateway` / `@lyyyy/zhiyuaneda-gateway`
+- 网关注册身份：`lyyyy.zhiyuaneda` / `zhiyuaneda`
+- 既有菜单、存储与消息标识：`ZhiYuanEDA*` / `zhiyuaneda.*` / `zhiyuaneda-*`
 
 ## 验证与发布状态
 
@@ -289,9 +293,9 @@ GitHub Actions 会执行公开边界扫描、Gateway 单元测试、wheel 许可
 学习契约校验、插件冷安装探测和 MCP 探测。离线测试只证明代码、契约和发布包一致；真实 EasyEDA 验收
 仍需连接官方 Bridge，并记录操作前后的工程与文档身份。
 
-- ZhiYuanEDA 项目发布：`0.8.2`。
+- 黑五EDA 项目发布：`0.8.2`。
 - Python Gateway：`0.8.0`。
-- ZhiYuanEDA Gateway 扩展：`0.1.0` GitHub 开发预览。
+- 黑五EDA Gateway 扩展：`0.1.0` GitHub 开发预览。
 - 硬件学习插件：`0.1.6`，Widget URI 为 `ui://widget/jlc-hardware-learning/canvas-0.1.6.html`。
 - GitHub 源码发布：已就绪，默认分支为 `main`。
 - 嘉立创EDA扩展广场：当前仓库提供开发预览 `.eext` 的构建源码；正式上架版本仍需收紧协议、补齐商店素材并完成真实环境验收。

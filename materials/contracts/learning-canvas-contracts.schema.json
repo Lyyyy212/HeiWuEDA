@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://local.easyeda-workbench.invalid/schemas/learning-canvas-contracts.v1.json",
-  "title": "ZhiYuanEDA Learning Canvas Contracts",
+  "title": "黑五EDA Learning Canvas Contracts",
   "description": "Versioned contracts exchanged by JLC Hardware LearningLearningUI, LearningCanvasAdapter, OfficialEasyedaEvidenceProvider, HardwareTutorEngine and CanvasAnswerPresenter.",
   "oneOf": [
     { "$ref": "#/$defs/LearningQuestion" },

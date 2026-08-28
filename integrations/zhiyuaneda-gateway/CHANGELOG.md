@@ -4,11 +4,11 @@
 
 ### 新增
 
-- 发布 `ZhiYuanEDA Gateway` 首个 GitHub 开发预览版本。
+- 发布 `黑五EDA Gateway` 首个 GitHub 开发预览版本。
 - 并行探测 `49620-49629`，缩短本地 Bridge 发现等待时间。
 - 增加专属 `gatewayId`、产品标识、WebSocket ID、MessageBus topic 与存储键。
-- 兼容官方 `service: "easyeda-bridge"` 握手，可连接现有 ZhiYuanEDA Python Gateway。
-- 记忆最近一次成功端口，并优先选择声明 ZhiYuanEDA 身份的 Bridge。
+- 兼容官方 `service: "easyeda-bridge"` 握手，可连接现有 黑五EDA Python Gateway。
+- 记忆最近一次成功端口，并优先选择声明 黑五EDA 身份的 Bridge。
 - 增加有上限的指数退避、抖动和持续重连。
 - 连续两次心跳超时后才重新发现连接，减少 EasyEDA 短暂卡顿造成的误重连。
 - 菜单提供重新连接、停止连接、切换自动连接和状态查看。

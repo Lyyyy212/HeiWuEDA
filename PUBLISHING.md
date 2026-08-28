@@ -4,7 +4,7 @@
 
 - Copyright holder: `Lyyyy`
 - Developer and publisher display name: `Lyyyy`
-- Product display name: `ZhiYuanEDA`
+- Product display name: `黑五EDA`
 - Repository name: `ZhiYuanEDA`
 - Python package: `easyeda-workbench-gateway`
 - First-party license: `PolyForm-Noncommercial-1.0.0`
@@ -42,7 +42,7 @@ coverage.
 
 Suggested repository description:
 
-> ZhiYuanEDA: guarded EasyEDA API access and a traceable hardware lifecycle workbench for noncommercial use.
+> 黑五EDA: guarded EasyEDA API access and a traceable hardware lifecycle workbench for noncommercial use.
 
 Suggested topics: `easyeda`, `jlc`, `eda`, `pcb`, `schematic`, `hardware-design`,
 `bom`, `python`, `noncommercial`.
@@ -58,7 +58,7 @@ Candidate identity:
 ```json
 {
   "name": "zhiyuaneda-gateway",
-  "displayName": "ZhiYuanEDA Gateway",
+  "displayName": "黑五EDA Gateway",
   "publisher": "Lyyyy",
   "license": "PolyForm-Noncommercial-1.0.0",
   "categories": ["Project", "Other"]

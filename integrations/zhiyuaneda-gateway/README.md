@@ -1,6 +1,6 @@
-# ZhiYuanEDA Gateway
+# 黑五EDA Gateway
 
-这是 ZhiYuanEDA 自有的嘉立创EDA专属网关扩展源码，不直接修改
+这是 黑五EDA 自有的嘉立创EDA专属网关扩展源码，不直接修改
 `materials/sources/core/eext-run-api-gateway` 中锁定的官方上游子模块。
 扩展使用独立的产品名、UUID、WebSocket ID、MessageBus topic 和存储键，
 但仍兼容官方 `service: "easyeda-bridge"` 协议，因此可以和工作台现有的

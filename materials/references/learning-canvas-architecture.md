@@ -2,7 +2,7 @@
 
 ## 定位
 
-JLC Hardware Learning 只作为 `ZhiYuanEDA` 的学习交互界面：用户把原理图截图、官方导出证据或数据手册图片放入无限画布，用矩形、箭头、自由笔和文字框出问题区域，再让硬件导师解释。
+JLC Hardware Learning 只作为 `黑五EDA` 的学习交互界面：用户把原理图截图、官方导出证据或数据手册图片放入无限画布，用矩形、箭头、自由笔和文字框出问题区域，再让硬件导师解释。
 
 这里明确不使用 JLC Hardware Learning 的生图、按标注改图、AI HTML 或 AI Slides 功能。JLC Hardware Learning 也不是 EasyEDA API 的来源，不能定义、猜测或直接调用 `eda.*` 接口。
 

@@ -8,7 +8,7 @@ node_modules/
 build/
 dist/
 
-# Keep the ZhiYuanEDA Gateway packager source while excluding generated packages.
+# Keep the 黑五EDA Gateway packager source while excluding generated packages.
 !integrations/zhiyuaneda-gateway/build/
 integrations/zhiyuaneda-gateway/build/dist/
 !integrations/zhiyuaneda-gateway/build/packaged.ts

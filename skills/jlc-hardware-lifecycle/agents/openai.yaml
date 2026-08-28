@@ -1,4 +1,4 @@
 interface:
   display_name: "JLC Hardware Lifecycle"
-  short_description: "覆盖 ZhiYuanEDA 方案设计、模块详设、原理图审查与 BOM 选型填入的完整硬件工作流"
+  short_description: "覆盖 黑五EDA 方案设计、模块详设、原理图审查与 BOM 选型填入的完整硬件工作流"
   default_prompt: "Use $jlc-hardware-lifecycle to run the staged EasyEDA hardware workflow for this project."

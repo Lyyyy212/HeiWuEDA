@@ -1,9 +1,9 @@
 {
   "name": "jlc-hardware-learning",
   "version": "0.1.6",
-  "description": "面向 ZhiYuanEDA 原理图学习、区域提问、教学标注、本地导出与飞书项目学习笔记的持久化 JLC 硬件学习画板。",
+  "description": "面向 黑五EDA 原理图学习、区域提问、教学标注、本地导出与飞书项目学习笔记的持久化 JLC 硬件学习画板。",
   "author": {
-    "name": "ZhiYuanEDA Hardware Workbench"
+    "name": "黑五EDA Hardware Workbench"
   },
   "license": "MIT",
   "keywords": [
@@ -18,9 +18,9 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "JLC Hardware Learning",
-    "shortDescription": "ZhiYuanEDA 原理图学习画板与教学流程。",
+    "shortDescription": "黑五EDA 原理图学习画板与教学流程。",
     "longDescription": "专用的 JLC 硬件学习画板，可框选原理图区域、在 Codex 对话中提问、接收教学标注、导入身份校验后的原理图视觉证据、管理多个独立画板和图页、规划紧凑的飞书项目学习笔记，并导出 PNG、SVG 或 JSON。画板使用项目本地存储，保护导入的原理图证据，提供安全缩放和视口裁剪，不生成图片、不上传遥测数据，也不直接写入 EDA 工程；飞书远端写入仍需明确确认和 fresh read 验证。",
-    "developerName": "ZhiYuanEDA Hardware Workbench",
+    "developerName": "黑五EDA Hardware Workbench",
     "category": "Productivity",
     "capabilities": [
       "硬件学习画板",
