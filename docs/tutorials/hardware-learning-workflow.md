@@ -44,7 +44,7 @@
 学习框是画板中的结构化对象，而非临时鼠标框选。每个框都应有唯一编号，并对应一个
 可讲解的最小模块。下面是适用于双电源教学图的划分方式。
 
-![四类学习框与问题模型示意](../assets/tutorials/frame-question-model.svg)
+![四类学习框与问题模型示意](../assets/tutorials/frame-question-model-image2.png)
 
 | 学习框 | 聚焦对象 | 适合提出的问题 |
 | --- | --- | --- |

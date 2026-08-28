@@ -20,6 +20,12 @@ project/page identifier, or account information.
 | --- | --- | --- | --- |
 | `tutorials/learning-workflow.svg` | 1600 x 900 | `791a92e31eb4270f1c2aac9e2e347ed278bb8c2e3902b6598bba3bbf23627f05` | Evidence-to-notes workflow overview |
 | `tutorials/frame-question-model.svg` | 1600 x 920 | `46a2465abf0356a6472c32ea2f77b71cf573cc43ce3121652bbad900f7436eac` | Four generic learning frames and question model |
+| `tutorials/frame-question-model-image2.png` | 1672 x 941 | `389a7c57a4e69046c5867d1b89522ed16fc27c13d215a54185a2ad460586c346` | Image 2 raster version of the four-frame question model |
+
+`frame-question-model-image2.png` was generated with the built-in Image 2
+tool from a generic, no-sensitive-data teaching-layout reference. It does not
+contain a live project, schematic, component value, page identifier, account
+information, or logo.
 
 ## Hero prompt
 
