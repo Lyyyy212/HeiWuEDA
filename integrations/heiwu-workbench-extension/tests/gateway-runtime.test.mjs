@@ -540,6 +540,11 @@ test('package contains the workbench iframe and excludes development-only files'
 	assert.ok(zip.file('assets/generated/frame-question-model.svg'));
 	assert.ok(zip.file('dist/index.js'));
 	assert.ok(zip.file('extension.json'));
+	for (const legalPath of ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md', 'LICENSES/Apache-2.0.txt']) {
+		const legalFile = zip.file(legalPath);
+		assert.ok(legalFile, `${legalPath} is packaged`);
+		assert.doesNotMatch(await legalFile.async('string'), /\r/u, `${legalPath} uses LF line endings`);
+	}
 	assert.equal(zip.file(/^tmp\//).length, 0);
 	assert.equal(zip.file(/^src\//).length, 0);
 	assert.equal(zip.file(/^scripts\//).length, 0);

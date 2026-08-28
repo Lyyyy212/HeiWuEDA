@@ -1,4 +1,4 @@
-import type { Buffer } from 'node:buffer';
+import { Buffer } from 'node:buffer';
 import path from 'node:path';
 import process from 'node:process';
 import fs from 'fs-extra';
@@ -8,9 +8,25 @@ import JSZip from 'jszip';
 import * as extensionConfig from '../extension.json';
 
 const archiveDate = new Date('1980-01-01T00:00:00.000Z');
+const textExtensions = new Set([
+	'.css',
+	'.html',
+	'.js',
+	'.json',
+	'.md',
+	'.svg',
+	'.txt',
+]);
+
+function normalizePackagedData(name: string, data: Buffer): Buffer {
+	if (name !== 'LICENSE' && name !== 'NOTICE' && !textExtensions.has(path.extname(name).toLowerCase())) {
+		return data;
+	}
+	return Buffer.from(data.toString('utf8').replace(/\r\n?/gu, '\n'), 'utf8');
+}
 
 function addFile(zip: JSZip, name: string, data: Buffer): void {
-	zip.file(name, data, { createFolders: false, date: archiveDate });
+	zip.file(name, normalizePackagedData(name, data), { createFolders: false, date: archiveDate });
 }
 
 const integrationRoot = path.resolve(__dirname, '..');

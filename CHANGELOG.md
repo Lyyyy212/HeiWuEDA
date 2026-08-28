@@ -25,6 +25,8 @@
   abstract tutorial diagrams.
 - Updated the official GitHub checkout, runtime setup and artifact upload
   actions to their current Node-compatible v7 release line.
+- Normalized text payloads inside the protocol-v2 `.eext` so Windows and Linux
+  builds produce the same SHA-256, including vendored legal notices.
 
 ### Verification boundary
 
