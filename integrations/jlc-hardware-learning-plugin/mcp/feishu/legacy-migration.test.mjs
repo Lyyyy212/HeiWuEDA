@@ -113,7 +113,8 @@ test("legacy migration preview reuses the live document and both board tokens", 
   assert.equal(page.whiteboardToken, learningBoardToken);
   assert.equal(page.moduleIndexWhiteboardToken, indexBoardToken);
   assert.equal(page.schematicPageUuid, "schematic-main");
-  assert.equal(page.learningFrameMarkerStyle.colorOpacityPercent, 70);
+  assert.equal(page.learningFrameMarkerStyle.colorOpacityPercent, 50);
+  assert.equal(page.learningFrameMarkerStyle.numberOpacityPercent, 50);
   assert.equal(page.learningFrameMarkerStyle.borderWidthScale, 0.5);
   assert.deepEqual(Object.keys(page.frames), ["4", "5", "7"]);
   assert.equal(page.frames["7"].docBlockId, "block-module-7");

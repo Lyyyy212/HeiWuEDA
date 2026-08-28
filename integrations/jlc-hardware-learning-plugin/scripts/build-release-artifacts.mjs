@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
 
+import { CANVAS_BRAND_NAME } from "../shared/branding.mjs";
+
 const require = createRequire(import.meta.url);
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const GENERATED_DIR = path.join(ROOT_DIR, "mcp", "generated");
@@ -100,7 +102,7 @@ async function buildWidgetArtifact(outDir) {
 
   let html = await inlineViteBuild(outDir);
   html = `<!-- ${GENERATED_HEADER} -->\n${html}`;
-  if (!html.includes("JLC Hardware Learning Canvas")) {
+  if (!html.includes(CANVAS_BRAND_NAME)) {
     throw new Error("The generated JLC Hardware Learning widget does not include the expected app shell.");
   }
   if (!html.includes("jlc-hardware-learning-canvas-v1")) {

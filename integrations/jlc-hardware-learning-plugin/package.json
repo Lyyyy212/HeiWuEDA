@@ -1,6 +1,6 @@
 {
   "name": "jlc-hardware-learning",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,7 +17,7 @@
     "probe:mcp:cold": "node ./scripts/probe-cold-install.mjs",
     "probe:hardware-learning": "node ./scripts/probe-hardware-learning.mjs",
     "probe:learning-tools": "node ./scripts/probe-learning-tools.mjs",
-    "test:learning-canvas": "node --test --test-force-exit ./src/learning-canvas/model.test.mjs ./src/learning-canvas/history.test.mjs ./src/learning-canvas/interaction.test.mjs ./src/learning-canvas/textEditing.test.mjs ./src/learning-canvas/viewport.test.mjs ./src/hardwareLearningClient.test.mjs ./mcp/learning/conversation-question.test.mjs ./mcp/feishu/note-model.test.mjs ./mcp/feishu/project-homepage.test.mjs ./mcp/feishu/page-content.test.mjs ./mcp/feishu/dialogue-records.test.mjs ./mcp/feishu/sync-plan.test.mjs ./mcp/feishu/storage.test.mjs ./mcp/feishu/lark-cli-adapter.test.mjs ./mcp/feishu/document-inspection.test.mjs ./mcp/feishu/legacy-migration.test.mjs ./mcp/feishu/confirmed-migration.test.mjs ./mcp/feishu/confirmed-sync.test.mjs ./mcp/feishu/service.test.mjs ./mcp/lib/canvas-storage.test.mjs ./mcp/lib/canvas-catalog.test.mjs ./mcp/lib/page-netlist.test.mjs ./mcp/lib/widget-resource.test.mjs",
+    "test:learning-canvas": "node --test --test-force-exit ./skills/jlc-hardware-learning/scripts/validate-feishu-learning-board.test.mjs ./src/learning-canvas/model.test.mjs ./src/learning-canvas/history.test.mjs ./src/learning-canvas/interaction.test.mjs ./src/learning-canvas/textEditing.test.mjs ./src/learning-canvas/viewport.test.mjs ./src/hardwareLearningClient.test.mjs ./mcp/learning/conversation-question.test.mjs ./mcp/feishu/note-model.test.mjs ./mcp/feishu/project-homepage.test.mjs ./mcp/feishu/page-content.test.mjs ./mcp/feishu/dialogue-records.test.mjs ./mcp/feishu/sync-plan.test.mjs ./mcp/feishu/storage.test.mjs ./mcp/feishu/lark-cli-adapter.test.mjs ./mcp/feishu/document-inspection.test.mjs ./mcp/feishu/legacy-migration.test.mjs ./mcp/feishu/confirmed-migration.test.mjs ./mcp/feishu/confirmed-sync.test.mjs ./mcp/feishu/service.test.mjs ./mcp/lib/canvas-storage.test.mjs ./mcp/lib/canvas-catalog.test.mjs ./mcp/lib/page-netlist.test.mjs ./mcp/lib/widget-resource.test.mjs",
     "quality": "npm run check:plugin && npm run check && npm run test:learning-canvas && npm run check:artifacts && npm run probe:hardware-learning && npm run probe:learning-tools && npm run probe:mcp:cold && npm run probe:mcp"
   },
   "devDependencies": {

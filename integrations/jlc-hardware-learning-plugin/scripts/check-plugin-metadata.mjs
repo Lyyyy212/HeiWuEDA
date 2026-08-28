@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { CANVAS_BRAND_NAME } from "../shared/branding.mjs";
+
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 async function readJson(relativePath) {
@@ -34,7 +36,7 @@ for (const [source, version] of versions) {
 }
 
 assert.equal(pluginManifest.name, "jlc-hardware-learning");
-assert.equal(pluginManifest.interface?.displayName, "JLC Hardware Learning");
+assert.equal(pluginManifest.interface?.displayName, CANVAS_BRAND_NAME);
 assert.equal(pluginManifest.repository, undefined);
 assert.equal(pluginManifest.license, "MIT");
 

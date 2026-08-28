@@ -1,6 +1,6 @@
-# JLC Hardware Learning
+# 黑五画板
 
-面向 Codex 的独立 黑五EDA 硬件学习画板插件。它以官方 EDA Bridge 导出的 PNG 或本地渲染的 PDF 页面作为视觉证据，支持框选原理图区域、在正常对话栏提问、接收教学标注、管理多个画板和图页，以及导出 PNG、SVG 和 JSON。
+面向 Codex 的独立黑五画板插件。它以官方 EDA Bridge 导出的 PNG 或本地渲染的 PDF 页面作为视觉证据，支持框选原理图区域、在正常对话栏提问、接收教学标注、管理多个画板和图页，以及导出 PNG、SVG 和 JSON。
 
 该插件不生成图片，不上传遥测数据，也不直接写入 EasyEDA 工程。EasyEDA 访问始终由硬件生命周期层通过官方 `eda.*` API 以只读方式完成。
 
@@ -9,7 +9,7 @@
 - Plugin：`jlc-hardware-learning`
 - Skill：`$jlc-hardware-learning`
 - MCP server：`jlc_hardware_learning_mcp`
-- Widget：`JLC Hardware Learning Canvas`
+- Widget：`黑五画板`
 
 ## 开发与验证
 
@@ -61,4 +61,4 @@ canvases/
 - `JLC_HARDWARE_LEARNING_CANVAS_DIR`：画板数据目录，默认 `<projectDir>/canvas`。
 - `JLC_HARDWARE_LEARNING_PORT`：本地开发服务器端口，默认 `43217`。
 
-本仓库保留原始 MIT 许可证文本及 Git 历史，以满足已有开源代码的许可证要求；产品名称、工具名、Skill 和用户界面均使用 JLC Hardware Learning 身份。
+本仓库保留原始 MIT 许可证文本及 Git 历史，以满足已有开源代码的许可证要求；用户可见产品名称为黑五画板，技术插件 ID 与 MCP 工具名继续使用 `jlc-hardware-learning` 以保持兼容。

@@ -1,0 +1,47 @@
+{
+	"schemaVersion": 1,
+	"sourceBaseline": {
+		"version": "0.3.3",
+		"artifact": "hardware-workbench_v0.3.3.eext",
+		"sha256": "67CCB2E4B09D062FBD144917D2EEE2581F6C33B8A081B3CA720BC9DC5D3917F3"
+	},
+	"description": "黑五EDA 的嘉立创EDA只读工作台预览：连接学习画板与可追溯原理图流程，并通过固定白名单读取当前设计上下文。",
+	"categories": "Other",
+	"keywords": [
+		"黑五EDA",
+		"学习画板",
+		"原理图全流程",
+		"Hardware Learning",
+		"Schematic Lifecycle",
+		"AI"
+	],
+	"images": {
+		"logo": "./images/logo.png"
+	},
+	"requiredAssets": {
+		"images/logo.png": {
+			"bytes": 28448,
+			"sha256": "8FC536CCFDE903496A1FA56886F3AC839AFBEF16E24956BDFD10C995FAA152AF"
+		},
+		"images/logo.svg": {
+			"bytes": 869,
+			"sha256": "C3E04954E0D78FCC4991C2712590EABD161C0B0282BA0A32D21814C0F0C6EF7E"
+		},
+		"assets/generated/heiwu-workbench-two-core-flows.png": {
+			"bytes": 1947864,
+			"sha256": "D2C5FCF5EB87FB78C717DBB7044615656AA28C21831B2131218E3585C48AE9BE"
+		},
+		"assets/generated/schematic-lifecycle-concept.png": {
+			"bytes": 1698883,
+			"sha256": "0FF07289FD099CEA9DD45D120D33861338E1A7FCFD58162573E3CDD703F8C420"
+		},
+		"assets/generated/learning-workflow.svg": {
+			"bytes": 5435,
+			"sha256": "705166DF46F648A2DC1EBF29DDE7936A7C6D29446581AE4497972B7C9448C7D7"
+		},
+		"assets/generated/frame-question-model.svg": {
+			"bytes": 5059,
+			"sha256": "46A2465ABF0356A6472C32EA2F77B71CF573CC43CE3121652BBAD900F7436EAC"
+		}
+	}
+}

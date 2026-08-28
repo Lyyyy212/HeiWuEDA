@@ -16,7 +16,7 @@ assert.equal(manifest.name, "jlc-hardware-learning");
 assert.match(manifest.version, /^\d+\.\d+\.\d+$/u);
 assert.equal(manifest.mcpServers, "./.mcp.json");
 assert.equal(manifest.skills, "./skills/");
-assert.equal(manifest.interface?.displayName, "JLC Hardware Learning");
+assert.equal(manifest.interface?.displayName, "黑五画板");
 
 const mcpConfig = await readJson(".mcp.json");
 assert.deepEqual(Object.keys(mcpConfig.mcpServers), ["jlc_hardware_learning_mcp"]);
@@ -38,8 +38,7 @@ for (const text of await Promise.all([
 
 const widget = await readText("mcp", "generated", "hardware-learning-widget.html");
 assert.match(widget, /jlc-hardware-learning-canvas-v1/u);
-assert.match(widget, /JLC Hardware Learning/u);
-assert.match(widget, /JLC硬件学习画板/u);
+assert.match(widget, /黑五画板/u);
 assert.match(widget, /data-jlc-learning-inline-editor/u);
 assert.match(widget, /learning-canvas-viewport-clip/u);
 assert.match(widget, /contain:strict/u);

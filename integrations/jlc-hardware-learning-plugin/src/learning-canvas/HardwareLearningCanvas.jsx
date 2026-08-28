@@ -36,6 +36,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 
 import {
+  CANVAS_BRAND_NAME,
+  CANVAS_EXPORT_DIRECTORY_NAME,
+  CANVAS_GITHUB_URL
+} from '../../shared/branding.mjs'
+import {
   acknowledgeHardwareLearningAnnotations,
   chooseHardwareLearningExportDirectory,
   copyHardwareLearningImageToClipboard,
@@ -148,7 +153,7 @@ const STYLE_COLORS = [
 const FILL_OPTIONS = [['none', '无'], ['semi', '浅色'], ['solid', '实色']]
 const DASH_OPTIONS = [['draw', '手绘'], ['dashed', '虚线'], ['dotted', '点线'], ['solid', '实线']]
 const SIZE_OPTIONS = [['s', '小'], ['m', '中'], ['l', '大'], ['xl', '特大']]
-const DEFAULT_EXPORT_DIRECTORY_LABEL = '默认：下载/JLC硬件学习画板'
+const DEFAULT_EXPORT_DIRECTORY_LABEL = `默认：下载/${CANVAS_EXPORT_DIRECTORY_NAME}`
 const VIEWPORT_IMAGE_OVERSCAN_PX = 512
 
 const DEFAULT_CAMERA = { x: 0, y: 0, z: 1 }
@@ -1312,7 +1317,7 @@ export default function HardwareLearningCanvas() {
       ...args,
       ...(exportDirectory.directoryToken
         ? { directoryToken: exportDirectory.directoryToken }
-        : { directoryName: 'JLC硬件学习画板' }),
+        : { directoryName: CANVAS_EXPORT_DIRECTORY_NAME }),
       onProgress: ({ sentBytes, totalBytes }) => {
         if (!totalBytes) return
         const progress = Math.min(100, Math.floor(sentBytes * 100 / totalBytes))
@@ -1568,7 +1573,7 @@ export default function HardwareLearningCanvas() {
     : 0
 
   return (
-    <main className="learning-canvas-shell" data-engine="jlc-hardware-learning-canvas-v1">
+    <main aria-label={CANVAS_BRAND_NAME} className="learning-canvas-shell" data-engine="jlc-hardware-learning-canvas-v1">
       <section
         className={`learning-canvas-viewport tool-${effectiveTool}`}
         onContextMenu={handleCanvasContextMenu}
@@ -1581,7 +1586,7 @@ export default function HardwareLearningCanvas() {
       >
         {snapshot && pageId ? (
           <svg
-            aria-label="硬件学习画布"
+            aria-label={`${CANVAS_BRAND_NAME}画布`}
             className="learning-canvas-svg"
             data-rendered-image-count={renderedShapes.filter((shape) => shape.type === 'image').length}
             data-testid="learning-canvas-svg"
@@ -1967,6 +1972,18 @@ export default function HardwareLearningCanvas() {
           <button onClick={copyLastExportPath} title="复制导出路径" type="button"><Copy aria-hidden="true" size={14} />复制路径</button>
         </aside>
       )}
+
+      <a
+        aria-label={`在 GitHub 查看${CANVAS_BRAND_NAME}`}
+        className="black-five-canvas-watermark"
+        data-testid="black-five-canvas-watermark"
+        href={CANVAS_GITHUB_URL}
+        rel="noreferrer noopener"
+        target="_blank"
+        title="在 GitHub 查看黑五EDA"
+      >
+        {CANVAS_BRAND_NAME}
+      </a>
 
     </main>
   )

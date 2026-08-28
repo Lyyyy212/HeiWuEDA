@@ -8,11 +8,30 @@ import {
   upsertFeishuPageBinding,
 } from "./note-model.mjs";
 import { planFeishuLearningSync } from "./sync-plan.mjs";
-import { executeConfirmedFeishuLearningNoteMigration } from "./confirmed-migration.mjs";
+import {
+  executeConfirmedFeishuLearningNoteMigration,
+  renderFeishuPageIdentitySummary,
+} from "./confirmed-migration.mjs";
 
 const DOC_TOKEN = "CwGJdseLUoB3GlxIVEdc4zgZnBh";
 const MAIN_BOARD = "PhfGw0fY2htpI8bOVXqcAoB7nvc";
 const INDEX_BOARD = "E6uZwU99Qh3Xcqb4j8Mcs1xznOb";
+
+test("reader-facing page identity summary hides internal binding identifiers", () => {
+  const summary = renderFeishuPageIdentitySummary({
+    project: {
+      projectName: "测试项目",
+      projectUuid: "internal-project-uuid",
+    },
+    page: {
+      pageName: "主控板",
+      canvasPageId: "page:internal",
+      schematicPageUuid: "fixture-schematic-page-uuid",
+    },
+  });
+  assert.equal(summary, "项目：测试项目；图页：主控板");
+  assert.doesNotMatch(summary, /internal|UUID|page:/u);
+});
 
 function documentContent() {
   return [

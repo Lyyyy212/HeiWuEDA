@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.9.0 - 2026-08-28
+
+### Added
+
+- Published the sanitized `黑五画板` `0.1.7` source from commit
+  `a728c41a7e9ba8b1c78b4e8e107affe0fdee3240`.
+- Added the `JLC-FN-1.2` Feishu learning-note standard, fixed-size learning-frame
+  badges, stable distinct module colors and a raw-board acceptance validator.
+- Added the `黑五EDA` protocol-v2 workbench extension `0.4.6` as a separate
+  read-only developer preview with three fixed allowlisted operations.
+- Added a dedicated GitHub Actions workflow that reproducibly builds and checks
+  the restricted `.eext` candidate.
+
+### Changed
+
+- Renamed the user-visible learning canvas to `黑五画板` while retaining the
+  `jlc-hardware-learning` plugin, MCP and storage identifiers for compatibility.
+- Linked the canvas watermark to the `HeiWuEDA` repository and kept the
+  generated Widget free of third-party runtime watermarks.
+- Hid project, page, board and image binding identifiers from reader-visible
+  Feishu note content while retaining them in internal registries and evidence.
+- Replaced real-project demonstration screenshots with repository-contained
+  abstract tutorial diagrams.
+
+### Verification boundary
+
+- `黑五画板` passes 107 tests plus metadata, artifact, cold-install, learning
+  tool and MCP probes.
+- The protocol-v2 extension passes lint, typecheck, 14 runtime tests, release
+  validation and deterministic `.eext` packaging.
+- The protocol-v2 extension remains a three-operation read-only preview. It
+  does not replace the complete compatibility gateway, and official marketplace
+  installation still requires a fresh real-client acceptance run.
+
 ## 0.8.2 - 2026-08-27
 
 ### Added

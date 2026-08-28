@@ -59,6 +59,7 @@ EasyEDA 项目数据。原创部分依据 [PolyForm Noncommercial 1.0.0](LICENSE
 | API 契约与注册表 | `easyeda_gateway/contract.py`、`api-manifest.json` | 锁定官方方法 ID、签名、枚举和风险等级；拒绝未知 API | 两条链路共享 |
 | Bridge 客户端与窗口守卫 | `client.py`、`window_guard.py`、`executor.py` | 自动发现本地 Bridge、验证 `easyeda-bridge` 握手、绑定窗口/工程/文档身份 | 两条链路共享 |
 | 黑五EDA Gateway 扩展 | `integrations/zhiyuaneda-gateway/` | 嘉立创EDA侧专属连接器、并行发现、重连、心跳和连接状态 | 两条链路共享 |
+| 黑五EDA 工作台扩展预览 | `integrations/heiwu-workbench-extension/` | 协议 v2、专属身份与 3 项固定白名单读取操作；不替代完整 Gateway | 只读商店候选 |
 | 页面与板级文档导航 | `page_navigator.py`、`board_navigator.py` | 列出页面、按 UUID 精确切换、跨页遍历并恢复原页；不保存设计 | 两条链路共享 |
 | 原理图读取与证据 | `composite.py`、`exporter.py`、`formal_exporter.py`、`drc.py` | 元件/引脚/网络/拓扑读取，PNG/PDF、BOM、网表、EPRO、DRC 和证据包 | 设计链；为学习链供证 |
 | PCB 分析与制造数据 | `official_plugins.py`、`ibom.py` | PCB 设计报告、18 项 DFM、制造 SVG、GenCAD 1.4、交互装配 BOM | 设计链 |
@@ -66,7 +67,7 @@ EasyEDA 项目数据。原创部分依据 [PolyForm Noncommercial 1.0.0](LICENSE
 | 导出安全与证据归档 | `export_safety.py`、`artifact_io.py`、`consistency.py`、`evidence_archive.py` | 能力矩阵、单飞熔断、不可覆盖落盘、跨产物一致性、SHA-256 归档 | 两条链路共享 |
 | 生命周期编排器 | `skills/easyeda-hardware-lifecycle/` | 管理阶段、产物、门禁、失效传播和受控推进 | 设计链主控 |
 | 学习编排模块 | `hwlifecycle/learning/` | 视觉导入路由、选区问题、证据请求、导师回答、会话恢复和笔记包 | 学习链主控 |
-| 硬件学习画板插件 | `integrations/jlc-hardware-learning-plugin/` | 多画板/多图页、编号学习框、缩小后的文字与笔记、首屏恢复、网表旁车、教学标注、本地导出和受控飞书笔记同步 | 学习链交互层 |
+| 黑五画板插件 | `integrations/jlc-hardware-learning-plugin/` | 多画板/多图页、编号学习框、缩小后的文字与笔记、首屏恢复、网表旁车、教学标注、本地导出和受控飞书笔记同步 | 学习链交互层 |
 | API 材料与来源锁 | `materials/` | API 类型、JSON Schema、示例索引、固定 commit 的上游源码和许可证 | 两条链路共享 |
 | 发布与质量检查 | `.github/workflows/`、`scripts/release/` | 单元测试、契约校验、插件探测、wheel 许可证检查和公开包净化 | 发布链路 |
 
@@ -214,6 +215,17 @@ npm run quality
 开发预览包输出到 `build/dist/zhiyuaneda-gateway_v0.1.0.eext`。当前版本用于本地联调，
 仍保留官方 Bridge 的兼容执行协议，不应直接作为扩展广场正式提交包。
 
+### 构建协议 v2 只读工作台候选
+
+```bash
+cd integrations/heiwu-workbench-extension
+npm ci
+npm run quality
+```
+
+候选包输出到 `build/dist/hardware-workbench_v0.4.6.eext`。它拒绝任意代码执行，只提供
+操作目录、当前上下文和身份绑定后的原理图索引读取；正式商店上传与真实客户端验收仍为人工门禁。
+
 ### 初始化设计链
 
 ```bash
@@ -265,7 +277,8 @@ HeiWuEDA/
 ├─ packages/easyeda-gateway/                  # 受控 API、导航、导出、PCB/BOM 与证据模块
 ├─ skills/easyeda-hardware-lifecycle/         # 设计链与学习链编排器
 ├─ integrations/jlc-hardware-learning-plugin/ # 学习画板、MCP 和本地存储
-├─ integrations/zhiyuaneda-gateway/            # 嘉立创EDA侧专属 Gateway 扩展
+├─ integrations/zhiyuaneda-gateway/           # 完整兼容链路的专属 Gateway 扩展
+├─ integrations/heiwu-workbench-extension/    # 协议 v2 三操作只读工作台预览
 ├─ materials/manifests/                       # API 清单、来源锁和集成配置
 ├─ materials/contracts/                       # 生命周期与学习数据契约
 ├─ materials/references/                      # 架构、边界和开发规格
@@ -293,12 +306,13 @@ GitHub Actions 会执行公开边界扫描、Gateway 单元测试、wheel 许可
 学习契约校验、插件冷安装探测和 MCP 探测。离线测试只证明代码、契约和发布包一致；真实 EasyEDA 验收
 仍需连接官方 Bridge，并记录操作前后的工程与文档身份。
 
-- 黑五EDA 项目发布：`0.8.2`。
+- 黑五EDA 项目发布：`0.9.0`。
 - Python Gateway：`0.8.0`。
 - 黑五EDA Gateway 扩展：`0.1.0` GitHub 开发预览。
-- 硬件学习插件：`0.1.6`，Widget URI 为 `ui://widget/jlc-hardware-learning/canvas-0.1.6.html`。
+- 黑五EDA 工作台扩展：`0.4.6` 协议 v2 只读开发预览，仅开放 3 项固定操作。
+- 黑五画板插件：`0.1.7`，Widget URI 为 `ui://widget/jlc-hardware-learning/canvas-0.1.7.html`。
 - GitHub 源码发布：已就绪，默认分支为 `main`。
-- 嘉立创EDA扩展广场：当前仓库提供开发预览 `.eext` 的构建源码；正式上架版本仍需收紧协议、补齐商店素材并完成真实环境验收。
+- 嘉立创EDA扩展广场：仓库可重复构建 `0.4.6` 候选 `.eext`；正式上架仍需确认商店身份、在真实客户端导入并完成专属 Bridge 回读，CI 通过不等于已上架。
 
 参与贡献前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)，版本变化见
 [`CHANGELOG.md`](CHANGELOG.md)，发布步骤见 [`PUBLISHING.md`](PUBLISHING.md)。

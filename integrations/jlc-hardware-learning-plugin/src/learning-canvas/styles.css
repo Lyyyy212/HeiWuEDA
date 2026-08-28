@@ -651,6 +651,35 @@ textarea:focus-visible {
 
 .learning-export-result button:hover { background: #dcfce7; }
 
+.black-five-canvas-watermark {
+  position: fixed;
+  z-index: 34;
+  right: 18px;
+  bottom: 17px;
+  color: rgb(55 65 81 / 34%);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  text-decoration: none;
+  text-shadow: 0 1px 0 rgb(255 255 255 / 82%);
+  user-select: none;
+}
+
+.black-five-canvas-watermark:hover,
+.black-five-canvas-watermark:focus-visible {
+  color: rgb(37 99 235 / 78%);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.black-five-canvas-watermark:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid rgb(37 99 235 / 48%);
+  outline-offset: 4px;
+}
+
 .learning-empty-state {
   display: grid;
   width: 100%;
@@ -677,4 +706,5 @@ textarea:focus-visible {
   .jlc-learning-page-select { width: 82px; }
   .jlc-learning-bottom-toolbar { right: 8px; left: 8px; justify-content: flex-start; overflow-x: auto; transform: none; }
   .learning-status { display: none; }
+  .black-five-canvas-watermark { right: 12px; bottom: 72px; font-size: 11px; }
 }

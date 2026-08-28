@@ -1,0 +1,59 @@
+name: EasyEDA extension release candidate
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/easyeda-extension-release.yml"
+      - "integrations/heiwu-workbench-extension/**"
+  push:
+    tags:
+      - "hardware-workbench-v*"
+    paths:
+      - ".github/workflows/easyeda-extension-release.yml"
+      - "integrations/heiwu-workbench-extension/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: integrations/heiwu-workbench-extension
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.17.0"
+          cache: npm
+          cache-dependency-path: integrations/heiwu-workbench-extension/package-lock.json
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Lint, test, build, and validate release gates
+        run: npm run quality
+
+      - name: Verify reproducible package hash
+        shell: bash
+        run: |
+          artifact="$(find build/dist -maxdepth 1 -name 'hardware-workbench_v*.eext' -print -quit)"
+          first_hash="$(sha256sum "$artifact" | cut -d ' ' -f 1)"
+          npm run build
+          second_hash="$(sha256sum "$artifact" | cut -d ' ' -f 1)"
+          test "$first_hash" = "$second_hash"
+          printf '%s  %s\n' "$second_hash" "$artifact" > build/dist/SHA256SUMS.txt
+
+      - name: Upload reviewed marketplace candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardware-workbench-${{ github.ref_name }}
+          path: |
+            integrations/heiwu-workbench-extension/build/dist/hardware-workbench_v*.eext
+            integrations/heiwu-workbench-extension/build/dist/SHA256SUMS.txt
+          if-no-files-found: error

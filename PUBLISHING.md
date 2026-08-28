@@ -53,7 +53,7 @@ The GitHub repository is not the marketplace artifact. A marketplace candidate
 must be built as a dedicated `.eext`, use a store-assigned or newly generated
 UUID, and pass the official SDK packaging and live EasyEDA validation flow.
 
-Candidate identity:
+Full-compatible developer preview identity:
 
 ```json
 {
@@ -70,3 +70,23 @@ a GitHub developer preview. Do not upload that package to the marketplace while
 the compatibility `execute` message remains enabled. The marketplace build must
 use a fixed audited operation set, include a custom logo/banner and complete a
 fresh EasyEDA runtime acceptance pass.
+
+The restricted marketplace candidate is maintained separately under
+`integrations/heiwu-workbench-extension/`:
+
+```json
+{
+  "name": "hardware-workbench",
+  "displayName": "黑五EDA",
+  "version": "0.4.6",
+  "publisher": "Lyyyy",
+  "protocolVersion": 2
+}
+```
+
+It rejects arbitrary code and exposes only `workbench.catalog.read.v1`,
+`workbench.context.read.v1` and `workbench.schematic.index.read.v1`. It is a
+read-only developer preview, not a replacement for the complete compatibility
+gateway. Do not claim marketplace publication until the UUID ownership, direct
+client import, `service=easyeda-bridge`, `edaConnected=true`, active window,
+protocol identity and all three operations have been fresh-read in EasyEDA.

@@ -13,6 +13,11 @@ import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
 
 import {
+  CANVAS_BRAND_NAME,
+  CANVAS_EXPORT_DIRECTORY_NAME,
+  CANVAS_WIDGET_TITLE,
+} from "../shared/branding.mjs";
+import {
   HARDWARE_LEARNING_STATIC_BUILD_DIR,
   hardwareLearningStaticHtml,
 } from "./lib/hardware-learning-static-widget.mjs";
@@ -194,7 +199,7 @@ function sanitizeFileName(name, fallbackName = "image.png") {
   return `${baseName || "image"}${extension}`;
 }
 
-function sanitizeDirectoryName(name, fallbackName = "JLC Hardware Learning Export") {
+function sanitizeDirectoryName(name, fallbackName = `${CANVAS_BRAND_NAME}导出`) {
   return basename(String(name || fallbackName))
     .replace(/[<>:"/\\|?*\u0000-\u001f]+/g, "-")
     .replace(/[. ]+$/g, "")
@@ -221,13 +226,13 @@ function approvedExportDirectory(args = {}) {
   pruneApprovedExportDirectories();
   const record = approvedHardwareLearningExportDirectories.get(token);
   if (!record || record.storageKey !== exportDirectoryStorageKey(args)) {
-    throw new Error("JLC 硬件学习画板导出位置已失效，请重新选择文件夹。");
+    throw new Error(`${CANVAS_BRAND_NAME}导出位置已失效，请重新选择文件夹。`);
   }
   return record;
 }
 
 async function chooseHardwareLearningExportDirectory(args = {}) {
-  const defaultDirectoryPath = join(homedir(), "Downloads", "JLC硬件学习画板");
+  const defaultDirectoryPath = join(homedir(), "Downloads", CANVAS_EXPORT_DIRECTORY_NAME);
   await mkdir(defaultDirectoryPath, { recursive: true });
   const directoryPath = await showSystemDirectoryPicker(defaultDirectoryPath);
   if (!directoryPath) {
@@ -235,7 +240,7 @@ async function chooseHardwareLearningExportDirectory(args = {}) {
   }
   const selectedPath = resolve(directoryPath);
   const selectedStats = await stat(selectedPath);
-  if (!selectedStats.isDirectory()) throw new Error("选择的 JLC 硬件学习画板导出位置不是文件夹。");
+  if (!selectedStats.isDirectory()) throw new Error(`选择的${CANVAS_BRAND_NAME}导出位置不是文件夹。`);
   const directoryToken = randomUUID();
   const expiresAt = Date.now() + EXPORT_DIRECTORY_TOKEN_TTL_MS;
   approvedHardwareLearningExportDirectories.set(directoryToken, {
@@ -261,7 +266,7 @@ async function showSystemDirectoryPicker(defaultDirectoryPath) {
       "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()",
       "Add-Type -AssemblyName System.Windows.Forms",
       "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
-      "$dialog.Description = '选择 JLC 硬件学习画板导出位置'",
+      `$dialog.Description = '选择${CANVAS_BRAND_NAME}导出位置'`,
       "$dialog.ShowNewFolderButton = $true",
       "$dialog.SelectedPath = $env:JLC_HARDWARE_LEARNING_EXPORT_DEFAULT_PATH",
       "try { if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($dialog.SelectedPath)) } } finally { $dialog.Dispose() }",
@@ -282,7 +287,7 @@ async function showSystemDirectoryPicker(defaultDirectoryPath) {
     try {
       const { stdout } = await execFileAsync(
         "/usr/bin/osascript",
-        ["-e", "POSIX path of (choose folder with prompt \"选择 JLC 硬件学习画板导出位置\")"],
+        ["-e", `POSIX path of (choose folder with prompt \"选择${CANVAS_BRAND_NAME}导出位置\")`],
         { timeout: 60_000 },
       );
       return stdout.trim() || null;
@@ -294,13 +299,13 @@ async function showSystemDirectoryPicker(defaultDirectoryPath) {
   try {
     const { stdout } = await execFileAsync(
       "zenity",
-      ["--file-selection", "--directory", "--title=选择 JLC 硬件学习画板导出位置", `--filename=${defaultDirectoryPath}${sep}`],
+      ["--file-selection", "--directory", `--title=选择${CANVAS_BRAND_NAME}导出位置`, `--filename=${defaultDirectoryPath}${sep}`],
       { timeout: 60_000 },
     );
     return stdout.trim() || null;
   } catch (error) {
     if (Number(error?.code) === 1) return null;
-    throw new Error(`当前系统无法打开 JLC 硬件学习画板文件夹选择器：${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`当前系统无法打开${CANVAS_BRAND_NAME}文件夹选择器：${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -1386,9 +1391,9 @@ function registerHardwareLearningWidget(mcpServer) {
   registerWidgetResource(mcpServer, {
     name: "jlc-hardware-learning-widget",
     uri: HARDWARE_LEARNING_WIDGET_URI,
-    title: "JLC Hardware Learning Canvas",
+    title: CANVAS_WIDGET_TITLE,
     description:
-      "A native Codex widget that renders the dedicated JLC Hardware Learning vector canvas and persists canvas data in the active project.",
+      `${CANVAS_BRAND_NAME}原生 Codex 矢量画板，数据持久化在当前项目中。`,
     connectDomains: HARDWARE_LEARNING_CONNECT_DOMAINS,
     resourceDomains: HARDWARE_LEARNING_RESOURCE_DOMAINS,
     frameDomains: HARDWARE_LEARNING_FRAME_DOMAINS,
@@ -1403,9 +1408,9 @@ function registerHardwareLearningWidget(mcpServer) {
     mcpServer,
     TOOL_RENDER_WIDGET,
     {
-      title: "Render JLC Hardware Learning Canvas",
+      title: `打开${CANVAS_BRAND_NAME}`,
       description:
-        "Open, reopen, or explicitly refresh the native JLC Hardware Learning canvas for the active Codex project. Pass projectDir for the user's workspace so canvas data is stored under <projectDir>/canvas. Reuse an already-open widget instead of rendering another one.",
+        `打开、重新打开或刷新当前 Codex 项目的${CANVAS_BRAND_NAME}。传入 projectDir 后，画板数据保存在项目本地；已有画板应直接复用。`,
       inputSchema: {
         ...projectArgsSchema,
         title: z.string().trim().optional(),
@@ -1426,14 +1431,14 @@ function registerHardwareLearningWidget(mcpServer) {
         "ui/resourceUri": HARDWARE_LEARNING_WIDGET_URI,
         "openai/outputTemplate": HARDWARE_LEARNING_WIDGET_URI,
         "openai/widgetAccessible": true,
-        "openai/toolInvocation/invoking": "Opening JLC Hardware Learning canvas...",
-        "openai/toolInvocation/invoked": "JLC Hardware Learning canvas ready",
+        "openai/toolInvocation/invoking": `正在打开${CANVAS_BRAND_NAME}…`,
+        "openai/toolInvocation/invoked": `${CANVAS_BRAND_NAME}已就绪`,
       },
     },
     async (input = {}) => {
       const catalog = await listHardwareLearningCanvases(input);
       const { projectDir, canvasDir } = resolveHardwareLearningPaths(input);
-      const title = nonEmptyString(input.title) || "JLC Hardware Learning Canvas";
+      const title = nonEmptyString(input.title) || CANVAS_WIDGET_TITLE;
       const preferredDisplayMode = normalizeDisplayMode(input.displayMode);
       const mode = HARDWARE_LEARNING_MODE;
       await ensureHardwareLearningCanvasState({ ...input, projectDir, canvasDir });
@@ -1443,7 +1448,7 @@ function registerHardwareLearningWidget(mcpServer) {
         content: [
           {
             type: "text",
-            text: "Rendered JLC Hardware Learning canvas widget.",
+            text: `${CANVAS_BRAND_NAME}已打开。`,
           },
         ],
         structuredContent: {

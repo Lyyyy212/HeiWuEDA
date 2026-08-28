@@ -2,11 +2,11 @@
   "schemaVersion": "jlc.hardware-learning-profile.v1",
   "profile": "hardware-learning",
   "provider": {
-    "name": "JLC Hardware Learning",
+    "name": "黑五画板",
     "plugin": "jlc-hardware-learning",
     "skill": "jlc-hardware-learning",
     "integrationLock": "manifests/integrations.lock.json",
-    "version": "0.1.6"
+    "version": "0.1.7"
   },
   "purpose": [
     "infinite-canvas visual thinking",

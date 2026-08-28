@@ -16,6 +16,8 @@ const SECTION_DESCRIPTIONS = Object.freeze({
   archive: "存放已失效方案、历史版本和迁移记录。",
 });
 
+const PROJECT_HOMEPAGE_NOTE = "笔记按项目集中管理；真实原理图页作为本项目下的独立文档。";
+
 function requiredString(value, field) {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${field} is required.`);
   return value.trim();
@@ -62,13 +64,14 @@ export function inspectFeishuProjectHomepage(content, { pages = [] } = {}) {
 }
 
 export function renderFeishuProjectHomepageAppendXml({ project, pages = [], existingContent = "" } = {}) {
-  const projectId = requiredString(project?.projectId, "project.projectId");
+  requiredString(project?.projectId, "project.projectId");
+  const projectName = requiredString(project?.projectName, "project.projectName");
   const normalized = normalizedPages(pages);
   const inspection = inspectFeishuProjectHomepage(existingContent, { pages: normalized });
   const chunks = [];
-  if (!String(existingContent).includes(projectId)) {
+  if (!String(existingContent).includes(PROJECT_HOMEPAGE_NOTE)) {
     chunks.push(
-      `<callout emoji="📌" background-color="light-blue" border-color="blue"><p>项目 UUID：${escapeXml(projectId)}</p><p>笔记按项目集中管理；真实原理图页作为本项目下的独立文档。</p></callout>`,
+      `<callout emoji="📌" background-color="light-blue" border-color="blue"><p>项目：${escapeXml(projectName)}</p><p>${PROJECT_HOMEPAGE_NOTE}</p></callout>`,
     );
   }
   for (const section of FEISHU_NOTE_SECTIONS) {

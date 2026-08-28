@@ -57,6 +57,14 @@ jobs:
         working-directory: integrations/zhiyuaneda-gateway
         run: npm run quality
 
+      - name: Install 黑五EDA protocol-v2 workbench extension dependencies
+        working-directory: integrations/heiwu-workbench-extension
+        run: npm ci
+
+      - name: Test and package 黑五EDA protocol-v2 workbench extension
+        working-directory: integrations/heiwu-workbench-extension
+        run: npm run quality
+
       - name: Test lifecycle
         working-directory: skills/easyeda-hardware-lifecycle/scripts
         run: python -m unittest discover -s tests -v

@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE,
+  FEISHU_LEARNING_NOTE_STANDARD_VERSION,
+  assignFeishuLearningFrameMarkerColors,
   bindFeishuProjectNode,
   bindFeishuLearningRoot,
   buildFeishuLearningDirectoryPlan,
@@ -75,6 +78,73 @@ test("duplicate schematic page names stay readable but receive stable disambigua
   assert.match(pageTitles[0], /^01 接口页〔[a-f0-9]{8}〕$/u);
   assert.match(pageTitles[1], /^02 接口页〔[a-f0-9]{8}〕$/u);
   assert.notEqual(pageTitles[0], pageTitles[1]);
+});
+
+test("learning-frame markers use a translucent top-left badge and stable random distinct colors", () => {
+  assert.equal(FEISHU_LEARNING_NOTE_STANDARD_VERSION, "JLC-FN-1.2");
+  assert.equal(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.colorOpacityPercent, 50);
+  assert.equal(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.numberOpacityPercent, 50);
+  assert.equal(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.borderWidthScale, 0.5);
+  assert.equal(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.numberBadgeStyle.shape, "round_rect");
+  assert.equal(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.numberBadgeStyle.anchor, "frame-top-left");
+  assert.equal(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.numberBadgeStyle.scaleMode, "fixed-canvas-size");
+  assert.equal(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.numberBadgeStyle.width, 29.2544002532959);
+  assert.equal(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.numberBadgeStyle.height, 28.414939880371094);
+  assert.equal(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.numberBadgeStyle.offsetX, -8);
+  assert.equal(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.numberBadgeStyle.offsetY, -8);
+  assert.equal(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.frameColorMode, "stable-random-distinct");
+  assert.deepEqual(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.moduleIndexStyle, {
+    colorMode: "follow-learning-frame",
+    frameGeometryMode: "map-with-schematic-image",
+    badgeGeometryMode: "fixed-size-top-left-overlap",
+    detailContentMode: "one-sentence-module-summary",
+    labelBorderOpacityPercent: 50,
+    labelFillOpacityPercent: 50,
+    detailBorderOpacityPercent: 50,
+    borderWidth: "narrow",
+    preserveMindMapStructure: true,
+    preserveSchematicEvidence: true,
+  });
+
+  const first = assignFeishuLearningFrameMarkerColors(
+    DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE,
+    [1, 2, 3, 4],
+    "page:main",
+  );
+  const repeated = assignFeishuLearningFrameMarkerColors(
+    DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE,
+    [1, 2, 3, 4],
+    "page:main",
+  );
+  assert.equal(new Set(Object.values(first).map((entry) => entry.borderColor)).size, 4);
+  assert.deepEqual(repeated, first);
+  assert.notDeepEqual(
+    assignFeishuLearningFrameMarkerColors(
+      DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE,
+      [1, 2, 3, 4],
+      "page:other",
+    ),
+    first,
+  );
+
+  const registry = upsertFeishuPageBinding(createFeishuLearningRegistry(project), {
+    projectId: project.projectId,
+    canvasPageId: "page:legacy-opacity",
+    pageName: "Legacy opacity",
+    learningFrameMarkerStyle: {
+      ...DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE,
+      colorOpacityPercent: 70,
+      numberOpacityPercent: 70,
+    },
+  });
+  assert.equal(registry.pages["page:legacy-opacity"].learningFrameMarkerStyle.colorOpacityPercent, 50);
+  assert.equal(registry.pages["page:legacy-opacity"].learningFrameMarkerStyle.numberOpacityPercent, 50);
+  assert.equal(
+    registry.pages["page:legacy-opacity"].learningFrameMarkerStyle.moduleIndexStyle.labelFillOpacityPercent,
+    50,
+  );
+  assert.equal(registry.pages["page:legacy-opacity"].learningFrameMarkerStyle.numberBadgeStyle.width, 29.2544002532959);
+  assert.equal(registry.pages["page:legacy-opacity"].learningFrameMarkerStyle.numberBadgeStyle.offsetX, -8);
 });
 
 test("page-local frame notes and dialogue bindings resolve to one Feishu target", () => {

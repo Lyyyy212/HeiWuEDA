@@ -1,0 +1,95 @@
+{
+	"name": "hardware-workbench",
+	"uuid": "647e863e3bd34060949c51f22d52de05",
+	"displayName": "黑五EDA",
+	"description": "黑五EDA 的嘉立创EDA只读工作台预览：连接学习画板与可追溯原理图流程，并通过固定白名单读取当前设计上下文。",
+	"version": "0.4.6",
+	"publisher": "Lyyyy",
+	"engines": {
+		"eda": "~3.2.0"
+	},
+	"license": "PolyForm-Noncommercial-1.0.0",
+	"repository": {
+		"type": "github",
+		"url": "https://github.com/Lyyyy212/HeiWuEDA"
+	},
+	"categories": "Other",
+	"keywords": [
+		"黑五EDA",
+		"学习画板",
+		"原理图全流程",
+		"Hardware Learning",
+		"Schematic Lifecycle",
+		"AI"
+	],
+	"images": {
+		"logo": "./images/logo.png"
+	},
+	"activationEvents": {
+		"onStartupFinished": true
+	},
+	"entry": "./dist/index",
+	"dependentExtensions": {},
+	"headerMenus": {
+		"home": [
+			{
+				"id": "HeiwuWorkbenchHome",
+				"title": "黑五EDA",
+				"menuItems": [
+					{ "id": "HeiwuWorkbenchOpenHome", "title": "打开黑五EDA", "registerFn": "openWorkbenchWindow" },
+					{ "id": "HeiwuWorkbenchGitHubHome", "title": "GitHub 项目", "registerFn": "openGithubRepository" }
+				]
+			}
+		],
+		"blank": [
+			{
+				"id": "HeiwuWorkbenchBlank",
+				"title": "黑五EDA",
+				"menuItems": [
+					{ "id": "HeiwuWorkbenchOpenBlank", "title": "打开黑五EDA", "registerFn": "openWorkbenchWindow" },
+					{ "id": "HeiwuWorkbenchGitHubBlank", "title": "GitHub 项目", "registerFn": "openGithubRepository" }
+				]
+			}
+		],
+		"sch": [
+			{
+				"id": "HeiwuWorkbenchSchematic",
+				"title": "黑五EDA",
+				"menuItems": [
+					{ "id": "HeiwuWorkbenchOpenSchematic", "title": "打开黑五EDA", "registerFn": "openWorkbenchWindow" },
+					{ "id": "HeiwuWorkbenchGitHubSchematic", "title": "GitHub 项目", "registerFn": "openGithubRepository" }
+				]
+			}
+		],
+		"symbol": [
+			{
+				"id": "HeiwuWorkbenchSymbol",
+				"title": "黑五EDA",
+				"menuItems": [
+					{ "id": "HeiwuWorkbenchOpenSymbol", "title": "打开黑五EDA", "registerFn": "openWorkbenchWindow" },
+					{ "id": "HeiwuWorkbenchGitHubSymbol", "title": "GitHub 项目", "registerFn": "openGithubRepository" }
+				]
+			}
+		],
+		"pcb": [
+			{
+				"id": "HeiwuWorkbenchPcb",
+				"title": "黑五EDA",
+				"menuItems": [
+					{ "id": "HeiwuWorkbenchOpenPcb", "title": "打开黑五EDA", "registerFn": "openWorkbenchWindow" },
+					{ "id": "HeiwuWorkbenchGitHubPcb", "title": "GitHub 项目", "registerFn": "openGithubRepository" }
+				]
+			}
+		],
+		"footprint": [
+			{
+				"id": "HeiwuWorkbenchFootprint",
+				"title": "黑五EDA",
+				"menuItems": [
+					{ "id": "HeiwuWorkbenchOpenFootprint", "title": "打开黑五EDA", "registerFn": "openWorkbenchWindow" },
+					{ "id": "HeiwuWorkbenchGitHubFootprint", "title": "GitHub 项目", "registerFn": "openGithubRepository" }
+				]
+			}
+		]
+	}
+}

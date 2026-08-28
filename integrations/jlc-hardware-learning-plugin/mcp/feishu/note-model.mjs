@@ -6,21 +6,46 @@ export const FEISHU_PAGE_NOTE_TEMPLATE_VERSION = 1;
 export const FEISHU_PAGE_MANAGED_CONTENT_VERSION = 1;
 export const FEISHU_PROJECT_HOMEPAGE_TEMPLATE_VERSION = 1;
 export const FEISHU_NOTE_LAYOUT_MODE = "compact-project-homepage";
+export const FEISHU_LEARNING_NOTE_STANDARD_VERSION = "JLC-FN-1.2";
 
 export const DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE = Object.freeze({
-  colorOpacityPercent: 70,
-  numberOpacityPercent: 70,
+  colorOpacityPercent: 50,
+  numberOpacityPercent: 50,
   borderWidthScale: 0.5,
   preserveBounds: true,
+  frameColorMode: "stable-random-distinct",
+  framePalette: Object.freeze([
+    Object.freeze({ name: "coral", borderColor: "#e26d5a", numberFillColor: "#fde8e3" }),
+    Object.freeze({ name: "blue", borderColor: "#5178c6", numberFillColor: "#f0f4fc" }),
+    Object.freeze({ name: "violet", borderColor: "#8569cb", numberFillColor: "#eae2fe" }),
+    Object.freeze({ name: "gold", borderColor: "#d4b45b", numberFillColor: "#fef1ce" }),
+    Object.freeze({ name: "teal", borderColor: "#2f9294", numberFillColor: "#e0f3f3" }),
+    Object.freeze({ name: "green", borderColor: "#5f9e6e", numberFillColor: "#e3f3e7" }),
+    Object.freeze({ name: "orange", borderColor: "#d8893a", numberFillColor: "#fcebd8" }),
+    Object.freeze({ name: "rose", borderColor: "#c76d98", numberFillColor: "#f8e4ed" }),
+  ]),
   numberBadgeStyle: Object.freeze({
     shape: "round_rect",
     width: 29.2544002532959,
     height: 28.414939880371094,
     fontSize: 12,
     anchor: "frame-top-left",
-    offsetX: -23.912109375,
-    offsetY: -22.4390869140625,
+    scaleMode: "fixed-canvas-size",
+    offsetX: -8,
+    offsetY: -8,
     colorMode: "follow-frame",
+  }),
+  moduleIndexStyle: Object.freeze({
+    colorMode: "follow-learning-frame",
+    frameGeometryMode: "map-with-schematic-image",
+    badgeGeometryMode: "fixed-size-top-left-overlap",
+    detailContentMode: "one-sentence-module-summary",
+    labelBorderOpacityPercent: 50,
+    labelFillOpacityPercent: 50,
+    detailBorderOpacityPercent: 50,
+    borderWidth: "narrow",
+    preserveMindMapStructure: true,
+    preserveSchematicEvidence: true,
   }),
 });
 
@@ -75,6 +100,7 @@ function clone(value) {
 
 function normalizeMarkerStyle(input) {
   const style = input ?? DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE;
+  const fallback = DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE;
   const percent = (value, field) => {
     const number = Number(value);
     if (!Number.isInteger(number) || number < 0 || number > 100) {
@@ -92,7 +118,29 @@ function normalizeMarkerStyle(input) {
     if (!Number.isFinite(number)) throw new Error(`${field} must be finite.`);
     return number;
   };
-  const badge = style.numberBadgeStyle ?? {};
+  const color = (value, field) => {
+    const normalized = String(value ?? "").trim().toLowerCase();
+    if (!/^#[0-9a-f]{6}$/u.test(normalized)) throw new Error(`${field} must be a six-digit hex color.`);
+    return normalized;
+  };
+  const badge = { ...fallback.numberBadgeStyle, ...style.numberBadgeStyle };
+  const moduleIndex = { ...fallback.moduleIndexStyle, ...style.moduleIndexStyle };
+  const frameColorMode = style.frameColorMode ?? fallback.frameColorMode;
+  if (frameColorMode !== "stable-random-distinct") {
+    throw new Error("learningFrameMarkerStyle must use stable random distinct colors.");
+  }
+  const paletteInput = style.framePalette ?? fallback.framePalette;
+  if (!Array.isArray(paletteInput) || paletteInput.length < 2) {
+    throw new Error("learningFrameMarkerStyle.framePalette must contain at least two colors.");
+  }
+  const framePalette = paletteInput.map((entry, index) => ({
+    name: requiredString(entry?.name, `framePalette[${index}].name`, 32),
+    borderColor: color(entry?.borderColor, `framePalette[${index}].borderColor`),
+    numberFillColor: color(entry?.numberFillColor, `framePalette[${index}].numberFillColor`),
+  }));
+  if (new Set(framePalette.map((entry) => entry.borderColor)).size !== framePalette.length) {
+    throw new Error("learningFrameMarkerStyle.framePalette border colors must be distinct.");
+  }
   if (style.preserveBounds !== true) throw new Error("learningFrameMarkerStyle must preserve bounds.");
   if (badge.shape !== "round_rect" || badge.anchor !== "frame-top-left") {
     throw new Error("learningFrameMarkerStyle must use the approved round-rect top-left badge.");
@@ -100,24 +148,88 @@ function normalizeMarkerStyle(input) {
   if (badge.colorMode !== "follow-frame") {
     throw new Error("learningFrameMarkerStyle badge color must follow the frame.");
   }
+  if (badge.scaleMode !== "fixed-canvas-size") {
+    throw new Error("learningFrameMarkerStyle badge size must stay fixed when schematic images are scaled.");
+  }
+  positiveNumber(badge.width, "numberBadgeStyle.width");
+  positiveNumber(badge.height, "numberBadgeStyle.height");
+  positiveNumber(badge.fontSize, "numberBadgeStyle.fontSize");
+  finiteNumber(badge.offsetX, "numberBadgeStyle.offsetX");
+  finiteNumber(badge.offsetY, "numberBadgeStyle.offsetY");
+  if (moduleIndex.colorMode !== "follow-learning-frame") {
+    throw new Error("module index colors must follow the matching learning frame.");
+  }
+  if (moduleIndex.frameGeometryMode !== "map-with-schematic-image"
+      || moduleIndex.badgeGeometryMode !== "fixed-size-top-left-overlap") {
+    throw new Error("module index frames must map with the schematic while badges remain fixed at the frame corner.");
+  }
+  if (moduleIndex.detailContentMode !== "one-sentence-module-summary") {
+    throw new Error("module index detail nodes must contain one-sentence module summaries.");
+  }
+  if (moduleIndex.borderWidth !== "narrow") {
+    throw new Error("module index nodes must use narrow borders.");
+  }
+  if (moduleIndex.preserveMindMapStructure !== true || moduleIndex.preserveSchematicEvidence !== true) {
+    throw new Error("module index styling must preserve mind-map structure and schematic evidence.");
+  }
+  percent(moduleIndex.labelBorderOpacityPercent, "moduleIndexStyle.labelBorderOpacityPercent");
+  percent(moduleIndex.labelFillOpacityPercent, "moduleIndexStyle.labelFillOpacityPercent");
+  percent(moduleIndex.detailBorderOpacityPercent, "moduleIndexStyle.detailBorderOpacityPercent");
   const borderWidthScale = positiveNumber(style.borderWidthScale, "borderWidthScale");
   if (borderWidthScale > 1) throw new Error("borderWidthScale must not exceed 1.");
+  percent(style.colorOpacityPercent ?? fallback.colorOpacityPercent, "colorOpacityPercent");
+  percent(style.numberOpacityPercent ?? fallback.numberOpacityPercent, "numberOpacityPercent");
   return {
-    colorOpacityPercent: percent(style.colorOpacityPercent, "colorOpacityPercent"),
-    numberOpacityPercent: percent(style.numberOpacityPercent, "numberOpacityPercent"),
+    colorOpacityPercent: fallback.colorOpacityPercent,
+    numberOpacityPercent: fallback.numberOpacityPercent,
     borderWidthScale,
     preserveBounds: true,
+    frameColorMode,
+    framePalette,
     numberBadgeStyle: {
       shape: "round_rect",
-      width: positiveNumber(badge.width, "numberBadgeStyle.width"),
-      height: positiveNumber(badge.height, "numberBadgeStyle.height"),
-      fontSize: positiveNumber(badge.fontSize, "numberBadgeStyle.fontSize"),
+      width: fallback.numberBadgeStyle.width,
+      height: fallback.numberBadgeStyle.height,
+      fontSize: fallback.numberBadgeStyle.fontSize,
       anchor: "frame-top-left",
-      offsetX: finiteNumber(badge.offsetX, "numberBadgeStyle.offsetX"),
-      offsetY: finiteNumber(badge.offsetY, "numberBadgeStyle.offsetY"),
+      scaleMode: "fixed-canvas-size",
+      offsetX: fallback.numberBadgeStyle.offsetX,
+      offsetY: fallback.numberBadgeStyle.offsetY,
       colorMode: "follow-frame",
     },
+    moduleIndexStyle: {
+      colorMode: "follow-learning-frame",
+      frameGeometryMode: "map-with-schematic-image",
+      badgeGeometryMode: "fixed-size-top-left-overlap",
+      detailContentMode: "one-sentence-module-summary",
+      labelBorderOpacityPercent: fallback.moduleIndexStyle.labelBorderOpacityPercent,
+      labelFillOpacityPercent: fallback.moduleIndexStyle.labelFillOpacityPercent,
+      detailBorderOpacityPercent: fallback.moduleIndexStyle.detailBorderOpacityPercent,
+      borderWidth: "narrow",
+      preserveMindMapStructure: true,
+      preserveSchematicEvidence: true,
+    },
   };
+}
+
+export function assignFeishuLearningFrameMarkerColors(style, frameNumbers, pageIdentity) {
+  const normalized = normalizeMarkerStyle(style);
+  if (!Array.isArray(frameNumbers) || frameNumbers.length === 0) {
+    throw new Error("frameNumbers must contain at least one learning frame.");
+  }
+  const numbers = [...new Set(frameNumbers.map((number) => positiveInteger(number, "frameNumbers")))].sort((a, b) => a - b);
+  const seed = requiredString(pageIdentity, "pageIdentity", 500);
+  const palette = normalized.framePalette
+    .map((entry) => ({
+      entry,
+      score: createHash("sha256").update(`${seed}|${entry.name}`).digest("hex"),
+    }))
+    .sort((left, right) => left.score.localeCompare(right.score))
+    .map(({ entry }) => entry);
+  return Object.fromEntries(numbers.map((number, index) => [
+    String(number),
+    clone(palette[index % palette.length]),
+  ]));
 }
 
 function shortDigest(value) {

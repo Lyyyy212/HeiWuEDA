@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
+import { CANVAS_BRAND_NAME, CANVAS_GITHUB_URL } from "../shared/branding.mjs";
+
 const mainSource = await readFile(new URL("../src/main.jsx", import.meta.url), "utf8");
 assert.match(mainSource, /import HardwareLearningCanvas from '.\/learning-canvas\/HardwareLearningCanvas\.jsx'/);
 assert.match(mainSource, /render\(<HardwareLearningCanvas \/>\)/);
@@ -11,6 +13,11 @@ const learningCanvasSource = await readFile(
   "utf8",
 );
 assert.match(learningCanvasSource, /data-engine="jlc-hardware-learning-canvas-v1"/);
+assert.match(learningCanvasSource, /data-testid="black-five-canvas-watermark"/);
+assert.match(learningCanvasSource, /CANVAS_BRAND_NAME/);
+assert.match(learningCanvasSource, /href=\{CANVAS_GITHUB_URL\}/);
+assert.match(learningCanvasSource, /target="_blank"/);
+assert.match(learningCanvasSource, /rel="noreferrer noopener"/);
 assert.match(learningCanvasSource, /id: 'frame', label: '学习框'/);
 assert.match(learningCanvasSource, /jlc-learning-top-actions/);
 assert.match(learningCanvasSource, /jlc-learning-style-panel/);
@@ -115,6 +122,7 @@ const learningStylesSource = await readFile(
 assert.match(learningStylesSource, /\.learning-inline-editor/);
 assert.match(learningStylesSource, /\.learning-canvas-viewport \{[\s\S]*?contain: strict;/);
 assert.match(learningStylesSource, /\.learning-canvas-svg \{[\s\S]*?overflow: hidden;/);
+assert.match(learningStylesSource, /\.black-five-canvas-watermark:hover/);
 assert.doesNotMatch(learningStylesSource, /\.learning-note-dialog|\.learning-dialog-backdrop/);
 
 const viteSource = await readFile(new URL("../vite.config.js", import.meta.url), "utf8");
@@ -124,6 +132,8 @@ assert.match(viteSource, /source: 'jlc-hardware-learning'/);
 
 const widgetSource = await readFile(new URL("../mcp/generated/hardware-learning-widget.html", import.meta.url), "utf8");
 assert.match(widgetSource, /jlc-hardware-learning-canvas-v1/);
+assert.match(widgetSource, new RegExp(CANVAS_BRAND_NAME));
+assert.match(widgetSource, new RegExp(CANVAS_GITHUB_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 assert.doesNotMatch(widgetSource, /tl-watermark|Made with tldraw|production license/i);
 
 const serverSource = await readFile(new URL("../mcp/server.mjs", import.meta.url), "utf8");

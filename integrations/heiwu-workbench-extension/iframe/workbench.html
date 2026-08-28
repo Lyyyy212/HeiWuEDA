@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="zh-Hans">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>黑五EDA</title>
+		<style>
+			:root {
+				color-scheme: light dark;
+				--accent: #3267e3;
+				--accent-soft: #eaf0ff;
+				--background: #f4f6fa;
+				--surface: #ffffff;
+				--surface-muted: #f7f8fb;
+				--border: #e2e6ee;
+				--text: #172033;
+				--muted: #697386;
+				--success: #1f9d62;
+				--warning: #d38616;
+				--danger: #d84a4a;
+				--shadow: 0 14px 34px rgba(28, 41, 70, 0.1);
+			}
+
+			@media (prefers-color-scheme: dark) {
+				:root {
+					--accent: #7ca2ff;
+					--accent-soft: #1b2a4d;
+					--background: #111624;
+					--surface: #181f2f;
+					--surface-muted: #20283a;
+					--border: #2d374c;
+					--text: #eef2fb;
+					--muted: #a7b0c3;
+					--success: #4fd49a;
+					--warning: #f4b85d;
+					--danger: #ff7d7d;
+					--shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+				}
+			}
+
+			* {
+				box-sizing: border-box;
+			}
+
+			html,
+			body {
+				width: 100%;
+				height: 100%;
+				margin: 0;
+			}
+
+			body {
+				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+				background:
+					radial-gradient(circle at 92% 3%, rgba(50, 103, 227, 0.16), transparent 32%),
+					var(--background);
+				color: var(--text);
+			}
+
+			.app {
+				min-height: 100%;
+				width: 100%;
+				max-width: 100vw;
+				padding: 14px;
+				display: flex;
+				flex-direction: column;
+				gap: 10px;
+				overflow: hidden;
+			}
+
+			.brand {
+				display: flex;
+				align-items: center;
+				gap: 12px;
+				min-width: 0;
+			}
+
+			.brand-mark {
+				width: 38px;
+				height: 38px;
+				border-radius: 13px;
+				display: block;
+				object-fit: cover;
+				background: #ffffff;
+				border: 1px solid var(--border);
+				box-shadow: 0 9px 20px rgba(28, 41, 70, 0.16);
+			}
+
+			.brand-copy {
+				min-width: 0;
+				flex: 1;
+			}
+
+			h1 {
+				margin: 0;
+				font-size: 17px;
+				line-height: 1.25;
+				font-weight: 720;
+			}
+
+			.subtitle {
+				margin: 4px 0 0;
+				color: var(--muted);
+				font-size: 12px;
+			}
+
+			.version {
+				align-self: flex-start;
+				flex: 0 0 auto;
+				padding: 4px 8px;
+				border-radius: 999px;
+				background: var(--accent-soft);
+				color: var(--accent);
+				font-size: 11px;
+				font-weight: 700;
+			}
+
+			.status-card,
+			.details-card,
+			.safety-card {
+				background: var(--surface);
+				border: 1px solid var(--border);
+				box-shadow: var(--shadow);
+			}
+
+			.status-card {
+				border-radius: 16px;
+				width: 100%;
+				min-width: 0;
+				padding: 13px;
+				display: flex;
+				align-items: flex-start;
+				gap: 12px;
+			}
+
+			.status-dot {
+				width: 11px;
+				height: 11px;
+				margin-top: 5px;
+				border-radius: 50%;
+				background: var(--warning);
+				box-shadow: 0 0 0 5px color-mix(in srgb, var(--warning) 15%, transparent);
+				flex: 0 0 auto;
+			}
+
+			.status-card[data-state="connected"] .status-dot {
+				background: var(--success);
+				box-shadow: 0 0 0 5px color-mix(in srgb, var(--success) 15%, transparent);
+			}
+
+			.status-card[data-state="disconnected"] .status-dot,
+			.status-card[data-state="error"] .status-dot {
+				background: var(--danger);
+				box-shadow: 0 0 0 5px color-mix(in srgb, var(--danger) 15%, transparent);
+			}
+
+			.status-title {
+				font-size: 14px;
+				font-weight: 700;
+				line-height: 1.35;
+			}
+
+			.status-description {
+				margin-top: 4px;
+				color: var(--muted);
+				font-size: 12px;
+				line-height: 1.55;
+				word-break: break-word;
+			}
+
+			.details-card {
+				border-radius: 14px;
+				width: 100%;
+				min-width: 0;
+				overflow: hidden;
+			}
+
+			.detail-row {
+				min-height: 42px;
+				padding: 8px 12px;
+				display: grid;
+				grid-template-columns: 92px minmax(0, 1fr);
+				align-items: center;
+				gap: 10px;
+				border-bottom: 1px solid var(--border);
+			}
+
+			.detail-row:last-child {
+				border-bottom: 0;
+			}
+
+			.detail-label {
+				color: var(--muted);
+				font-size: 12px;
+			}
+
+			.detail-value {
+				min-width: 0;
+				font-size: 12px;
+				font-weight: 650;
+				text-align: right;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+
+			.safety-card {
+				border-radius: 13px;
+				width: 100%;
+				min-width: 0;
+				padding: 10px 12px;
+				background: color-mix(in srgb, var(--surface) 88%, var(--accent-soft));
+			}
+
+			.safety-title {
+				font-size: 12px;
+				font-weight: 750;
+			}
+
+			.safety-copy {
+				margin-top: 4px;
+				color: var(--muted);
+				font-size: 11px;
+				line-height: 1.55;
+			}
+
+			.actions {
+				margin-top: auto;
+				width: 100%;
+				min-width: 0;
+				display: grid;
+				grid-template-columns: 1fr 1.45fr;
+				gap: 10px;
+			}
+
+			button {
+				min-width: 0;
+				height: 38px;
+				border-radius: 10px;
+				border: 1px solid var(--border);
+				font: inherit;
+				font-size: 13px;
+				font-weight: 680;
+				cursor: pointer;
+				transition: transform 120ms ease, opacity 120ms ease, background 120ms ease;
+			}
+
+			button:hover:not(:disabled) {
+				transform: translateY(-1px);
+			}
+
+			button:disabled {
+				opacity: 0.55;
+				cursor: wait;
+			}
+
+			.secondary-button {
+				background: var(--surface);
+				color: var(--text);
+			}
+
+			.primary-button {
+				border-color: transparent;
+				background: var(--accent);
+				color: white;
+			}
+
+			.footer {
+				color: var(--muted);
+				font-size: 10px;
+				text-align: center;
+			}
+		</style>
+	</head>
+	<body>
+		<main class="app">
+			<header class="brand">
+				<img class="brand-mark" src="../images/logo.png" alt="黑五EDA 五叶草头像" />
+				<div class="brand-copy">
+					<h1>黑五EDA</h1>
+					<p class="subtitle">嘉立创EDA专属拓展</p>
+				</div>
+				<div id="version" class="version">v0.4.6</div>
+			</header>
+
+			<section id="status-card" class="status-card" data-state="connecting" aria-live="polite">
+				<span class="status-dot" aria-hidden="true"></span>
+				<div>
+					<div id="status-title" class="status-title">正在读取工作台状态</div>
+					<div id="status-description" class="status-description">正在核验专属 Bridge 与拓展身份。</div>
+				</div>
+			</section>
+
+			<section class="details-card" aria-label="工作台状态详情">
+				<div class="detail-row">
+					<span class="detail-label">当前工程</span>
+					<span id="project-name" class="detail-value" title="">读取中</span>
+				</div>
+				<div class="detail-row">
+					<span class="detail-label">专属 Bridge</span>
+					<span id="bridge-endpoint" class="detail-value">读取中</span>
+				</div>
+				<div class="detail-row">
+					<span class="detail-label">自动连接</span>
+					<span id="auto-connect" class="detail-value">读取中</span>
+				</div>
+				<div class="detail-row">
+					<span class="detail-label">访问策略</span>
+					<span id="access-policy" class="detail-value">读取中</span>
+				</div>
+			</section>
+
+			<section class="safety-card">
+				<div class="safety-title">专属拓展校验已启用</div>
+				<div class="safety-copy">工作台功能只接受匹配的 Gateway、产品和协议身份。连接本身不授权修改或保存设计。</div>
+			</section>
+
+			<div class="actions">
+				<button id="refresh-button" class="secondary-button" type="button">刷新状态</button>
+				<button id="reconnect-button" class="primary-button" type="button">重新连接专属网关</button>
+			</div>
+			<div class="footer">本窗口仅展示连接与工程上下文，不会保存嘉立创EDA设计。</div>
+		</main>
+
+		<script>
+			(function () {
+				'use strict';
+
+				var STATUS_TOPIC = 'hardware-workbench-gateway-status';
+				var CONTROL_TOPIC = 'hardware-workbench-gateway-control';
+				var refreshTimer = null;
+				var refreshInFlight = false;
+
+				var elements = {
+					accessPolicy: document.getElementById('access-policy'),
+					autoConnect: document.getElementById('auto-connect'),
+					bridgeEndpoint: document.getElementById('bridge-endpoint'),
+					projectName: document.getElementById('project-name'),
+					reconnectButton: document.getElementById('reconnect-button'),
+					refreshButton: document.getElementById('refresh-button'),
+					statusCard: document.getElementById('status-card'),
+					statusDescription: document.getElementById('status-description'),
+					statusTitle: document.getElementById('status-title'),
+					version: document.getElementById('version'),
+				};
+
+				function setText(element, value) {
+					element.textContent = value;
+				}
+
+				function setStatusCard(state, title, description) {
+					elements.statusCard.dataset.state = state;
+					setText(elements.statusTitle, title);
+					setText(elements.statusDescription, description);
+				}
+
+				function renderGatewayStatus(status) {
+					setText(elements.version, 'v' + (status.extensionVersion || '—'));
+					setText(elements.bridgeEndpoint, status.port ? '127.0.0.1:' + status.port : '未连接');
+					setText(elements.autoConnect, status.autoConnect ? '已开启' : '已关闭');
+					setText(elements.accessPolicy, status.accessPolicy === 'dedicated-extension-required' ? '仅限专属拓展' : '身份未确认');
+
+					if (status.connected) {
+						setStatusCard('connected', '专属工作台已连接', '服务端已确认拓展身份，当前窗口可使用工作台功能。');
+						return;
+					}
+					if (status.connecting) {
+						setStatusCard('connecting', '正在验证专属网关', '等待 Bridge 握手和 registered 确认。');
+						return;
+					}
+					if (status.nextRetryAt) {
+						var waitMs = Math.max(0, status.nextRetryAt - Date.now());
+						setStatusCard('connecting', '等待自动重连', '第 ' + status.retryCount + ' 次重试，约 ' + Math.ceil(waitMs / 1000) + ' 秒后继续。');
+						return;
+					}
+
+					setStatusCard(
+						status.lastError ? 'error' : 'disconnected',
+						'专属网关未连接',
+						status.lastError || '请确认黑五EDA Bridge 已启动。',
+					);
+				}
+
+				async function readProjectName() {
+					try {
+						var project = await eda.dmt_Project.getCurrentProjectInfo();
+						var name = project && (project.friendlyName || project.name);
+						setText(elements.projectName, name || '未打开工程');
+						elements.projectName.title = name || '';
+					}
+					catch (error) {
+						setText(elements.projectName, '读取失败');
+						elements.projectName.title = error instanceof Error ? error.message : String(error);
+					}
+				}
+
+				async function refreshStatus() {
+					if (refreshInFlight)
+						return;
+					refreshInFlight = true;
+					if (typeof eda === 'undefined') {
+						setStatusCard('connecting', '工作台界面已加载', '等待嘉立创EDA注入拓展 API。');
+						setText(elements.projectName, '等待嘉立创EDA');
+						setText(elements.bridgeEndpoint, '等待连接');
+						setText(elements.autoConnect, '等待状态');
+						setText(elements.accessPolicy, '仅限专属拓展');
+						refreshInFlight = false;
+						return;
+					}
+					try {
+						var status = await eda.sys_MessageBus.rpcCall(STATUS_TOPIC, undefined, 1000);
+						renderGatewayStatus(status);
+					}
+					catch (error) {
+						setStatusCard('error', '无法读取拓展状态', error instanceof Error ? error.message : String(error));
+						setText(elements.bridgeEndpoint, '不可用');
+						setText(elements.autoConnect, '未知');
+						setText(elements.accessPolicy, '身份未确认');
+					}
+					await readProjectName();
+					refreshInFlight = false;
+				}
+
+				async function reconnect() {
+					elements.reconnectButton.disabled = true;
+					setStatusCard('connecting', '正在重新连接', '重新扫描并验证黑五EDA 专属 Bridge。');
+					try {
+						await eda.sys_MessageBus.rpcCall(CONTROL_TOPIC, { command: 'reconnect' }, 1000);
+					}
+					catch (error) {
+						setStatusCard('error', '重新连接请求失败', error instanceof Error ? error.message : String(error));
+					}
+					setTimeout(function () {
+						elements.reconnectButton.disabled = false;
+						void refreshStatus();
+					}, 700);
+				}
+
+				elements.refreshButton.addEventListener('click', function () {
+					void refreshStatus();
+				});
+				elements.reconnectButton.addEventListener('click', function () {
+					void reconnect();
+				});
+
+				void refreshStatus();
+				refreshTimer = setInterval(function () {
+					void refreshStatus();
+				}, 2000);
+
+				window.addEventListener('unload', function () {
+					if (refreshTimer)
+						clearInterval(refreshTimer);
+				});
+			})();
+		</script>
+	</body>
+</html>

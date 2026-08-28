@@ -1,0 +1,38 @@
+{
+	"name": "@lyyyy/heiwu-workbench-extension",
+	"version": "0.4.6",
+	"private": true,
+	"description": "黑五EDA：面向学习画板与原理图流程的嘉立创EDA只读工作台预览",
+	"author": "Lyyyy",
+	"license": "PolyForm-Noncommercial-1.0.0",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/Lyyyy212/HeiWuEDA.git"
+	},
+	"engines": {
+		"node": ">=20.17.0"
+	},
+	"scripts": {
+		"compile": "rimraf ./dist/ && ts-node ./config/esbuild.prod.ts",
+		"lint": "eslint",
+		"typecheck": "tsc --noEmit",
+		"build": "npm run compile && ts-node ./build/packaged.ts",
+		"test": "node --test tests/*.test.mjs",
+		"release:validate": "node scripts/validate-release.mjs",
+		"quality": "npm run lint && npm run typecheck && npm run build && npm run test && npm run release:validate"
+	},
+	"devDependencies": {
+		"@antfu/eslint-config": "^5.4.1",
+		"@jlceda/pro-api-types": "^0.2.21",
+		"@types/fs-extra": "^11.0.4",
+		"esbuild": "^0.28.2",
+		"eslint": "^9.37.0",
+		"fs-extra": "^11.3.0",
+		"ignore": "^7.0.3",
+		"jszip": "^3.10.1",
+		"rimraf": "^6.0.1",
+		"ts-node": "^10.9.2",
+		"typescript": "^5.7.3",
+		"ws": "^8.18.3"
+	}
+}

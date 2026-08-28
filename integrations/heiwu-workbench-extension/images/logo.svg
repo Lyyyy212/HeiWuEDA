@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">黑五EDA</title>
+  <desc id="desc">黑色五叶草标志</desc>
+  <rect width="1024" height="1024" fill="#ffffff"/>
+  <g fill="#050505">
+    <path d="M 526 534 C 526 662 545 790 638 866" fill="none" stroke="#050505" stroke-width="54" stroke-linecap="round"/>
+    <path id="leaf" d="M 512 514 C 464 474 420 404 420 316 C 420 222 458 160 512 138 C 566 160 604 222 604 316 C 604 404 560 474 512 514 Z"/>
+    <use href="#leaf" transform="rotate(72 512 512)"/>
+    <use href="#leaf" transform="rotate(144 512 512)"/>
+    <use href="#leaf" transform="rotate(216 512 512)"/>
+    <use href="#leaf" transform="rotate(288 512 512)"/>
+    <circle cx="512" cy="512" r="76"/>
+  </g>
+</svg>

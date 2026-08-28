@@ -1,6 +1,6 @@
 {
   "schemaVersion": "easyeda.github-public-release.v1",
-  "generatedAt": "2026-08-27T20:25:44.1776122+08:00",
+  "generatedAt": "2026-08-28T13:08:14+08:00",
   "publisher": "Lyyyy",
   "product": "黑五EDA",
   "license": "PolyForm-Noncommercial-1.0.0",
@@ -105,14 +105,15 @@
     "backups/**",
     ".runtime/**",
     ".easyeda-hardware-workbench/**",
-    "integrations/jlc-hardware-learning-plugin/docs/evidence/**"
+    "integrations/jlc-hardware-learning-plugin/docs/evidence/**",
+    "integrations/heiwu-workbench-extension/assets/screenshots/**"
   ],
   "components": [
     {
       "path": "integrations/jlc-hardware-learning-plugin",
-      "version": "0.1.6",
-      "sourceCommit": "6f8b9e0116eed82140edd71326ca0acc16aa2c75",
-      "copiedTrackedFiles": 93,
+      "version": "0.1.7",
+      "sourceCommit": "a728c41a7e9ba8b1c78b4e8e107affe0fdee3240",
+      "copiedTrackedFiles": 98,
       "historyIncluded": false,
       "excludedTrackedFiles": [
         "docs/evidence/feishu-compact-migration-2026-08-27.md"
@@ -130,6 +131,19 @@
       "copiedTrackedFiles": 14,
       "historyIncluded": false,
       "releaseStatus": "github-developer-preview"
+    },
+    {
+      "path": "integrations/heiwu-workbench-extension",
+      "version": "0.4.6",
+      "copiedTrackedFiles": 28,
+      "historyIncluded": false,
+      "releaseStatus": "protocol-v2-read-only-developer-preview",
+      "allowedOperations": [
+        "workbench.catalog.read.v1",
+        "workbench.context.read.v1",
+        "workbench.schematic.index.read.v1"
+      ],
+      "officialMarketplacePublished": false
     }
   ]
 }

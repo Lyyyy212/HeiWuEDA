@@ -24,6 +24,12 @@ version before treating the visible canvas as current. Never restore the fixed
 a stale frontend even though the plugin files changed. A backend URI/version
 change requires a new task or app restart before interactive acceptance.
 
+The user-facing product name is `黑五画板`; keep the technical plugin ID,
+MCP tool names, Widget URI prefix, and existing project storage paths unchanged
+for compatibility. Render the lower-right brand watermark as an accessible link
+to the canonical 黑五EDA GitHub repository. It opens a new tab and never modifies
+canvas records or exported schematic content.
+
 The hardware-learning Widget is a dedicated JLC SVG canvas, not a general
 creative-canvas UI. Its frontend keeps the established arrangement: page/actions
 at upper left, style controls at upper right, tools at bottom center, and
@@ -178,7 +184,7 @@ and complete JSON backup inside one compact export menu. The menu shows the
 active save location. `选择文件夹…` opens the native system directory picker;
 the backend returns a short-lived token bound to this canvas instead of
 allowing the Widget to submit an arbitrary writable path. Without a custom
-selection, files land under `Downloads/JLC硬件学习画板/`. Success requires the
+selection, files land under `Downloads/黑五画板/`. Success requires the
 Bridge to return a concrete file path, which stays visible on the canvas with
 a copy-path action. Large widget downloads use the chunked local Bridge path
 so page PNG/SVG payloads do not freeze the host. Transfers use 48 KiB base64
@@ -322,11 +328,24 @@ question never authorizes navigation. Page activation does not make an official
 
 ## Synchronize Feishu learning notes
 
+Before planning, creating, exporting, or editing a Feishu hardware-learning note,
+read and apply [references/feishu-learning-note-standard.md](references/feishu-learning-note-standard.md).
+Treat its document layout, paired-whiteboard contract, fixed-size number badge,
+stable color mapping, confirmation gate, and post-write acceptance checks as one
+versioned standard. A schematic image may scale a learning frame, but it must
+never scale the number badge. A module-index detail branch contains one concise
+sentence summarizing that module; progress labels such as `待学习` belong in the
+Docx status table, not in the mind map.
+
 Organize Feishu notes by readable project name, but bind them by stable
 `projectId/projectUuid`. A canvas page maps to one long-lived Feishu Docx, one
 reused main `whiteboardToken`, and one reused `moduleIndexWhiteboardToken`;
 learning-frame numbers remain page-local. Never use a
 renamed title, duplicate page name, or frame number alone as an identity.
+Keep project, schematic-page, board, and image binding identifiers internal to
+the registry, sync plan, node attributes, and verification evidence. Never
+render them as reader-visible Docx titles, paragraphs, callouts, image captions,
+tables, or mind-map text; use readable project and page names instead.
 
 1. For an existing legacy learning note, first call
    `mcp__jlc_hardware_learning_mcp__inspect_feishu_learning_note_target`. It uses

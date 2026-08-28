@@ -7,7 +7,11 @@
 *.mjs text eol=lf
 *.js text eol=lf
 *.jsx text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.css text eol=lf
 *.html text eol=lf
+*.svg text eol=lf
 *.d.ts text eol=lf
 *.yaml text eol=lf
 *.yml text eol=lf
@@ -24,7 +28,8 @@
 
 # Preserve verbatim third-party and generated text while keeping diff checks
 # focused on first-party source.
-LICENSE whitespace=-blank-at-eof
+LICENSE text eol=lf whitespace=-blank-at-eof
+NOTICE text eol=lf
 packages/easyeda-gateway/LICENSE whitespace=-blank-at-eof
 packages/easyeda-gateway/LICENSES/** whitespace=-blank-at-eol,-blank-at-eof
 materials/scripts/api-indexer/vendor/** whitespace=-blank-at-eol,-blank-at-eof

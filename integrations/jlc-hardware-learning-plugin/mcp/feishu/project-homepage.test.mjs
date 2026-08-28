@@ -12,9 +12,12 @@ const pages = [{ canvasPageId: "page:main", title: "01 主控板", docToken: "do
 
 test("project homepage renderer adds compact section headings and page references", () => {
   const rendered = renderFeishuProjectHomepageAppendXml({ project, pages });
+  const readerVisibleText = rendered.xml.replace(/<[^>]*>/gu, "");
   assert.match(rendered.xml, /00 项目总览/u);
   assert.match(rendered.xml, /99 历史归档/u);
   assert.match(rendered.xml, /doc-id="doc-main"/u);
+  assert.match(readerVisibleText, /项目：项目一/u);
+  assert.doesNotMatch(readerVisibleText, /project-1|page:main|doc-main|项目 UUID|图页 ID/u);
   assert.equal(rendered.indexDigest, feishuProjectHomepageIndexDigest({ project, pages }));
   assert.equal(rendered.indexDigest.length, 64);
   const inspected = inspectFeishuProjectHomepage(rendered.xml, { pages });

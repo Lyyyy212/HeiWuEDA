@@ -8,6 +8,8 @@ import { performance } from "node:perf_hooks";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
+import { CANVAS_BRAND_NAME } from "../shared/branding.mjs";
+
 const transportEnvironment = Object.fromEntries(
   Object.entries(process.env).filter(([, value]) => typeof value === "string"),
 );
@@ -61,6 +63,8 @@ try {
     );
   }
   const toolNames = tools.tools.map((tool) => tool.name);
+  const renderTool = tools.tools.find((tool) => tool.name === "render_hardware_learning_canvas_widget");
+  assert.equal(renderTool?.title, `打开${CANVAS_BRAND_NAME}`);
   const requiredTools = [
     "render_hardware_learning_canvas_widget",
     "get_hardware_learning_canvas_state",
@@ -373,7 +377,7 @@ try {
   }
 
   const widgetHtml = resourceItem.text || "";
-  if (!widgetHtml.includes("window.hardwareLearningMcp") || !widgetHtml.includes("JLC Hardware Learning Canvas")) {
+  if (!widgetHtml.includes("window.hardwareLearningMcp") || !widgetHtml.includes(CANVAS_BRAND_NAME)) {
     throw new Error("JLC Hardware Learning widget HTML does not include the expected bridge and app shell.");
   }
   if (/<script\b[^>]*\btype="module"/i.test(widgetHtml)) {

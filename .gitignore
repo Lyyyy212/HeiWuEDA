@@ -13,6 +13,11 @@ dist/
 integrations/zhiyuaneda-gateway/build/dist/
 !integrations/zhiyuaneda-gateway/build/packaged.ts
 
+# Keep the protocol-v2 workbench packager source while excluding generated packages.
+!integrations/heiwu-workbench-extension/build/
+integrations/heiwu-workbench-extension/build/dist/
+!integrations/heiwu-workbench-extension/build/packaged.ts
+
 .runtime/
 .easyeda-hardware-workbench/
 artifacts/

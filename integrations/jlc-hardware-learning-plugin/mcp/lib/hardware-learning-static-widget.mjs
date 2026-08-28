@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { CANVAS_BRAND_NAME } from "../../shared/branding.mjs";
 import { pluginPath } from "./plugin-root.mjs";
 
 const PREBUILT_WIDGET_FILE = pluginPath(
@@ -27,7 +28,7 @@ export async function hardwareLearningStaticHtml() {
     throw error;
   }
 
-  if (!cachedStaticHtml.includes("JLC Hardware Learning Canvas")) {
+  if (!cachedStaticHtml.includes(CANVAS_BRAND_NAME)) {
     throw new Error("The JLC Hardware Learning widget artifact is invalid.");
   }
 

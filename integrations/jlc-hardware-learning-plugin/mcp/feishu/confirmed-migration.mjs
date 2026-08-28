@@ -25,6 +25,12 @@ function requiredString(value, field) {
   return value.trim();
 }
 
+export function renderFeishuPageIdentitySummary({ project, page } = {}) {
+  const projectName = requiredString(project?.projectName, "project.projectName");
+  const pageName = requiredString(page?.pageName, "page.pageName");
+  return `项目：${projectName}；图页：${pageName}`;
+}
+
 function payloadData(payload) {
   return payload?.data?.node ?? payload?.data?.space ?? payload?.data ?? payload;
 }
@@ -147,7 +153,7 @@ async function applyDocumentTemplate({
     },
     {
       pattern: "Page 1（page:page）",
-      content: `项目：${project.projectName}；工程 UUID：${project.projectUuid}；图页：${page.pageName}（${page.canvasPageId}）`,
+      content: renderFeishuPageIdentitySummary({ project, page }),
     },
     {
       pattern: "同步方向为 Cowart → 飞书",

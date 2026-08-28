@@ -1,28 +1,28 @@
 {
   "schemaVersion": "easyeda.integration-lock.v3",
-  "generatedAt": "2026-08-27T20:25:44+08:00",
+  "generatedAt": "2026-08-28T13:08:14+08:00",
   "integrations": [
     {
-      "name": "JLC Hardware Learning",
+      "name": "黑五画板",
       "plugin": "jlc-hardware-learning",
       "role": "hardware-learning-canvas-ui",
       "trustLevel": "public-vendored-ui-integration",
       "distributionMode": "public-vendored-source",
       "localPath": "../integrations/jlc-hardware-learning-plugin",
       "sourceRepository": "../integrations/jlc-hardware-learning-plugin",
-      "sourceCommit": "6f8b9e0116eed82140edd71326ca0acc16aa2c75",
-      "version": "0.1.6",
+      "sourceCommit": "a728c41a7e9ba8b1c78b4e8e107affe0fdee3240",
+      "version": "0.1.7",
       "license": "MIT",
       "licensePath": "../integrations/jlc-hardware-learning-plugin/LICENSE",
       "licenseSha256": "88d04c44750ac737fe777281ac4f8bbbb20ee4e77a328a9b5c940663df555c74",
       "sourceEvidence": {
         "pluginManifest": {
           "path": "../integrations/jlc-hardware-learning-plugin/.codex-plugin/plugin.json",
-          "sha256": "5e3c598a1df0dece132b056b826b67fa023f621e58007def561374c55def717f"
+          "sha256": "fd2fa5581d89cbb61d420c7cb0c06ebefd020c33b724a4a71e916c5960ee3c34"
         },
         "releaseManifest": {
           "path": "../integrations/jlc-hardware-learning-plugin/mcp/generated/release-manifest.json",
-          "sha256": "8cd82dae0d0fb6eb85eceab82fddfd9d411ad4001963a5901afda780fbd02788"
+          "sha256": "c1bb220e5a2e30482012c65fc5ff6a046bd13206fda7ec9c07041e6c6500d3ae"
         }
       },
       "runtime": {
@@ -30,7 +30,7 @@
         "serverInfoName": "jlc-hardware-learning",
         "transport": "stdio",
         "command": "node ./scripts/start-mcp.mjs",
-        "serverVersionVerified": "0.1.6",
+        "serverVersionVerified": "0.1.7",
         "toolCountVerified": 26,
         "widget": "ui://widget/jlc-hardware-learning/canvas-{pluginVersion}.html",
         "storage": "<projectDir>/{canvas|canvases/<canvas-id>}/pages/<page-id>/hardware-learning-canvas.json"

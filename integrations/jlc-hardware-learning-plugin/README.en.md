@@ -1,4 +1,4 @@
-# JLC Hardware Learning
+# Black Five Canvas (黑五画板)
 
 An independent hardware-learning canvas plugin for Codex. It uses official EasyEDA PNG exports or locally rendered PDF pages as visual evidence, supports schematic-region framing and normal-conversation questions, accepts teaching annotations, manages independent canvases and pages, attaches official page-netlist sidecars, and exports PNG, SVG, and JSON.
 
@@ -9,7 +9,7 @@ The plugin does not generate images, upload telemetry, or write directly to Easy
 - Plugin: `jlc-hardware-learning`
 - Skill: `$jlc-hardware-learning`
 - MCP server: `jlc_hardware_learning_mcp`
-- Widget: `JLC Hardware Learning Canvas`
+- Widget: `黑五画板`
 
 ## Development and verification
 
@@ -54,4 +54,4 @@ The compact note model keeps `00..99` categories as headings inside one project 
 - `JLC_HARDWARE_LEARNING_CANVAS_DIR`: canvas directory; defaults to `<projectDir>/canvas`.
 - `JLC_HARDWARE_LEARNING_PORT`: local development server port; defaults to `43217`.
 
-The original MIT license text and Git history remain to satisfy the license of inherited source code. Product naming, tools, skill, and user interface use the JLC Hardware Learning identity.
+The original MIT license text and Git history remain to satisfy the license of inherited source code. The user-facing product name is Black Five Canvas (黑五画板); technical plugin IDs and MCP tool names retain `jlc-hardware-learning` for compatibility.
