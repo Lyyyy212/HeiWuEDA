@@ -11,7 +11,7 @@
 	"license": "PolyForm-Noncommercial-1.0.0",
 	"repository": {
 		"type": "github",
-		"url": "https://github.com/Lyyyy212/ZhiYuanEDA"
+		"url": "https://github.com/Lyyyy212/HeiWuEDA"
 	},
 	"categories": ["Project", "Other"],
 	"keywords": [
@@ -20,8 +20,8 @@
 		"Bridge",
 		"AI"
 	],
-	"homepage": "https://github.com/Lyyyy212/ZhiYuanEDA",
-	"bugs": "https://github.com/Lyyyy212/ZhiYuanEDA/issues",
+	"homepage": "https://github.com/Lyyyy212/HeiWuEDA",
+	"bugs": "https://github.com/Lyyyy212/HeiWuEDA/issues",
 	"activationEvents": {
 		"onStartupFinished": true
 	},

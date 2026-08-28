@@ -1,6 +1,6 @@
 # 黑五EDA
 
-[![CI](https://github.com/Lyyyy212/ZhiYuanEDA/actions/workflows/ci.yml/badge.svg)](https://github.com/Lyyyy212/ZhiYuanEDA/actions/workflows/ci.yml)
+[![CI](https://github.com/Lyyyy212/HeiWuEDA/actions/workflows/ci.yml/badge.svg)](https://github.com/Lyyyy212/HeiWuEDA/actions/workflows/ci.yml)
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange.svg)](LICENSE)
@@ -181,8 +181,8 @@ EasyEDA 项目数据。原创部分依据 [PolyForm Noncommercial 1.0.0](LICENSE
 仓库包含固定 commit 的上游 Git submodule，请递归克隆：
 
 ```bash
-git clone --recursive https://github.com/Lyyyy212/ZhiYuanEDA.git
-cd ZhiYuanEDA
+git clone --recursive https://github.com/Lyyyy212/HeiWuEDA.git
+cd HeiWuEDA
 python -m pip install ./packages/easyeda-gateway
 python -m easyeda_gateway --version
 ```
@@ -261,7 +261,7 @@ EasyEDA API Skill。
 ## 目录结构
 
 ```text
-ZhiYuanEDA/
+HeiWuEDA/
 ├─ packages/easyeda-gateway/                  # 受控 API、导航、导出、PCB/BOM 与证据模块
 ├─ skills/easyeda-hardware-lifecycle/         # 设计链与学习链编排器
 ├─ integrations/jlc-hardware-learning-plugin/ # 学习画板、MCP 和本地存储
@@ -282,7 +282,7 @@ ZhiYuanEDA/
 - Python 模块与 CLI：`easyeda_gateway` / `easyeda-gateway`
 - 本地状态目录：`.easyeda-hardware-workbench/`
 - Schema 与 API 契约中的既有 `easyeda.*` 标识
-- 当前 GitHub 仓库 slug 与克隆目录：`ZhiYuanEDA`
+- 当前 GitHub 仓库 slug 与克隆目录：`HeiWuEDA`
 - 专属网关目录与 npm 包：`zhiyuaneda-gateway` / `@lyyyy/zhiyuaneda-gateway`
 - 网关注册身份：`lyyyy.zhiyuaneda` / `zhiyuaneda`
 - 既有菜单、存储与消息标识：`ZhiYuanEDA*` / `zhiyuaneda.*` / `zhiyuaneda-*`

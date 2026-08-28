@@ -5,7 +5,7 @@
 - Copyright holder: `Lyyyy`
 - Developer and publisher display name: `Lyyyy`
 - Product display name: `黑五EDA`
-- Repository name: `ZhiYuanEDA`
+- Repository name: `HeiWuEDA`
 - Python package: `easyeda-workbench-gateway`
 - First-party license: `PolyForm-Noncommercial-1.0.0`
 - Commercial licensing: not offered

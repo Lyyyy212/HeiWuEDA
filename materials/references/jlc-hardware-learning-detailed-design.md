@@ -724,7 +724,7 @@ learning.operation.failed
 ## 20. 代码组织建议
 
 ```text
-ZhiYuanEDA/
+HeiWuEDA/
   skill/
     SKILL.md
     references/
