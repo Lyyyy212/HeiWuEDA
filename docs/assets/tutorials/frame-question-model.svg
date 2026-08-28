@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="920" viewBox="0 0 1600 920" role="img" aria-labelledby="title desc">
+  <title id="title">硬件学习框与问题模型示意</title>
+  <desc id="desc">四个无敏教学学习框分别对应整流二极管、储能电感、开关控制器和功率输出回路，并汇入证据驱动的问答模型。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f1f8fb"/><stop offset="1" stop-color="#dcecf6"/></linearGradient>
+    <linearGradient id="flow" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#0f766e"/><stop offset="1" stop-color="#0284c7"/></linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0f172a" flood-opacity=".18"/></filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0 0L12 6L0 12Z" fill="#0f766e"/></marker>
+    <style>
+      .title { font: 700 42px 'Segoe UI','Microsoft YaHei',sans-serif; fill:#102a43; }
+      .sub { font:400 20px 'Segoe UI','Microsoft YaHei',sans-serif; fill:#496b83; }
+      .num { font:700 27px 'Segoe UI','Microsoft YaHei',sans-serif; fill:#fff; }
+      .head { font:700 27px 'Segoe UI','Microsoft YaHei',sans-serif; fill:#102a43; }
+      .body { font:400 19px 'Segoe UI','Microsoft YaHei',sans-serif; fill:#35556e; }
+      .flow { font:700 22px 'Segoe UI','Microsoft YaHei',sans-serif; fill:#fff; }
+      .note { font:400 17px 'Segoe UI','Microsoft YaHei',sans-serif; fill:#5f7e93; }
+    </style>
+  </defs>
+  <rect width="1600" height="920" fill="url(#bg)"/>
+  <text x="90" y="88" class="title">学习框：把“这是什么”变成可复核的问题</text>
+  <text x="90" y="128" class="sub">以下是教学划分，不是特定原理图、器件参数或实际电路的复刻</text>
+  <g filter="url(#shadow)">
+    <rect x="90" y="190" width="680" height="235" rx="24" fill="#ffffff" stroke="#a8c5d9" stroke-width="2"/>
+    <rect x="830" y="190" width="680" height="235" rx="24" fill="#ffffff" stroke="#a8c5d9" stroke-width="2"/>
+    <rect x="90" y="475" width="680" height="235" rx="24" fill="#ffffff" stroke="#a8c5d9" stroke-width="2"/>
+    <rect x="830" y="475" width="680" height="235" rx="24" fill="#ffffff" stroke="#a8c5d9" stroke-width="2"/>
+  </g>
+  <g>
+    <circle cx="145" cy="245" r="32" fill="#e85252"/><text x="136" y="255" class="num">1</text>
+    <path d="M245 285h85m-42-40v80m12-45 45 45m-45-45 45-45" fill="none" stroke="#e85252" stroke-width="8" stroke-linecap="round"/>
+    <text x="370" y="257" class="head">整流 / 续流二极管</text><text x="370" y="296" class="body">开关导通与关断时的电流路径是什么？</text><text x="370" y="329" class="body">反向耐压、平均电流与热损耗怎样验证？</text>
+    <circle cx="885" cy="245" r="32" fill="#db8a27"/><text x="876" y="255" class="num">2</text>
+    <path d="M985 285c18-55 36 55 54 0s36 55 54 0 36 55 54 0" fill="none" stroke="#db8a27" stroke-width="8" stroke-linecap="round"/>
+    <text x="1160" y="257" class="head">储能电感</text><text x="1160" y="296" class="body">电感如何储能、放能并决定纹波？</text><text x="1160" y="329" class="body">电感值、饱和电流、DCR 如何取舍？</text>
+    <circle cx="145" cy="530" r="32" fill="#286fd3"/><text x="136" y="540" class="num">3</text>
+    <rect x="240" y="493" width="105" height="76" rx="12" fill="#dbeafe" stroke="#286fd3" stroke-width="5"/><path d="M258 518h25m-25 25h25m46-25h-25m25 25h-25" stroke="#286fd3" stroke-width="5"/>
+    <text x="370" y="542" class="head">开关控制器</text><text x="370" y="581" class="body">输入、开关、反馈和使能脚如何相互约束？</text><text x="370" y="614" class="body">哪一份数据手册证据能支持器件识别？</text>
+    <circle cx="885" cy="530" r="32" fill="#0f766e"/><text x="876" y="540" class="num">4</text>
+    <path d="M970 537h70l28-35 28 70 28-35h80" fill="none" stroke="#0f766e" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="970" cy="537" r="8" fill="#0f766e"/><circle cx="1205" cy="537" r="8" fill="#0f766e"/>
+    <text x="1230" y="542" class="head">功率回路与输出</text><text x="1230" y="581" class="body">功率器件、滤波与反馈怎样形成目标输出？</text><text x="1230" y="614" class="body">哪些结论仍需仿真、DRC 或实测？</text>
+  </g>
+  <path d="M430 735v58m740-58v58M430 793h740" stroke="#0f766e" stroke-width="5" fill="none"/>
+  <rect x="230" y="790" width="1140" height="82" rx="40" fill="url(#flow)"/>
+  <text x="306" y="843" class="flow">学习框编号 + 图页身份</text><text x="655" y="843" class="flow">→ 证据补充</text><text x="924" y="843" class="flow">→ 导师解释</text><text x="1192" y="843" class="flow">→ 未知项与验证</text>
+  <text x="90" y="900" class="note">原则：显式引用学习框优先于鼠标位置；解释必须区分图中事实、合理推断与仍需验证的假设。</text>
+</svg>

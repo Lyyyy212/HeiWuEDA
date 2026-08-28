@@ -9,6 +9,18 @@ logos were requested or used.
 | `zhiyuaneda-hero.png` | 1983 x 793 | `a325a28b23a869c18d83e3ce2095983c7d148f76263fb2dc35756a8a60cf88e0` | Repository hero banner |
 | `zhiyuaneda-two-core-flows.png` | 1672 x 941 | `493259e39c515cb8ccf6e489b91e1a79bb083a0016405c6e69613082018e69a0` | Two-workflow overview |
 
+## Tutorial visuals
+
+The following SVG diagrams are purpose-built, no-sensitive-data visual aids for
+the hardware-learning tutorial. They illustrate a generic workflow and generic
+question frames; they do not contain a live schematic, exported design,
+project/page identifier, or account information.
+
+| File | Size | SHA-256 | Purpose |
+| --- | --- | --- | --- |
+| `tutorials/learning-workflow.svg` | 1600 x 900 | `791a92e31eb4270f1c2aac9e2e347ed278bb8c2e3902b6598bba3bbf23627f05` | Evidence-to-notes workflow overview |
+| `tutorials/frame-question-model.svg` | 1600 x 920 | `46a2465abf0356a6472c32ea2f77b71cf573cc43ce3121652bbad900f7436eac` | Four generic learning frames and question model |
+
 ## Hero prompt
 
 ```text
