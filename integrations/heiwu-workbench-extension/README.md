@@ -6,6 +6,8 @@
 
 [查看 GitHub 项目与使用文档](https://github.com/Lyyyy212/HeiWuEDA)
 
+[在嘉立创EDA扩展广场查看并安装黑五EDA](https://jlc-ext.com/item/lyyyy-212/hardware-workbench)
+
 ![黑五EDA 两大核心功能概览](assets/generated/heiwu-workbench-two-core-flows.png)
 
 左侧展示学习画板如何组织编号学习框、问题与知识卡片；右侧展示原理图从需求到最终验收的完整工程链。
@@ -70,10 +72,12 @@
 
 候选版本沿用同一个扩展 UUID，并通过递增的语义化版本号发布。`0.4.0` 起，扩展只接受固定的只读操作目录，不再接收任意脚本；未知操作、工程不匹配或活动文档不匹配都会被拒绝。
 
-源码仓库会自动执行检查、测试、可重复打包和身份校验，并生成带 SHA-256 的候选包。嘉立创官方扩展平台的上传、审核和发布仍由维护者人工完成；CI 产物不等同于已上架版本。客户端能否自动安装商店更新，以正式上架后的实际客户端验证为准。
+源码仓库会自动执行检查、测试、可重复打包和身份校验，并生成带 SHA-256 的候选包。公开扩展页为 <https://jlc-ext.com/item/lyyyy-212/hardware-workbench>。嘉立创官方扩展平台的上传、审核和发布仍由维护者人工完成；CI 产物不等同于已上架版本。具体上架版本以及客户端能否自动安装商店更新，以扩展广场和真实客户端验证为准。
 
 ## GitHub
 
 源码、详细文档、教程与更新记录均在：
 
 **<https://github.com/Lyyyy212/HeiWuEDA>**
+
+嘉立创EDA扩展广场：**<https://jlc-ext.com/item/lyyyy-212/hardware-workbench>**

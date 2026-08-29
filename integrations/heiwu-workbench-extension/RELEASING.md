@@ -13,6 +13,8 @@
 
 锁定值保存在 `release/marketplace-identity.json`。只有嘉立创官方平台明确要求迁移身份时，才允许在单独评审中修改该文件。
 
+公开扩展页固定为 <https://jlc-ext.com/item/lyyyy-212/hardware-workbench>。公开文档只能使用这个不带查询参数的地址，不能提交浏览器复制出的 `jspm`、`jlc_vid`、`code` 等跟踪或会话参数。
+
 用户确认的商店简介、关键词、Logo、功能图和演示截图保存在 `release/marketplace-listing.json`。发布检查会核对素材大小与 SHA-256；以后确实要更新商店详情时，应在同一次评审中更新详情锁和更新记录，不能让普通代码合并静默覆盖。
 
 ## 发布一个新版本

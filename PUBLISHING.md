@@ -49,6 +49,14 @@ Suggested topics: `easyeda`, `jlc`, `eda`, `pcb`, `schematic`, `hardware-design`
 
 ## EasyEDA Extensions Marketplace
 
+Canonical public marketplace page:
+
+<https://jlc-ext.com/item/lyyyy-212/hardware-workbench>
+
+Only this clean URL belongs in public documentation. Do not commit `jspm`,
+`jlc_vid`, `code` or other tracking/session query parameters copied from a
+browser address bar.
+
 The GitHub repository is not the marketplace artifact. A marketplace candidate
 must be built as a dedicated `.eext`, use a store-assigned or newly generated
 UUID, and pass the official SDK packaging and live EasyEDA validation flow.
@@ -87,6 +95,7 @@ The restricted marketplace candidate is maintained separately under
 It rejects arbitrary code and exposes only `workbench.catalog.read.v1`,
 `workbench.context.read.v1` and `workbench.schematic.index.read.v1`. It is a
 read-only developer preview, not a replacement for the complete compatibility
-gateway. Do not claim marketplace publication until the UUID ownership, direct
-client import, `service=easyeda-bridge`, `edaConnected=true`, active window,
-protocol identity and all three operations have been fresh-read in EasyEDA.
+gateway. The public marketplace page exists, but do not claim that a particular
+candidate version is published until the UUID ownership, direct client import,
+`service=easyeda-bridge`, `edaConnected=true`, active window, protocol identity
+and all three operations have been fresh-read in EasyEDA.

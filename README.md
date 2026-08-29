@@ -5,6 +5,8 @@
 ![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange.svg)](LICENSE)
 
+**[在嘉立创EDA扩展广场查看并安装黑五EDA](https://jlc-ext.com/item/lyyyy-212/hardware-workbench)**
+
 <p align="center">
   <img src="docs/assets/zhiyuaneda-hero.png" alt="黑五EDA 连接硬件设计、受控 API 网关与学习画板" width="100%">
 </p>
@@ -177,6 +179,12 @@ EasyEDA 项目数据。原创部分依据 [PolyForm Noncommercial 1.0.0](LICENSE
 
 ## 快速开始
 
+### 从扩展广场安装
+
+公开分发页：**[黑五EDA｜嘉立创EDA扩展广场](https://jlc-ext.com/item/lyyyy-212/hardware-workbench)**。
+这是扩展的长期分享地址；链接不包含访问跟踪或会话参数。扩展安装页不是远程 API
+服务地址，专属 Bridge 仍只在本机 `127.0.0.1:49620-49629` 范围内自动发现。
+
 ### 安装 Gateway
 
 仓库包含固定 commit 的上游 Git submodule，请递归克隆：
@@ -312,7 +320,7 @@ GitHub Actions 会执行公开边界扫描、Gateway 单元测试、wheel 许可
 - 黑五EDA 工作台扩展：`0.4.6` 协议 v2 只读开发预览，仅开放 3 项固定操作。
 - 黑五画板插件：`0.1.8`，Widget URI 为 `ui://widget/jlc-hardware-learning/canvas-0.1.8.html`。
 - GitHub 源码发布：已就绪，默认分支为 `main`。
-- 嘉立创EDA扩展广场：仓库可重复构建 `0.4.6` 候选 `.eext`；正式上架仍需确认商店身份、在真实客户端导入并完成专属 Bridge 回读，CI 通过不等于已上架。
+- 嘉立创EDA扩展广场：[黑五EDA公开分发页](https://jlc-ext.com/item/lyyyy-212/hardware-workbench)；具体上架版本和客户端更新状态以扩展广场及真实客户端回读为准，CI 通过不等于某个候选版本已经发布。
 
 参与贡献前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)，版本变化见
 [`CHANGELOG.md`](CHANGELOG.md)，发布步骤见 [`PUBLISHING.md`](PUBLISHING.md)。
