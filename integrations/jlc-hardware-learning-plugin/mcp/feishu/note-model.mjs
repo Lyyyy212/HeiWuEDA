@@ -2,11 +2,11 @@ import { createHash } from "node:crypto";
 
 export const FEISHU_NOTE_REGISTRY_SCHEMA = "jlc.feishu-learning-note-registry.v1";
 export const FEISHU_DIRECTORY_PLAN_SCHEMA = "jlc.feishu-learning-directory-plan.v1";
-export const FEISHU_PAGE_NOTE_TEMPLATE_VERSION = 1;
+export const FEISHU_PAGE_NOTE_TEMPLATE_VERSION = 2;
 export const FEISHU_PAGE_MANAGED_CONTENT_VERSION = 1;
-export const FEISHU_PROJECT_HOMEPAGE_TEMPLATE_VERSION = 1;
+export const FEISHU_PROJECT_HOMEPAGE_TEMPLATE_VERSION = 2;
 export const FEISHU_NOTE_LAYOUT_MODE = "compact-project-homepage";
-export const FEISHU_LEARNING_NOTE_STANDARD_VERSION = "JLC-FN-1.2";
+export const FEISHU_LEARNING_NOTE_STANDARD_VERSION = "JLC-FN-1.3";
 
 export const DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE = Object.freeze({
   colorOpacityPercent: 50,
@@ -36,6 +36,7 @@ export const DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE = Object.freeze({
     colorMode: "follow-frame",
   }),
   moduleIndexStyle: Object.freeze({
+    containerMode: "embedded-in-schematic-page-board",
     colorMode: "follow-learning-frame",
     frameGeometryMode: "map-with-schematic-image",
     badgeGeometryMode: "fixed-size-top-left-overlap",
@@ -166,6 +167,9 @@ function normalizeMarkerStyle(input) {
   if (moduleIndex.detailContentMode !== "one-sentence-module-summary") {
     throw new Error("module index detail nodes must contain one-sentence module summaries.");
   }
+  if (moduleIndex.containerMode !== "embedded-in-schematic-page-board") {
+    throw new Error("module index content must stay inside its schematic-page learning board.");
+  }
   if (moduleIndex.borderWidth !== "narrow") {
     throw new Error("module index nodes must use narrow borders.");
   }
@@ -198,6 +202,7 @@ function normalizeMarkerStyle(input) {
       colorMode: "follow-frame",
     },
     moduleIndexStyle: {
+      containerMode: "embedded-in-schematic-page-board",
       colorMode: "follow-learning-frame",
       frameGeometryMode: "map-with-schematic-image",
       badgeGeometryMode: "fixed-size-top-left-overlap",
@@ -334,6 +339,18 @@ export function buildFeishuLearningDirectoryPlan({
       title: feishuProjectDisplayTitle(project, existingProjects),
       parentLogicalId: "jlc-hardware-learning:root",
       layoutMode: FEISHU_NOTE_LAYOUT_MODE,
+      projectOverviewBoard: {
+        logicalId: `${normalizedProject.projectKey}:project-overview-whiteboard`,
+        objectType: "whiteboard",
+        role: "project-schematic-overview",
+        title: `${feishuProjectDisplayTitle(project, existingProjects)}工程原理图总画板`,
+        schematicPages: pages.map((page) => ({
+          canvasPageId: page.canvasPageId,
+          schematicPageUuid: page.schematicPageUuid,
+          pageName: page.pageName,
+          sourceRevision: page.sourceRevision,
+        })),
+      },
       sections,
       children: pageNodes,
     },
@@ -354,6 +371,10 @@ export function createFeishuLearningRegistry(project, options = {}) {
       learningRootDocToken: optionalString(options.learningRootDocToken, "learningRootDocToken"),
       projectNodeToken: optionalString(options.projectNodeToken, "projectNodeToken"),
       projectDocToken: optionalString(options.projectDocToken, "projectDocToken"),
+      projectOverviewWhiteboardToken: optionalString(
+        options.projectOverviewWhiteboardToken,
+        "projectOverviewWhiteboardToken",
+      ),
       layoutMode: FEISHU_NOTE_LAYOUT_MODE,
       projectHomepageTemplateVersion: 0,
       projectHomepageIndexDigest: null,
@@ -390,6 +411,12 @@ export function validateFeishuLearningRegistry(registry) {
     && !/^[a-f0-9]{64}$/u.test(registry.wiki.projectHomepageIndexDigest)
   ) {
     throw new Error("registry.wiki.projectHomepageIndexDigest must be a lowercase SHA-256 digest.");
+  }
+  if (registry.wiki.projectOverviewWhiteboardToken != null) {
+    requiredString(
+      registry.wiki.projectOverviewWhiteboardToken,
+      "registry.wiki.projectOverviewWhiteboardToken",
+    );
   }
   if (!registry.sections || typeof registry.sections !== "object") throw new Error("registry.sections is required.");
   if (!registry.pages || typeof registry.pages !== "object") throw new Error("registry.pages is required.");
@@ -462,8 +489,25 @@ export function bindFeishuProjectNode(registry, binding = {}) {
   return next;
 }
 
+export function bindFeishuProjectOverviewBoard(registry, binding = {}) {
+  const next = ensureMatchingProject(registry, binding.projectId);
+  next.wiki = {
+    ...next.wiki,
+    projectOverviewWhiteboardToken: requiredString(
+      binding.projectOverviewWhiteboardToken ?? next.wiki.projectOverviewWhiteboardToken,
+      "projectOverviewWhiteboardToken",
+    ),
+  };
+  next.updatedAt = timestamp(binding.updatedAt);
+  return next;
+}
+
 export function markFeishuProjectHomepageSynced(registry, binding = {}) {
   const next = ensureMatchingProject(registry, binding.projectId);
+  requiredString(
+    next.wiki.projectOverviewWhiteboardToken,
+    "wiki.projectOverviewWhiteboardToken",
+  );
   const templateVersion = binding.templateVersion == null
     ? FEISHU_PROJECT_HOMEPAGE_TEMPLATE_VERSION
     : Number(binding.templateVersion);
@@ -540,8 +584,26 @@ export function upsertFeishuPageBinding(registry, pageInput = {}) {
   if (documentLocation === "wiki" && !nodeToken) {
     throw new Error("Wiki page bindings require nodeToken.");
   }
+  const legacyModuleIndexWhiteboardToken = optionalString(
+    pageInput.legacyModuleIndexWhiteboardToken ?? pageInput.moduleIndexWhiteboardToken,
+    "legacyModuleIndexWhiteboardToken",
+  ) ?? existing.legacyModuleIndexWhiteboardToken
+    ?? existing.moduleIndexWhiteboardToken
+    ?? null;
+  const { moduleIndexWhiteboardToken: _obsoleteModuleIndexToken, ...existingPage } = existing;
+  const frames = clone(existing.frames ?? {});
+  for (const frame of Object.values(frames)) {
+    if (
+      frame.schematicPageUuid
+      && page.schematicPageUuid
+      && frame.schematicPageUuid !== page.schematicPageUuid
+    ) {
+      throw new Error(`Learning frame schematic identity mismatch: ${page.canvasPageId}`);
+    }
+    if (page.schematicPageUuid) frame.schematicPageUuid = page.schematicPageUuid;
+  }
   next.pages[page.canvasPageId] = {
-    ...existing,
+    ...existingPage,
     ...page,
     nodeToken,
     docToken,
@@ -553,10 +615,7 @@ export function upsertFeishuPageBinding(registry, pageInput = {}) {
     whiteboardToken: optionalString(pageInput.whiteboardToken, "whiteboardToken")
       ?? existing.whiteboardToken
       ?? null,
-    moduleIndexWhiteboardToken: optionalString(
-      pageInput.moduleIndexWhiteboardToken,
-      "moduleIndexWhiteboardToken",
-    ) ?? existing.moduleIndexWhiteboardToken ?? null,
+    legacyModuleIndexWhiteboardToken,
     legacyContentDigest: optionalString(
       pageInput.legacyContentDigest,
       "legacyContentDigest",
@@ -570,7 +629,7 @@ export function upsertFeishuPageBinding(registry, pageInput = {}) {
     syncedContentDigest: optionalString(pageInput.syncedContentDigest, "syncedContentDigest", 64)
       ?? existing.syncedContentDigest
       ?? null,
-    frames: existing.frames ?? {},
+    frames,
     updatedAt: timestamp(pageInput.updatedAt),
   };
   next.updatedAt = next.pages[page.canvasPageId].updatedAt;
@@ -582,6 +641,17 @@ export function upsertFeishuFrameNote(registry, frameInput = {}) {
   const canvasPageId = requiredString(frameInput.canvasPageId, "canvasPageId");
   const page = next.pages[canvasPageId];
   if (!page) throw new Error(`Feishu page binding not found: ${canvasPageId}`);
+  const requestedSchematicPageUuid = optionalString(
+    frameInput.schematicPageUuid,
+    "schematicPageUuid",
+  );
+  if (
+    requestedSchematicPageUuid
+    && page.schematicPageUuid
+    && requestedSchematicPageUuid !== page.schematicPageUuid
+  ) {
+    throw new Error(`Learning frame does not belong to the bound schematic page: ${canvasPageId}`);
+  }
   const frameNumber = positiveInteger(frameInput.frameNumber, "frameNumber");
   const status = frameInput.status ?? "unstarted";
   if (!FRAME_STATUS_SET.has(status)) throw new Error(`Unsupported Feishu frame status: ${status}`);
@@ -596,6 +666,7 @@ export function upsertFeishuFrameNote(registry, frameInput = {}) {
     ...existing,
     title: optionalString(frameInput.title, "title") ?? existing.title,
     status,
+    schematicPageUuid: page.schematicPageUuid ?? requestedSchematicPageUuid ?? null,
     questionIds: [...new Set([
       ...(existing.questionIds ?? []),
       ...uniqueStrings(frameInput.questionIds, "questionIds"),
@@ -752,13 +823,20 @@ export function resolveFeishuLearningTarget(registry, input = {}) {
   if (!validated.wiki.spaceId) missing.push("wiki.spaceId");
   if (!validated.wiki.learningRootNodeToken) missing.push("wiki.learningRootNodeToken");
   if (!validated.wiki.projectNodeToken) missing.push("wiki.projectNodeToken");
+  if (!validated.wiki.projectOverviewWhiteboardToken) {
+    missing.push("wiki.projectOverviewWhiteboardToken");
+  }
   if (!page) missing.push("pageBinding");
   if (page && !page.docToken) missing.push("page.docToken");
+  if (page && !page.schematicPageUuid) missing.push("page.schematicPageUuid");
   if (page && !page.whiteboardToken) missing.push("page.whiteboardToken");
-  if (page && !page.moduleIndexWhiteboardToken) missing.push("page.moduleIndexWhiteboardToken");
   const frames = frameNumbers.map((number) => page?.frames?.[String(number)] ?? null);
   for (let index = 0; index < frames.length; index += 1) {
     if (!frames[index]) missing.push(`frame:${frameNumbers[index]}`);
+    else if (
+      page?.schematicPageUuid
+      && frames[index].schematicPageUuid !== page.schematicPageUuid
+    ) missing.push(`frame:${frameNumbers[index]}.schematicPageUuid`);
   }
   return {
     ready: missing.length === 0,

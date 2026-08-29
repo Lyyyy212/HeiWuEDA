@@ -1,5 +1,6 @@
 import {
   bindFeishuProjectNode,
+  bindFeishuProjectOverviewBoard,
   bindFeishuLearningRoot,
   bindFeishuSectionNode,
   buildFeishuLearningDirectoryPlan,
@@ -46,6 +47,7 @@ export async function getFeishuLearningNoteState(args = {}) {
   const stored = await readFeishuLearningRegistry(args);
   const project = stored.registry?.project ?? projectFromArgs(args);
   const registry = stored.registry ?? createFeishuLearningRegistry(project, {
+    projectOverviewWhiteboardToken: args.projectOverviewWhiteboardToken,
     updatedAt: args.updatedAt,
   });
   const schematicPages = Array.isArray(args.schematicPages)
@@ -87,6 +89,7 @@ export async function updateFeishuLearningNoteState(args = {}) {
         learningRootDocToken: payload.learningRootDocToken,
         projectNodeToken: payload.projectNodeToken,
         projectDocToken: payload.projectDocToken,
+        projectOverviewWhiteboardToken: payload.projectOverviewWhiteboardToken,
         updatedAt: payload.updatedAt,
       });
       for (const page of payload.schematicPages ?? []) {
@@ -102,6 +105,9 @@ export async function updateFeishuLearningNoteState(args = {}) {
     const operation = { ...payload, projectId };
     if (action === "bind-root") registry = bindFeishuLearningRoot(registry, operation);
     else if (action === "bind-project") registry = bindFeishuProjectNode(registry, operation);
+    else if (action === "bind-project-overview-board") {
+      registry = bindFeishuProjectOverviewBoard(registry, operation);
+    }
     else if (action === "bind-section") registry = bindFeishuSectionNode(registry, operation);
     else if (action === "bind-page") registry = upsertFeishuPageBinding(registry, operation);
     else if (action === "upsert-frame") registry = upsertFeishuFrameNote(registry, operation);

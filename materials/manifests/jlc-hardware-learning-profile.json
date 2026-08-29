@@ -6,7 +6,7 @@
     "plugin": "jlc-hardware-learning",
     "skill": "jlc-hardware-learning",
     "integrationLock": "manifests/integrations.lock.json",
-    "version": "0.1.7"
+    "version": "0.1.8"
   },
   "purpose": [
     "infinite-canvas visual thinking",

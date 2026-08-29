@@ -20,22 +20,47 @@ function fail(message) {
 }
 
 const rawPath = argument('--raw');
-const role = argument('--role', 'module-index');
+const role = argument('--role', 'schematic-page');
 const expected = argument('--expected', '')
   .split(',')
   .map((value) => value.trim())
   .filter(Boolean)
   .sort((a, b) => Number(a) - Number(b));
+const expectedImages = Number(argument('--expected-images', '0'));
 if (!rawPath) fail('--raw is required.');
-if (!['main', 'module-index'].includes(role)) fail('--role must be main or module-index.');
+if (!['project-overview', 'schematic-page', 'main', 'module-index'].includes(role)) {
+  fail('--role must be project-overview or schematic-page.');
+}
+if (!Number.isSafeInteger(expectedImages) || expectedImages < 0) {
+  fail('--expected-images must be a non-negative integer.');
+}
 
 const board = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
 if (!Array.isArray(board.nodes)) fail('Raw export must contain a nodes array.');
 
 const shapes = board.nodes.filter((node) => node.type === 'composite_shape');
+const images = board.nodes.filter((node) => node.type === 'image');
 const badges = shapes
   .filter((node) => /^\d+$/u.test(String(node.text?.text ?? '')))
   .sort((left, right) => Number(left.text.text) - Number(right.text.text));
+if (role === 'project-overview') {
+  if (images.length === 0) fail('Project overview board must contain every schematic-page image.');
+  if (expectedImages > 0 && images.length !== expectedImages) {
+    fail(`Project overview image count differs: expected ${expectedImages}, got ${images.length}.`);
+  }
+  if (badges.length > 0) {
+    fail('Project overview board is a project-level schematic index and must not own learning frames.');
+  }
+  console.log(JSON.stringify({
+    ok: true,
+    standard: 'JLC-FN-1.3',
+    role,
+    nodeCount: board.nodes.length,
+    imageCount: images.length,
+    badges: [],
+  }, null, 2));
+  process.exit(0);
+}
 const numbers = badges.map((node) => String(node.text.text));
 if (expected.length && JSON.stringify(numbers) !== JSON.stringify(expected)) {
   fail(`Badge numbers differ: expected ${expected.join(',')}, got ${numbers.join(',')}.`);
@@ -73,42 +98,41 @@ if (badges.length <= 8 && new Set(colors).size !== badges.length) {
   fail('Learning-frame colors must be distinct until the standard palette is exhausted.');
 }
 
-if (role === 'module-index') {
-  const images = board.nodes.filter((node) => node.type === 'image');
-  if (images.length !== 1) fail(`Module index must contain exactly one schematic image; got ${images.length}.`);
+if (role === 'schematic-page' || role === 'module-index') {
+  if (images.length !== 1) fail(`Schematic-page board must contain exactly one schematic image; got ${images.length}.`);
   const labels = board.nodes.filter((node) => /^框\d+\s/u.test(String(node.text?.text ?? '')));
   for (const badge of badges) {
     const number = String(badge.text.text);
     const label = labels.find((node) => new RegExp(`^框${number}\\s`, 'u').test(String(node.text?.text ?? '')));
-    if (!label) fail(`Module-index label for frame ${number} is missing.`);
+    if (!label) fail(`Schematic-page module label for frame ${number} is missing.`);
     if (label.style?.border_color !== badge.style?.border_color
         || label.style?.border_opacity !== 50
         || label.style?.fill_opacity !== 50
         || label.style?.border_width !== 'narrow') {
-      fail(`Module-index label for frame ${number} does not follow the learning-frame style.`);
+      fail(`Schematic-page module label for frame ${number} does not follow the learning-frame style.`);
     }
     const detail = board.nodes.find((node) => node.mind_map?.parent_id === label.id);
     if (!detail || detail.style?.border_color !== badge.style?.border_color
         || detail.style?.border_opacity !== 50
         || detail.style?.border_width !== 'narrow') {
-      fail(`Module-index detail branch for frame ${number} does not follow the learning-frame style.`);
+      fail(`Schematic-page detail branch for frame ${number} does not follow the learning-frame style.`);
     }
     const summary = String(detail.text?.text ?? '').trim();
     if (!summary || STATUS_PLACEHOLDERS.has(summary)) {
-      fail(`Module-index detail for frame ${number} must be a one-sentence module summary, not a status placeholder.`);
+      fail(`Schematic-page detail for frame ${number} must be a one-sentence module summary, not a status placeholder.`);
     }
     if (summary.length > 80) {
-      fail(`Module-index detail for frame ${number} must stay concise (80 characters or fewer).`);
+      fail(`Schematic-page detail for frame ${number} must stay concise (80 characters or fewer).`);
     }
   }
 }
 
 console.log(JSON.stringify({
   ok: true,
-  standard: 'JLC-FN-1.2',
+  standard: 'JLC-FN-1.3',
   role,
   nodeCount: board.nodes.length,
-  imageCount: board.nodes.filter((node) => node.type === 'image').length,
+  imageCount: images.length,
   badges: badges.map((badge) => ({
     number: Number(badge.text.text),
     color: badge.style.border_color,

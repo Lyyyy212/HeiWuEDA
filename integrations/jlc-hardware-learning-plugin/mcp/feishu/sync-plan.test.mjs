@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   bindFeishuProjectNode,
+  bindFeishuProjectOverviewBoard,
   buildFeishuLearningDirectoryPlan,
   createFeishuLearningRegistry,
   markFeishuProjectHomepageSynced,
@@ -12,7 +13,11 @@ import {
 import { planFeishuLearningSync } from "./sync-plan.mjs";
 
 const project = { projectId: "project-1", projectName: "声呐接收板" };
-const page = { canvasPageId: "page:receiver", pageName: "接收链路" };
+const page = {
+  canvasPageId: "page:receiver",
+  schematicPageUuid: "fixture-schematic-receiver",
+  pageName: "接收链路",
+};
 
 test("an empty registry produces deterministic compact-homepage, page and whiteboard actions", () => {
   const directoryPlan = buildFeishuLearningDirectoryPlan({ project, schematicPages: [page] });
@@ -24,14 +29,27 @@ test("an empty registry produces deterministic compact-homepage, page and whiteb
   assert.equal(first.identity, "user");
   assert.equal(first.writePolicy, "confirm-before-execute-and-fresh-read-after-write");
   assert.equal(first.actions.filter((action) => action.kind === "wiki.node.ensure").length, 3);
-  assert.equal(first.actions.filter((action) => action.kind === "doc.whiteboard.ensure").length, 1);
   assert.equal(
-    first.actions.filter((action) => action.kind === "doc.module-index-whiteboard.ensure").length,
+    first.actions.filter((action) => action.kind === "doc.project-overview-whiteboard.ensure").length,
     1,
   );
+  assert.equal(first.actions.filter((action) => action.kind === "doc.whiteboard.ensure").length, 1);
+  assert.equal(first.actions.some((action) => action.kind === "doc.module-index-whiteboard.ensure"), false);
+  const overview = first.actions.find(
+    (action) => action.kind === "doc.project-overview-whiteboard.ensure",
+  );
+  assert.deepEqual(overview.schematicPages, [{
+    canvasPageId: "page:receiver",
+    schematicPageUuid: "fixture-schematic-receiver",
+    pageName: "接收链路",
+    sourceRevision: null,
+  }]);
+  const pageBoard = first.actions.find((action) => action.kind === "doc.whiteboard.ensure");
+  assert.equal(pageBoard.boardRole, "schematic-page-learning-board");
+  assert.equal(pageBoard.schematicPage.schematicPageUuid, "fixture-schematic-receiver");
   assert.equal(
     first.actions.filter((action) => action.kind === "doc.project-homepage.ensure").length,
-    1,
+    0,
   );
   const categoryTitles = new Set(directoryPlan.root.sections.map((section) => section.title));
   assert.deepEqual(
@@ -60,13 +78,16 @@ test("existing bindings are reused and a complete project produces no duplicate 
     projectNodeToken: "FixtureNodeToken02",
     projectDocToken: "doc-project",
   });
+  registry = bindFeishuProjectOverviewBoard(registry, {
+    projectId: project.projectId,
+    projectOverviewWhiteboardToken: "FixtureProjectOverviewWhiteboardToken01",
+  });
   registry = upsertFeishuPageBinding(registry, {
     projectId: project.projectId,
     ...page,
     nodeToken: "FixtureNodeToken03",
     docToken: "doc-receiver",
     whiteboardToken: "FixtureWhiteboardToken01",
-    moduleIndexWhiteboardToken: "FixtureModuleIndexWhiteboardToken01",
   });
   registry = markFeishuPageContentSynced(registry, {
     projectId: project.projectId,
@@ -91,7 +112,6 @@ test("bound pages request template and module-index updates until fresh content 
     nodeToken: "FixtureNodeToken03",
     docToken: "doc-receiver",
     whiteboardToken: "FixtureWhiteboardToken01",
-    moduleIndexWhiteboardToken: "FixtureModuleIndexWhiteboardToken01",
   });
   const pageActions = planFeishuLearningSync({ directoryPlan, registry }).actions
     .filter((action) => action.logicalId.includes(registry.pages[page.canvasPageId].pageKey));

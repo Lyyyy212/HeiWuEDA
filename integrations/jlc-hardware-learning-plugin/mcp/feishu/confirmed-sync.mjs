@@ -29,8 +29,8 @@ export const FEISHU_CONFIRMED_SYNC_RESULT_SCHEMA = "jlc.feishu-confirmed-sync-re
 const UNSUPPORTED_GENERIC_ACTIONS = new Set([
   "wiki.node.ensure",
   "wiki.document.move",
+  "doc.project-overview-whiteboard.ensure",
   "doc.whiteboard.ensure",
-  "doc.module-index-whiteboard.ensure",
 ]);
 
 function documentFromPayload(payload) {
@@ -92,18 +92,10 @@ export async function previewFeishuLearningSyncFromState(
       ));
     }
     const learningBoard = inspection.whiteboards.find((board) => board.role === "learning-board");
-    const moduleBoard = inspection.whiteboards.find((board) => board.role === "module-index-board");
     if (!learningBoard || learningBoard.token !== page.whiteboardToken) {
       blockers.push(blocker(
         "LEARNING_BOARD_TOKEN_MISMATCH",
         "The existing learning whiteboard token is missing or differs from the registry.",
-        { canvasPageId: page.canvasPageId, docToken: page.docToken },
-      ));
-    }
-    if (!moduleBoard || moduleBoard.token !== page.moduleIndexWhiteboardToken) {
-      blockers.push(blocker(
-        "MODULE_INDEX_BOARD_TOKEN_MISMATCH",
-        "The existing module-index whiteboard token is missing or differs from the registry.",
         { canvasPageId: page.canvasPageId, docToken: page.docToken },
       ));
     }
@@ -132,7 +124,6 @@ export async function previewFeishuLearningSyncFromState(
       docToken: page.docToken,
       expectedRevisionId: inspection.document.revisionId,
       learningBoardToken: page.whiteboardToken,
-      moduleIndexWhiteboardToken: page.moduleIndexWhiteboardToken,
       rendered,
       operations: patch.operations,
       contentDigest: patch.contentDigest,
@@ -159,6 +150,7 @@ export async function previewFeishuLearningSyncFromState(
       const rendered = renderFeishuProjectHomepageAppendXml({
         project: state.registry.project,
         pages,
+        projectOverviewWhiteboardToken: state.registry.wiki.projectOverviewWhiteboardToken,
         existingContent: before.content,
       });
       homepagePatch = {
@@ -201,7 +193,6 @@ export async function previewFeishuLearningSyncFromState(
           docToken: patch.docToken,
           expectedRevisionId: patch.expectedRevisionId,
           learningBoardToken: patch.learningBoardToken,
-          moduleIndexWhiteboardToken: patch.moduleIndexWhiteboardToken,
         },
         managedContentDigest: patch.contentDigest,
       };
@@ -306,6 +297,7 @@ async function applyHomepage({ readAdapter, writeAdapter, action, preview }) {
   const rendered = renderFeishuProjectHomepageAppendXml({
     project: preview.registry.project,
     pages: patch.pages,
+    projectOverviewWhiteboardToken: preview.registry.wiki.projectOverviewWhiteboardToken,
     existingContent: before.content,
   });
   let status = "reused";
@@ -319,8 +311,15 @@ async function applyHomepage({ readAdapter, writeAdapter, action, preview }) {
     status = "updated";
   }
   const after = documentFromPayload(await readAdapter.fetchDocumentFull(patch.docToken));
-  const inspection = inspectFeishuProjectHomepage(after.content, { pages: patch.pages });
-  if (inspection.missingSectionKeys.length > 0 || inspection.missingPageDocTokens.length > 0) {
+  const inspection = inspectFeishuProjectHomepage(after.content, {
+    pages: patch.pages,
+    projectOverviewWhiteboardToken: preview.registry.wiki.projectOverviewWhiteboardToken,
+  });
+  if (
+    inspection.missingSectionKeys.length > 0
+    || inspection.missingPageDocTokens.length > 0
+    || inspection.missingProjectOverviewWhiteboardToken
+  ) {
     throw new Error("Project homepage verification failed after continuous sync.");
   }
   return { status, document: after, indexDigest: rendered.indexDigest };
@@ -372,13 +371,18 @@ export async function executeConfirmedFeishuLearningNoteSync(
       if (pageInspection.requiredSections.missing.length > 0) {
         throw new Error(`Feishu page template changed after preview: ${action.target.docToken}`);
       }
+      pageResults[action.target.canvasPageId] = {
+        status: "reused",
+        document: { revision_id: pageInspection.document.revisionId },
+        templateOnly: true,
+      };
       executionJournal.push({ actionId: action.actionId, kind: action.kind, status: "reused" });
       continue;
     }
     if (action.kind === "doc.module-index.sync") {
       const patch = preview.pagePatches[action.target.canvasPageId];
       const result = await applyManagedPage({ readAdapter, writeAdapter, action, patch });
-      pageResults[action.target.canvasPageId] = result;
+      pageResults[action.target.canvasPageId] = { ...result, templateOnly: false };
       executionJournal.push({ actionId: action.actionId, kind: action.kind, status: result.status });
       continue;
     }
@@ -404,14 +408,16 @@ export async function executeConfirmedFeishuLearningNoteSync(
       candidate.kind === "doc.module-index.sync"
       && candidate.target?.canvasPageId === canvasPageId
     ));
-    registry = markFeishuPageContentSynced(registry, {
-      projectId: registry.project.projectId,
-      canvasPageId,
-      noteTemplateVersion: FEISHU_PAGE_NOTE_TEMPLATE_VERSION,
-      managedContentVersion: FEISHU_PAGE_MANAGED_CONTENT_VERSION,
-      syncedContentDigest: action.desiredContentDigest,
-      updatedAt: now,
-    });
+    if (action) {
+      registry = markFeishuPageContentSynced(registry, {
+        projectId: registry.project.projectId,
+        canvasPageId,
+        noteTemplateVersion: FEISHU_PAGE_NOTE_TEMPLATE_VERSION,
+        managedContentVersion: FEISHU_PAGE_MANAGED_CONTENT_VERSION,
+        syncedContentDigest: action.desiredContentDigest,
+        updatedAt: now,
+      });
+    }
   }
   if (homepageResult) {
     registry = markFeishuProjectHomepageSynced(registry, {

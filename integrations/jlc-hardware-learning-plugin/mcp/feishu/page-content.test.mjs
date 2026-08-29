@@ -27,7 +27,6 @@ function registryWithDialogue() {
     nodeToken: "FixtureNodeToken01",
     docToken: "doc-main",
     whiteboardToken: "FixtureWhiteboardToken01",
-    moduleIndexWhiteboardToken: "FixtureModuleIndexWhiteboardToken01",
   });
   registry = upsertFeishuFrameNote(registry, {
     projectId: project.projectId,
@@ -55,7 +54,6 @@ function baseDocument(extra = "") {
     '<h1 id="learning">原理图学习画板</h1>',
     '<whiteboard id="FixtureWhiteboardToken01-block" token="FixtureWhiteboardToken01"></whiteboard>',
     '<h1 id="modules">模块索引</h1>',
-    '<whiteboard id="FixtureModuleIndexWhiteboardToken01-block" token="FixtureModuleIndexWhiteboardToken01"></whiteboard>',
     extra,
     '<h1 id="qa">提问与解答</h1>',
     '<h1 id="relations">模块间关系</h1>',
@@ -94,7 +92,8 @@ test("managed page rendering binds exact durable dialogue content to page-local 
   assert.match(rendered.dialoguesXml, /学习框 4 是什么电路/u);
   assert.match(rendered.dialoguesXml, new RegExp(QUESTION, "u"));
 });
-test("first synchronization inserts after the two stable section anchors without replacing boards", () => {
+
+test("first synchronization inserts after the page module-index heading without creating a second board", () => {
   const rendered = renderFeishuManagedPageContent({
     registry: registryWithDialogue(),
     canvasPageId: PAGE,
@@ -112,7 +111,7 @@ test("first synchronization inserts after the two stable section anchors without
     "block_insert_after",
     "block_insert_after",
   ]);
-  assert.equal(patch.operations[0].blockId, "FixtureModuleIndexWhiteboardToken01-block");
+  assert.equal(patch.operations[0].blockId, "modules");
   assert.equal(patch.operations[1].blockId, "qa");
   assert.doesNotMatch(patch.operations[0].content, /whiteboard/u);
 });

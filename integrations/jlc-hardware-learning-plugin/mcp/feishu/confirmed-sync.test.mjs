@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   bindFeishuLearningRoot,
   bindFeishuProjectNode,
+  bindFeishuProjectOverviewBoard,
   buildFeishuLearningDirectoryPlan,
   createFeishuLearningRegistry,
   markFeishuProjectHomepageSynced,
@@ -25,7 +26,6 @@ function documentContent() {
     '<h1 id="learning">原理图学习画板</h1>',
     '<whiteboard id="learning-board" token="FixtureWhiteboardToken01"></whiteboard>',
     '<h1 id="modules">模块索引</h1>',
-    '<whiteboard id="index-board" token="FixtureModuleIndexWhiteboardToken01"></whiteboard>',
     '<h1 id="qa">提问与解答</h1>',
     '<h1 id="relations">模块间关系</h1>',
     '<h1 id="todo">待验证项</h1>',
@@ -48,6 +48,10 @@ function createState({ schematicPageUuid = "FixtureSchematicPageUuid01" } = {}) 
     projectNodeToken: "FixtureNodeToken02",
     projectDocToken: "projectDocToken123",
   });
+  registry = bindFeishuProjectOverviewBoard(registry, {
+    projectId: project.projectId,
+    projectOverviewWhiteboardToken: "FixtureProjectOverviewWhiteboardToken01",
+  });
   registry = upsertFeishuPageBinding(registry, {
     projectId: project.projectId,
     canvasPageId: "page:main",
@@ -57,7 +61,6 @@ function createState({ schematicPageUuid = "FixtureSchematicPageUuid01" } = {}) 
     docToken: DOC_TOKEN,
     documentLocation: "wiki",
     whiteboardToken: "FixtureWhiteboardToken01",
-    moduleIndexWhiteboardToken: "FixtureModuleIndexWhiteboardToken01",
   });
   registry = upsertFeishuFrameNote(registry, {
     projectId: project.projectId,
@@ -109,6 +112,7 @@ test("continuous sync preview exposes exact managed patches and blocks missing s
   assert.match(preview.syncPlan.planFingerprint, /^[a-f0-9]{64}$/u);
   assert.equal(preview.remoteWritesPerformed, false);
 });
+
 test("confirmed continuous sync updates only managed ranges, verifies, and saves once", async () => {
   const document = { document_id: DOC_TOKEN, revision_id: 7, content: documentContent() };
   const readAdapter = readAdapterFor(document);
@@ -152,7 +156,7 @@ test("confirmed continuous sync updates only managed ranges, verifies, and saves
   assert.equal(result.registry.pages["page:main"].docRevision, "9");
   assert.match(document.content, /JLC 自动同步区：模块索引（开始）/u);
   assert.match(document.content, /JLC 自动同步区：提问与解答（开始）/u);
-  assert.equal((document.content.match(/whiteboard/gu) ?? []).length, 4);
+  assert.equal((document.content.match(/whiteboard/gu) ?? []).length, 2);
 });
 
 test("continuous sync rejects a stale revision map before any write", async () => {

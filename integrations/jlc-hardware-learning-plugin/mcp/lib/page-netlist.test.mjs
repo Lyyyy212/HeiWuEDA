@@ -9,10 +9,10 @@ import { attachHardwareLearningPageNetlist, readHardwareLearningPageNetlist } fr
 
 const pageId = "page:schematic-main";
 const identity = {
-  projectUuid: "00000000000000000000000000000001",
+  projectUuid: "project-1",
   documentUuid: "document-1",
   documentType: "schematic",
-  schematicPageUuid: "FixtureSchematicPageUuid01",
+  schematicPageUuid: "page-1",
   windowId: "window-1",
 };
 

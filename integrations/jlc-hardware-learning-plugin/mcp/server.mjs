@@ -60,6 +60,7 @@ import {
 } from "./learning/storage.mjs";
 import {
   buildConversationLearningQuestion,
+  buildQuickLearningContext,
   conversationLearningIntents,
   conversationLearningLevels,
   conversationLearningResponseModes,
@@ -1517,10 +1518,11 @@ function registerFeishuLearningNoteTools(mcpServer) {
     {
       title: "Preview Feishu Hardware Learning Note Migration",
       description:
-        "Read the project-local legacy learning-note package and binding, freshly inspect its existing Feishu Docx, reuse both board tokens, and return the project-name directory and guarded sync plan. This preview performs no local or remote write.",
+        "Read the project-local legacy learning-note package and binding, freshly inspect its existing Feishu Docx, preserve its page board and any legacy index board, require the project overview board binding, and return the guarded sync plan. This preview performs no local or remote write.",
       inputSchema: {
         ...projectArgsSchema,
         document: z.string().trim().min(1),
+        projectOverviewWhiteboardToken: z.string().trim().optional(),
         canvasPageId: z.string().trim().optional(),
         projectId: z.string().trim().optional(),
         projectUuid: z.string().trim().optional(),
@@ -1538,7 +1540,7 @@ function registerFeishuLearningNoteTools(mcpServer) {
       return {
         content: [{
           type: "text",
-          text: `Previewed project-scoped migration for ${result.project.projectName}; reused the existing document and both Feishu whiteboards with ${result.syncPlan.actions.length} pending confirmed action(s).`,
+          text: `Previewed project-scoped migration for ${result.project.projectName}; preserved the existing page board and any legacy index board with ${result.syncPlan.actions.length} pending confirmed action(s).`,
         }],
         structuredContent: result,
       };
@@ -1550,10 +1552,11 @@ function registerFeishuLearningNoteTools(mcpServer) {
     {
       title: "Execute Confirmed Feishu Hardware Learning Note Migration",
       description:
-        "Re-preview one legacy learning note, require the exact confirmed plan fingerprint and document revision, idempotently create its project-name Wiki hierarchy, move the existing Docx without replacing either whiteboard, minimally update legacy template text, fresh-read verify, and only then save the local registry.",
+        "Re-preview one legacy learning note, require the exact confirmed plan fingerprint, document revision, and project overview board binding, move the existing Docx without replacing its page board or legacy board, minimally update legacy template text, fresh-read verify, and only then save the local registry.",
       inputSchema: {
         ...projectArgsSchema,
         document: z.string().trim().min(1),
+        projectOverviewWhiteboardToken: z.string().trim().optional(),
         canvasPageId: z.string().trim().optional(),
         projectId: z.string().trim().optional(),
         projectUuid: z.string().trim().optional(),
@@ -1574,7 +1577,7 @@ function registerFeishuLearningNoteTools(mcpServer) {
       return {
         content: [{
           type: "text",
-          text: `Migrated ${result.page.title} into the project-scoped Feishu Wiki hierarchy, verified both existing whiteboards, and saved ${result.registryPath}.`,
+          text: `Migrated ${result.page.title} into the project-scoped Feishu Wiki hierarchy, verified its schematic-page board, preserved any legacy index board, and saved ${result.registryPath}.`,
         }],
         structuredContent: result,
       };
@@ -1675,7 +1678,7 @@ function registerFeishuLearningNoteTools(mcpServer) {
     {
       title: "Execute Confirmed Feishu Hardware Learning Note Sync",
       description:
-        "Re-preview the continuous sync, require confirmed=true plus the exact plan fingerprint and complete Docx revision map, update only JLC-managed module-index/dialogue block ranges, preserve both existing board tokens and unrelated content, fresh-read verify every result, and save the registry once after success.",
+        "Re-preview the continuous sync, require confirmed=true plus the exact plan fingerprint and complete Docx revision map, update only JLC-managed module-index/dialogue block ranges, preserve the project overview board, schematic-page boards, legacy boards, and unrelated content, fresh-read verify every result, and save the registry once after success.",
       inputSchema: {
         ...projectArgsSchema,
         planFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
@@ -1717,6 +1720,7 @@ function registerFeishuLearningNoteTools(mcpServer) {
         projectId: z.string().trim().optional(),
         projectUuid: z.string().trim().optional(),
         projectName: z.string().trim().optional(),
+        projectOverviewWhiteboardToken: z.string().trim().optional(),
         schematicPages: z.array(z.object({
           canvasPageId: z.string().trim(),
           schematicPageUuid: z.string().trim().optional(),
@@ -1763,6 +1767,7 @@ function registerFeishuLearningNoteTools(mcpServer) {
           "initialize",
           "bind-root",
           "bind-project",
+          "bind-project-overview-board",
           "bind-section",
           "bind-page",
           "upsert-frame",
@@ -1799,7 +1804,7 @@ function registerHardwareLearningTools(mcpServer) {
     {
       title: "Save JLC Hardware Learning Question",
       description:
-        "Save a hardware question typed in the normal Codex conversation against the current or last non-empty JLC Hardware Learning selection. It can also accept the legacy Widget question envelope. This tool never generates or edits an image.",
+        "Save a hardware question typed in the normal Codex conversation, resolve its frame/selection and page netlist in one call, and return a bounded quick context with asset references rather than image bytes. It can also accept the legacy Widget question envelope. This tool never generates or edits an image.",
       inputSchema: {
         ...projectArgsSchema,
         question: z.any().optional(),
@@ -1870,6 +1875,7 @@ function registerHardwareLearningTools(mcpServer) {
           questionId: question.questionId,
           canvasPageId: question.selection?.canvasPageId ?? null,
           selectionSource,
+          quickContext: buildQuickLearningContext(question),
         },
       };
     },

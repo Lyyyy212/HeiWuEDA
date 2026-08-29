@@ -22,7 +22,7 @@ const content = [
   '<h1 id="sync">同步记录</h1>',
 ].join("");
 
-test("full document parsing classifies both existing whiteboards and module headings", () => {
+test("full document parsing classifies the page board and a legacy module-index board", () => {
   const parsed = parseFeishuDocumentContent(content);
   assert.equal(parsed.title, "硬件学习笔记");
   assert.deepEqual(parsed.moduleHeadings.map((heading) => heading.frameNumber), [4, 7]);

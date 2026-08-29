@@ -1,6 +1,6 @@
 {
   "schemaVersion": "easyeda.github-public-release.v1",
-  "generatedAt": "2026-08-28T13:08:14+08:00",
+  "generatedAt": "2026-08-29T11:20:04+08:00",
   "publisher": "Lyyyy",
   "product": "黑五EDA",
   "license": "PolyForm-Noncommercial-1.0.0",
@@ -111,9 +111,9 @@
   "components": [
     {
       "path": "integrations/jlc-hardware-learning-plugin",
-      "version": "0.1.7",
-      "sourceCommit": "a728c41a7e9ba8b1c78b4e8e107affe0fdee3240",
-      "copiedTrackedFiles": 98,
+      "version": "0.1.8",
+      "sourceCommit": "b14508ef53f8792a488c2d3bae971ee6d771529f",
+      "copiedTrackedFiles": 101,
       "historyIncluded": false,
       "excludedTrackedFiles": [
         "docs/evidence/feishu-compact-migration-2026-08-27.md"

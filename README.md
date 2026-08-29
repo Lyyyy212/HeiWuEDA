@@ -67,7 +67,7 @@ EasyEDA 项目数据。原创部分依据 [PolyForm Noncommercial 1.0.0](LICENSE
 | 导出安全与证据归档 | `export_safety.py`、`artifact_io.py`、`consistency.py`、`evidence_archive.py` | 能力矩阵、单飞熔断、不可覆盖落盘、跨产物一致性、SHA-256 归档 | 两条链路共享 |
 | 生命周期编排器 | `skills/easyeda-hardware-lifecycle/` | 管理阶段、产物、门禁、失效传播和受控推进 | 设计链主控 |
 | 学习编排模块 | `hwlifecycle/learning/` | 视觉导入路由、选区问题、证据请求、导师回答、会话恢复和笔记包 | 学习链主控 |
-| 黑五画板插件 | `integrations/jlc-hardware-learning-plugin/` | 多画板/多图页、编号学习框、缩小后的文字与笔记、首屏恢复、网表旁车、教学标注、本地导出和受控飞书笔记同步 | 学习链交互层 |
+| 黑五画板插件 | `integrations/jlc-hardware-learning-plugin/` | 多画板/多图页、编号学习框、快速提问与按需深入、网表旁车、教学标注、本地导出和受控飞书笔记同步 | 学习链交互层 |
 | API 材料与来源锁 | `materials/` | API 类型、JSON Schema、示例索引、固定 commit 的上游源码和许可证 | 两条链路共享 |
 | 发布与质量检查 | `.github/workflows/`、`scripts/release/` | 单元测试、契约校验、插件探测、wheel 许可证检查和公开包净化 | 发布链路 |
 
@@ -128,11 +128,11 @@ EasyEDA 项目数据。原创部分依据 [PolyForm Noncommercial 1.0.0](LICENSE
 | --- | --- | --- |
 | 官方证据导入 | 从已封存的官方 PDF 渲染高清逐页 PNG；也支持显式选择原生 PNG 路线，并为图页绑定一次性官方网表旁车 | 带工程/文档身份、主题和 SHA-256 的页面素材与页级网表 |
 | 画板组织 | 多画板/多图页管理、底图锁定、编号学习框、多选、安全缩放、小地图、矩形、箭头、自由笔、文字和便签 | 本地画板状态、选区、图页和视图状态 |
-| 选区提问 | 保留画板 shape ID、图片资产、选区范围和 EasyEDA document UUID | `LearningQuestion` / `SelectionEnvelope` |
+| 选区提问 | 支持框号、模块标签和组合编号引用；快速模式只携带有界上下文，需要时再深入读取证据 | `LearningQuestion` / `SelectionEnvelope` |
 | 证据补充 | 按问题读取图元、网络、器件属性、BOM 或数据手册证据 | 归一化 `LearningContext` |
 | 硬件导师 | 解释电源路径、信号链、器件用途、连接拓扑、BOM 选择和设计风险 | 区分证据、推断、未知项和安全提示的 `TutorAnswer` |
 | 教学标注 | 把简短结论写成普通文本、矩形、高亮或箭头 | 幂等画板标注，不修改 EasyEDA |
-| 知识沉淀 | 保存问题、回答、会话和画板；导出 PNG/SVG/JSON；按项目主页和真实原理图页组织飞书笔记，写前确认、写后回读 | 可恢复会话和受控同步的学习笔记 |
+| 知识沉淀 | 保存问题、回答、会话和画板；导出 PNG/SVG/JSON；项目主页复用一张工程总画板，每个真实原理图页复用一张学习画板，写前确认、写后回读 | 可恢复会话和受控同步的学习笔记 |
 
 学习链当前支持六类问题路由：
 
@@ -306,11 +306,11 @@ GitHub Actions 会执行公开边界扫描、Gateway 单元测试、wheel 许可
 学习契约校验、插件冷安装探测和 MCP 探测。离线测试只证明代码、契约和发布包一致；真实 EasyEDA 验收
 仍需连接官方 Bridge，并记录操作前后的工程与文档身份。
 
-- 黑五EDA 项目发布：`0.9.0`。
+- 黑五EDA 项目发布：`0.9.1`。
 - Python Gateway：`0.8.0`。
 - 黑五EDA Gateway 扩展：`0.1.0` GitHub 开发预览。
 - 黑五EDA 工作台扩展：`0.4.6` 协议 v2 只读开发预览，仅开放 3 项固定操作。
-- 黑五画板插件：`0.1.7`，Widget URI 为 `ui://widget/jlc-hardware-learning/canvas-0.1.7.html`。
+- 黑五画板插件：`0.1.8`，Widget URI 为 `ui://widget/jlc-hardware-learning/canvas-0.1.8.html`。
 - GitHub 源码发布：已就绪，默认分支为 `main`。
 - 嘉立创EDA扩展广场：仓库可重复构建 `0.4.6` 候选 `.eext`；正式上架仍需确认商店身份、在真实客户端导入并完成专属 Bridge 回读，CI 通过不等于已上架。
 

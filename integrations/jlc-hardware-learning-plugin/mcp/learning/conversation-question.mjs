@@ -332,6 +332,77 @@ export function buildConversationLearningQuestion({
   return { question, selectionSource: chosen.source };
 }
 
+const QUICK_EVIDENCE_META_KEYS = [
+  "hardwareLearningEvidence",
+  "easyedaDocumentUuid",
+  "evidenceSha256",
+  "visualSource",
+  "sourcePdfSha256",
+  "pdfPageIndex",
+  "visualMode",
+  "easyedaExportTheme",
+  "evidenceSource",
+];
+
+function compactQuestionShape(shape) {
+  const meta = shape?.meta && typeof shape.meta === "object" ? shape.meta : {};
+  const evidenceMeta = Object.fromEntries(
+    QUICK_EVIDENCE_META_KEYS
+      .filter((key) => meta[key] !== undefined)
+      .map((key) => [key, meta[key]]),
+  );
+  const compact = {
+    shapeId: shape?.shapeId ?? null,
+    shapeType: shape?.shapeType ?? null,
+    role: shape?.role ?? null,
+    learningFrameNumber: shape?.learningFrameNumber ?? null,
+    assetUrl: shape?.assetUrl ?? null,
+    text: shape?.text ?? null,
+  };
+  if (Object.keys(evidenceMeta).length > 0) compact.evidenceMeta = evidenceMeta;
+  if (Array.isArray(shape?.contextualForSelectedShapeIds)) {
+    compact.contextualForSelectedShapeIds = shape.contextualForSelectedShapeIds;
+  }
+  return compact;
+}
+
+export function buildQuickLearningContext(question) {
+  if (!question || question.schemaVersion !== "learning.question.v1") {
+    throw new Error("quick context requires learning.question.v1");
+  }
+  const selection = question.selection ?? {};
+  const context = {
+    schemaVersion: "jlc.hardware-learning-quick-context.v1",
+    questionId: question.questionId,
+    sessionId: question.sessionId,
+    canvasPageId: selection.canvasPageId ?? null,
+    userQuestion: question.userQuestion,
+    intent: question.intent,
+    learningLevel: question.learningLevel,
+    responseMode: question.responseMode ?? "quick",
+    annotationRequested: question.annotationRequested === true,
+    selection: {
+      selectionSource: selection.selectionSource ?? null,
+      selectedShapeIds: selection.selectedShapeIds ?? [],
+      selectedFrameNumbers: selection.selectedFrameNumbers ?? [],
+      referencedFrameNumbers: selection.referencedFrameNumbers ?? [],
+      unionBounds: selection.unionBounds ?? null,
+      shapes: Array.isArray(selection.shapes)
+        ? selection.shapes.map(compactQuestionShape)
+        : [],
+      selectionScreenshotAssetUrl: selection.selectionScreenshotAssetUrl ?? null,
+      selectionScreenshotSha256: selection.selectionScreenshotSha256 ?? null,
+      canvasSnapshotSha256: selection.canvasSnapshotSha256 ?? null,
+    },
+    pageEvidence: question.pageEvidence ?? null,
+    requestedAt: question.requestedAt,
+  };
+  return {
+    ...context,
+    contextSha256: sha256(JSON.stringify(context)),
+  };
+}
+
 export const conversationLearningIntents = [...INTENTS];
 export const conversationLearningLevels = [...LEARNING_LEVELS];
 export const conversationLearningResponseModes = [...RESPONSE_MODES];

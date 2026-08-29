@@ -99,7 +99,7 @@ test('large JLC Hardware Learning widget exports use ordered chunked Bridge call
       async callServerTool(request) {
         calls.push(request)
         const action = request.arguments.action
-        if (action === 'begin') return { structuredContent: { downloadId: '00000000-0000-4000-8000-000000000001' } }
+        if (action === 'begin') return { structuredContent: { downloadId: '4dd91ef0-144d-4a97-94a8-a0d0afef96ee' } }
         if (action === 'finish') return { structuredContent: { ok: true, filePath: 'D:\\Downloads\\fixture.png' } }
         return { structuredContent: { ok: true } }
       }
@@ -110,14 +110,14 @@ test('large JLC Hardware Learning widget exports use ordered chunked Bridge call
     const dataBase64 = 'QUJD'.repeat(200_000)
     const result = await downloadHardwareLearningFile({
       dataBase64,
-      directoryToken: '00000000-0000-4000-8000-000000000002',
+      directoryToken: '58b830c4-9aa2-43d4-90cd-92912557ea62',
       fileName: 'fixture.png',
       mimeType: 'image/png',
       onProgress: (event) => progress.push(event)
     })
     assert.equal(result.ok, true)
     assert.equal(calls[0].arguments.action, 'begin')
-    assert.equal(calls[0].arguments.directoryToken, '00000000-0000-4000-8000-000000000002')
+    assert.equal(calls[0].arguments.directoryToken, '58b830c4-9aa2-43d4-90cd-92912557ea62')
     assert.equal(calls.at(-1).arguments.action, 'finish')
     const appendCalls = calls.filter((call) => call.arguments.action === 'append')
     assert.ok(appendCalls.length > 1)
@@ -144,7 +144,7 @@ test('JLC Hardware Learning export directory selection stays app-driven and canv
             ok: true,
             canceled: false,
             directoryPath: 'D:\\Exports',
-            directoryToken: '00000000-0000-4000-8000-000000000002'
+            directoryToken: '58b830c4-9aa2-43d4-90cd-92912557ea62'
           }
         }
       }

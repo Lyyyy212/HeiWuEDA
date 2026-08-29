@@ -195,11 +195,13 @@ async function applyProjectHomepage({
   document,
   project,
   pages,
+  projectOverviewWhiteboardToken,
 }) {
   const before = documentFromPayload(await readAdapter.fetchDocumentFull(document));
   const rendered = renderFeishuProjectHomepageAppendXml({
     project,
     pages,
+    projectOverviewWhiteboardToken,
     existingContent: before.content,
   });
   if (rendered.indexDigest !== action.desiredContentDigest) {
@@ -216,8 +218,15 @@ async function applyProjectHomepage({
     status = "updated";
   }
   const after = documentFromPayload(await readAdapter.fetchDocumentFull(document));
-  const inspection = inspectFeishuProjectHomepage(after.content, { pages });
-  if (inspection.missingSectionKeys.length > 0 || inspection.missingPageDocTokens.length > 0) {
+  const inspection = inspectFeishuProjectHomepage(after.content, {
+    pages,
+    projectOverviewWhiteboardToken,
+  });
+  if (
+    inspection.missingSectionKeys.length > 0
+    || inspection.missingPageDocTokens.length > 0
+    || inspection.missingProjectOverviewWhiteboardToken
+  ) {
     throw new Error("Project homepage verification failed after compact-index update.");
   }
   return {
@@ -270,6 +279,13 @@ export async function executeConfirmedFeishuLearningNoteMigration(input = {}, op
   }
   if (preview.syncPlan.planFingerprint !== input.planFingerprint) {
     throw new Error("Fresh Feishu migration preview no longer matches the confirmed plan fingerprint.");
+  }
+  if (preview.syncPlan.actions.some((action) => (
+    action.kind === "doc.project-overview-whiteboard.ensure"
+  ))) {
+    throw new Error(
+      "Create and verify the project overview whiteboard containing every schematic page, bind its token, then re-preview the migration.",
+    );
   }
 
   const readAdapter = options.readAdapter ?? createLarkCliAdapter(options);
@@ -414,6 +430,7 @@ export async function executeConfirmedFeishuLearningNoteMigration(input = {}, op
         document: projectNode.docToken,
         project: preview.registry.project,
         pages,
+        projectOverviewWhiteboardToken: preview.registry.wiki.projectOverviewWhiteboardToken,
       });
       executionJournal.push({
         actionId: action.actionId,
@@ -469,7 +486,9 @@ export async function executeConfirmedFeishuLearningNoteMigration(input = {}, op
     noteTemplateVersion: FEISHU_PAGE_NOTE_TEMPLATE_VERSION,
     updatedAt: new Date().toISOString(),
   });
-  // Initial migration preserves legacy content and both board tokens. The separate
+  // Initial migration preserves the page learning board and any legacy module-index
+  // board. New notes use one project overview board plus one board per schematic page.
+  // The separate
   // continuous-sync flow adopts the page into managed module/dialogue ranges and
   // only then records the content digest as synchronized.
   const saved = await (options.saveRegistry ?? saveFeishuLearningRegistry)(input, registry);
@@ -482,8 +501,9 @@ export async function executeConfirmedFeishuLearningNoteMigration(input = {}, op
     spaceId,
     page: movedPageNode,
     boardTokens: {
-      learning: preview.reused.learningBoard.token,
-      moduleIndex: preview.reused.moduleIndexBoard.token,
+      projectOverview: preview.registry.wiki.projectOverviewWhiteboardToken,
+      schematicPage: preview.reused.learningBoard.token,
+      legacyModuleIndex: preview.reused.moduleIndexBoard.token,
     },
     executionJournal,
     templateWrites,

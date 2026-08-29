@@ -16,6 +16,7 @@ import {
 const DOC_TOKEN = "CwGJdseLUoB3GlxIVEdc4zgZnBh";
 const MAIN_BOARD = "PhfGw0fY2htpI8bOVXqcAoB7nvc";
 const INDEX_BOARD = "E6uZwU99Qh3Xcqb4j8Mcs1xznOb";
+const PROJECT_OVERVIEW_BOARD = "FixtureProjectOverviewWhiteboardToken01";
 
 test("reader-facing page identity summary hides internal binding identifiers", () => {
   const summary = renderFeishuPageIdentitySummary({
@@ -57,7 +58,10 @@ function migrationPreview() {
     projectUuid: "00000000000000000000000000000001",
     projectName: "【已测试】MPPT96V35A自动升降控制器",
   };
-  let registry = createFeishuLearningRegistry(project, { updatedAt: "2026-08-26T00:00:00Z" });
+  let registry = createFeishuLearningRegistry(project, {
+    projectOverviewWhiteboardToken: PROJECT_OVERVIEW_BOARD,
+    updatedAt: "2026-08-26T00:00:00Z",
+  });
   registry = upsertFeishuPageBinding(registry, {
     projectId: project.projectId,
     canvasPageId: "page:page",
@@ -68,7 +72,7 @@ function migrationPreview() {
     docUrl: `https://example.feishu.cn/docx/${DOC_TOKEN}`,
     docRevision: "9",
     whiteboardToken: MAIN_BOARD,
-    moduleIndexWhiteboardToken: INDEX_BOARD,
+    legacyModuleIndexWhiteboardToken: INDEX_BOARD,
     updatedAt: "2026-08-26T00:00:00Z",
   });
   for (const frameNumber of [4, 5, 7]) {
@@ -99,7 +103,7 @@ function migrationPreview() {
   };
 }
 
-test("confirmed migration creates the hierarchy, moves one Docx, verifies boards, then saves once", async () => {
+test("confirmed migration creates the hierarchy, embeds the project overview, and preserves legacy boards", async () => {
   const preview = migrationPreview();
   const nodes = new Map();
   const children = new Map([["", []]]);
@@ -217,11 +221,16 @@ test("confirmed migration creates the hierarchy, moves one Docx, verifies boards
   assert.equal(result.ok, true);
   assert.equal(result.page.title, "01 主控板");
   assert.equal(result.page.docToken, DOC_TOKEN);
-  assert.deepEqual(result.boardTokens, { learning: MAIN_BOARD, moduleIndex: INDEX_BOARD });
+  assert.deepEqual(result.boardTokens, {
+    projectOverview: PROJECT_OVERVIEW_BOARD,
+    schematicPage: MAIN_BOARD,
+    legacyModuleIndex: INDEX_BOARD,
+  });
   assert.equal(result.executionJournal.filter((entry) => entry.status === "created").length, 2);
   assert.equal(result.executionJournal.filter((entry) => entry.status === "moved").length, 1);
   assert.equal(result.homepageWrite.status, "updated");
   assert.match(documents.get("doc-node-2").content, /03 原理图学习/u);
+  assert.match(documents.get("doc-node-2").content, new RegExp(PROJECT_OVERVIEW_BOARD, "u"));
   assert.match(documents.get("doc-node-2").content, new RegExp(DOC_TOKEN, "u"));
   assert.equal(saveCount, 1);
   assert.equal(result.localWritesPerformed, true);

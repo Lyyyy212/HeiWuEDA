@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildConversationLearningQuestion,
+  buildQuickLearningContext,
   parseLearningFrameReferences,
 } from "./conversation-question.mjs";
 
@@ -116,6 +117,24 @@ test("response mode and explicit annotation intent are recorded without creating
   assert.equal(built.question.responseMode, "deep");
   assert.equal(built.question.annotationRequested, true);
   assert.equal(built.question.pageEvidence.netlist.status, "verified");
+});
+
+test("quick context is bounded and contains references instead of image bytes or the canvas store", () => {
+  const built = buildConversationLearningQuestion({
+    canvasSnapshot: fixtureSnapshot(),
+    selectionState,
+    userQuestion: "模块2是什么？",
+    questionId: "question:quick-context",
+    pageEvidence: { netlist: { status: "verified", summary: { componentCount: 2, netCount: 3 } } },
+  });
+  const context = buildQuickLearningContext(built.question);
+  const serialized = JSON.stringify(context);
+  assert.equal(context.schemaVersion, "jlc.hardware-learning-quick-context.v1");
+  assert.deepEqual(context.selection.referencedFrameNumbers, [2]);
+  assert.ok(context.selection.shapes.some((shape) => shape.assetUrl === "/page-assets/page-page/source.png"));
+  assert.match(context.contextSha256, /^[a-f0-9]{64}$/);
+  assert.ok(serialized.length < 8192, `quick context is ${serialized.length} characters`);
+  assert.doesNotMatch(serialized, /dataBase64|\"store\"|schemaVersion\":2/);
 });
 
 test("missing numbered frames fail without falling back to another selection", () => {

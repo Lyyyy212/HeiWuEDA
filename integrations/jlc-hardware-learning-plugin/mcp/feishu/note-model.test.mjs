@@ -6,6 +6,7 @@ import {
   FEISHU_LEARNING_NOTE_STANDARD_VERSION,
   assignFeishuLearningFrameMarkerColors,
   bindFeishuProjectNode,
+  bindFeishuProjectOverviewBoard,
   bindFeishuLearningRoot,
   buildFeishuLearningDirectoryPlan,
   createFeishuLearningRegistry,
@@ -48,6 +49,11 @@ test("directory plans keep categories in one project homepage and pages as direc
   assert.equal(plan.namespace.title, "硬件学习笔记");
   assert.equal(plan.root.title, "主控板");
   assert.equal(plan.root.layoutMode, "compact-project-homepage");
+  assert.equal(plan.root.projectOverviewBoard.role, "project-schematic-overview");
+  assert.deepEqual(
+    plan.root.projectOverviewBoard.schematicPages.map((page) => page.schematicPageUuid),
+    ["FixtureSchematicPageUuid01", "FixtureSchematicPageUuid02"],
+  );
   assert.deepEqual(plan.root.sections.map((section) => section.title), [
     "00 项目总览",
     "01 方案设计",
@@ -81,7 +87,7 @@ test("duplicate schematic page names stay readable but receive stable disambigua
 });
 
 test("learning-frame markers use a translucent top-left badge and stable random distinct colors", () => {
-  assert.equal(FEISHU_LEARNING_NOTE_STANDARD_VERSION, "JLC-FN-1.2");
+  assert.equal(FEISHU_LEARNING_NOTE_STANDARD_VERSION, "JLC-FN-1.3");
   assert.equal(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.colorOpacityPercent, 50);
   assert.equal(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.numberOpacityPercent, 50);
   assert.equal(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.borderWidthScale, 0.5);
@@ -94,6 +100,7 @@ test("learning-frame markers use a translucent top-left badge and stable random 
   assert.equal(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.numberBadgeStyle.offsetY, -8);
   assert.equal(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.frameColorMode, "stable-random-distinct");
   assert.deepEqual(DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE.moduleIndexStyle, {
+    containerMode: "embedded-in-schematic-page-board",
     colorMode: "follow-learning-frame",
     frameGeometryMode: "map-with-schematic-image",
     badgeGeometryMode: "fixed-size-top-left-overlap",
@@ -163,13 +170,17 @@ test("page-local frame notes and dialogue bindings resolve to one Feishu target"
     projectDocToken: "doccn-project",
     updatedAt: "2026-08-26T00:01:00.000Z",
   });
+  registry = bindFeishuProjectOverviewBoard(registry, {
+    projectId: project.projectId,
+    projectOverviewWhiteboardToken: "FixtureProjectOverviewWhiteboardToken01",
+    updatedAt: "2026-08-26T00:02:00.000Z",
+  });
   registry = upsertFeishuPageBinding(registry, {
     projectId: project.projectId,
     ...pages[0],
     nodeToken: "FixtureNodeToken03",
     docToken: "doccn-main",
     whiteboardToken: "FixtureWhiteboardToken01",
-    moduleIndexWhiteboardToken: "FixtureModuleIndexWhiteboardToken01",
     updatedAt: "2026-08-26T00:03:00.000Z",
   });
   registry = upsertFeishuFrameNote(registry, {
@@ -196,15 +207,18 @@ test("page-local frame notes and dialogue bindings resolve to one Feishu target"
   assert.equal(target.ready, true);
   assert.equal(target.page.docToken, "doccn-main");
   assert.equal(target.page.whiteboardToken, "FixtureWhiteboardToken01");
-  assert.equal(target.page.moduleIndexWhiteboardToken, "FixtureModuleIndexWhiteboardToken01");
+  assert.equal(target.project.projectId, project.projectId);
+  assert.ok(target.frames.every((frame) => frame.schematicPageUuid === "FixtureSchematicPageUuid01"));
   assert.deepEqual(target.frames.map((frame) => frame.frameNumber), [5, 7]);
   assert.deepEqual(registry.pages["page:main"].frames["5"].questionIds, ["question:abc"]);
   assert.deepEqual(registry.pages["page:main"].frames["7"].answerDigests, ["a".repeat(64)]);
 });
 
 test("marking a compact project homepage clears legacy section-document bindings", () => {
-  const registry = createFeishuLearningRegistry(project);
-  registry.sections.schematics.nodeToken = "FixtureNodeToken04";
+  const registry = createFeishuLearningRegistry(project, {
+    projectOverviewWhiteboardToken: "FixtureProjectOverviewWhiteboardToken01",
+  });
+  registry.sections.schematics.nodeToken = "legacy-section-node";
   registry.sections.schematics.docToken = "legacy-section-doc";
   const compact = markFeishuProjectHomepageSynced(registry, {
     projectId: project.projectId,
@@ -212,7 +226,7 @@ test("marking a compact project homepage clears legacy section-document bindings
     updatedAt: "2026-08-27T00:00:00.000Z",
   });
   assert.equal(compact.wiki.layoutMode, "compact-project-homepage");
-  assert.equal(compact.wiki.projectHomepageTemplateVersion, 1);
+  assert.equal(compact.wiki.projectHomepageTemplateVersion, 2);
   assert.equal(compact.sections.schematics.nodeToken, null);
   assert.equal(compact.sections.schematics.docToken, null);
 });
@@ -224,10 +238,16 @@ test("project, page and frame identity mismatches fail instead of falling back",
     ...pages[0],
   }), /project identity mismatch/u);
   registry = upsertFeishuPageBinding(registry, { projectId: project.projectId, ...pages[0] });
+  assert.throws(() => upsertFeishuFrameNote(registry, {
+    projectId: project.projectId,
+    canvasPageId: "page:main",
+    schematicPageUuid: "FixtureSchematicPageUuid03",
+    frameNumber: 1,
+  }), /does not belong to the bound schematic page/u);
   assert.throws(() => upsertFeishuPageBinding(registry, {
     projectId: project.projectId,
     ...pages[0],
-    schematicPageUuid: "FixtureSchematicPageUuid03",
+    schematicPageUuid: "FixtureSchematicPageUuid04",
   }), /schematic identity mismatch/u);
   assert.throws(() => upsertFeishuFrameNote(registry, {
     projectId: project.projectId,
@@ -272,5 +292,5 @@ test("dialogue replays are immutable and page content digests track note changes
     updatedAt: "2026-08-26T00:02:00.000Z",
   });
   assert.equal(synced.pages["page:main"].syncedContentDigest, digest);
-  assert.equal(synced.pages["page:main"].noteTemplateVersion, 1);
+  assert.equal(synced.pages["page:main"].noteTemplateVersion, 2);
 });

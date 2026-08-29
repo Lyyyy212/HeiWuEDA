@@ -66,13 +66,23 @@ test("Feishu note state updates persist local bindings without remote writes", a
     });
     assert.equal(rebound.registry.pages["page:main"].docToken, "doccn-main");
 
+    const overviewBound = await updateFeishuLearningNoteState({
+      projectDir,
+      action: "bind-project-overview-board",
+      payload: { projectOverviewWhiteboardToken: "FixtureProjectOverviewWhiteboardToken01" },
+    });
+    assert.equal(
+      overviewBound.registry.wiki.projectOverviewWhiteboardToken,
+      "FixtureProjectOverviewWhiteboardToken01",
+    );
+
     const compact = await updateFeishuLearningNoteState({
       projectDir,
       action: "mark-project-homepage-synced",
       payload: { indexDigest: "d".repeat(64) },
     });
     assert.equal(compact.registry.wiki.layoutMode, "compact-project-homepage");
-    assert.equal(compact.registry.wiki.projectHomepageTemplateVersion, 1);
+    assert.equal(compact.registry.wiki.projectHomepageTemplateVersion, 2);
 
     const state = await getFeishuLearningNoteState({ projectDir });
     assert.equal(state.registryExists, true);

@@ -80,6 +80,19 @@ export function planFeishuLearningSync({ directoryPlan, registry } = {}) {
       verification: "wiki.node.get",
     }));
   }
+  if (!registry.wiki.projectOverviewWhiteboardToken) {
+    const overviewBoard = directoryPlan.root.projectOverviewBoard;
+    const action = createAction({
+      kind: "doc.project-overview-whiteboard.ensure",
+      logicalId: overviewBoard.logicalId,
+      title: overviewBoard.title,
+      parentLogicalId: projectLogicalId,
+      requires: [projectLogicalId],
+      verification: "docs.fetch.project_overview_board_token-and-all-schematic-pages",
+    });
+    action.schematicPages = overviewBoard.schematicPages;
+    actions.push(action);
+  }
 
   for (const pageNode of directoryPlan.root.children) {
     const page = registry.pages[pageNode.page.canvasPageId];
@@ -96,28 +109,24 @@ export function planFeishuLearningSync({ directoryPlan, registry } = {}) {
       }));
     }
     if (!page?.whiteboardToken) {
-      actions.push(createAction({
+      const action = createAction({
         kind: "doc.whiteboard.ensure",
         logicalId: `${pageNode.logicalId}:whiteboard`,
-        title: `${pageNode.page.pageName}学习画板`,
+        title: `${pageNode.page.pageName}原理图学习画板`,
         parentLogicalId: pageNode.logicalId,
         requires: [pageNode.logicalId],
-        verification: "docs.fetch.board_token",
-      }));
-      actions.at(-1).learningFrameMarkerStyle = page?.learningFrameMarkerStyle
+        verification: "docs.fetch.board_token-and-matching-schematic-page",
+      });
+      action.boardRole = "schematic-page-learning-board";
+      action.schematicPage = {
+        canvasPageId: pageNode.page.canvasPageId,
+        schematicPageUuid: pageNode.page.schematicPageUuid,
+        pageName: pageNode.page.pageName,
+        sourceRevision: pageNode.page.sourceRevision,
+      };
+      action.learningFrameMarkerStyle = page?.learningFrameMarkerStyle
         ?? DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE;
-    }
-    if (!page?.moduleIndexWhiteboardToken) {
-      actions.push(createAction({
-        kind: "doc.module-index-whiteboard.ensure",
-        logicalId: `${pageNode.logicalId}:module-index-whiteboard`,
-        title: `${pageNode.page.pageName}模块索引画板`,
-        parentLogicalId: pageNode.logicalId,
-        requires: [pageNode.logicalId],
-        verification: "docs.fetch.module_index_board_token",
-      }));
-      actions.at(-1).learningFrameMarkerStyle = page?.learningFrameMarkerStyle
-        ?? DEFAULT_FEISHU_LEARNING_FRAME_MARKER_STYLE;
+      actions.push(action);
     }
     if (page?.docToken && (page.noteTemplateVersion ?? 0) < FEISHU_PAGE_NOTE_TEMPLATE_VERSION) {
       actions.push(createAction({
@@ -158,11 +167,15 @@ export function planFeishuLearningSync({ directoryPlan, registry } = {}) {
   const desiredHomepageIndexDigest = feishuProjectHomepageIndexDigest({
     project: registry.project,
     pages: homepagePages,
+    projectOverviewWhiteboardToken: registry.wiki.projectOverviewWhiteboardToken,
   });
   if (
+    registry.wiki.projectOverviewWhiteboardToken
+    && (
     (registry.wiki.projectHomepageTemplateVersion ?? 0)
       < FEISHU_PROJECT_HOMEPAGE_TEMPLATE_VERSION
     || registry.wiki.projectHomepageIndexDigest !== desiredHomepageIndexDigest
+    )
   ) {
     actions.push({
       ...createAction({
@@ -170,7 +183,11 @@ export function planFeishuLearningSync({ directoryPlan, registry } = {}) {
         logicalId: `${projectLogicalId}:homepage-v${FEISHU_PROJECT_HOMEPAGE_TEMPLATE_VERSION}`,
         title: `${directoryPlan.root.title}项目主页`,
         parentLogicalId: projectLogicalId,
-        requires: [projectLogicalId, ...directoryPlan.root.children.map((page) => page.logicalId)],
+        requires: [
+          projectLogicalId,
+          `${projectLogicalId}:project-overview-whiteboard`,
+          ...directoryPlan.root.children.map((page) => page.logicalId),
+        ],
         verification: "docs.fetch.project-homepage",
       }),
       desiredContentDigest: desiredHomepageIndexDigest,

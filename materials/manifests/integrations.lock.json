@@ -1,6 +1,6 @@
 {
   "schemaVersion": "easyeda.integration-lock.v3",
-  "generatedAt": "2026-08-28T13:08:14+08:00",
+  "generatedAt": "2026-08-29T11:20:04+08:00",
   "integrations": [
     {
       "name": "黑五画板",
@@ -10,19 +10,19 @@
       "distributionMode": "public-vendored-source",
       "localPath": "../integrations/jlc-hardware-learning-plugin",
       "sourceRepository": "../integrations/jlc-hardware-learning-plugin",
-      "sourceCommit": "a728c41a7e9ba8b1c78b4e8e107affe0fdee3240",
-      "version": "0.1.7",
+      "sourceCommit": "b14508ef53f8792a488c2d3bae971ee6d771529f",
+      "version": "0.1.8",
       "license": "MIT",
       "licensePath": "../integrations/jlc-hardware-learning-plugin/LICENSE",
       "licenseSha256": "88d04c44750ac737fe777281ac4f8bbbb20ee4e77a328a9b5c940663df555c74",
       "sourceEvidence": {
         "pluginManifest": {
           "path": "../integrations/jlc-hardware-learning-plugin/.codex-plugin/plugin.json",
-          "sha256": "fd2fa5581d89cbb61d420c7cb0c06ebefd020c33b724a4a71e916c5960ee3c34"
+          "sha256": "6e5796c2b7bddb191b05dfa7c3393ce32303b405a6552c0ac49e1f5c397f4889"
         },
         "releaseManifest": {
           "path": "../integrations/jlc-hardware-learning-plugin/mcp/generated/release-manifest.json",
-          "sha256": "c1bb220e5a2e30482012c65fc5ff6a046bd13206fda7ec9c07041e6c6500d3ae"
+          "sha256": "9a840c07e0282e3eae47a01431f36bbeae749738415ada38d980ac4f5e3fa561"
         }
       },
       "runtime": {
@@ -30,7 +30,7 @@
         "serverInfoName": "jlc-hardware-learning",
         "transport": "stdio",
         "command": "node ./scripts/start-mcp.mjs",
-        "serverVersionVerified": "0.1.7",
+        "serverVersionVerified": "0.1.8",
         "toolCountVerified": 26,
         "widget": "ui://widget/jlc-hardware-learning/canvas-{pluginVersion}.html",
         "storage": "<projectDir>/{canvas|canvases/<canvas-id>}/pages/<page-id>/hardware-learning-canvas.json"

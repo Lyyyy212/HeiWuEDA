@@ -43,7 +43,7 @@ function fixture(summary) {
   };
 }
 
-function run(summary) {
+function run(summary, role = 'schematic-page') {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jlc-fn-validator-'));
   const rawPath = path.join(tempDir, 'board.json');
   fs.writeFileSync(rawPath, JSON.stringify(fixture(summary)));
@@ -51,7 +51,7 @@ function run(summary) {
     return spawnSync(process.execPath, [
       validator,
       '--raw', rawPath,
-      '--role', 'module-index',
+      '--role', role,
       '--expected', '4',
     ], { encoding: 'utf8' });
   } finally {
@@ -59,14 +59,37 @@ function run(summary) {
   }
 }
 
-test('module-index accepts a concise one-sentence module summary', () => {
+test('schematic-page board accepts a concise one-sentence module summary', () => {
   const result = run('通过串行接口完成主控板调试通信。');
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /"standard": "JLC-FN-1.2"/u);
+  assert.match(result.stdout, /"standard": "JLC-FN-1.3"/u);
 });
 
-test('module-index rejects a learning-status placeholder as its detail', () => {
+test('schematic-page board rejects a learning-status placeholder as its detail', () => {
   const result = run('待学习');
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /one-sentence module summary/u);
+});
+
+test('project overview board contains every schematic image and no learning frames', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jlc-fn-overview-validator-'));
+  const rawPath = path.join(tempDir, 'board.json');
+  fs.writeFileSync(rawPath, JSON.stringify({
+    nodes: [
+      { id: 'page-a', type: 'image', image: { token: 'schematic-a' } },
+      { id: 'page-b', type: 'image', image: { token: 'schematic-b' } },
+    ],
+  }));
+  try {
+    const result = spawnSync(process.execPath, [
+      validator,
+      '--raw', rawPath,
+      '--role', 'project-overview',
+      '--expected-images', '2',
+    ], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /"imageCount": 2/u);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });

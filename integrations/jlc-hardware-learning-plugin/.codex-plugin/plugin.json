@@ -1,9 +1,9 @@
 {
   "name": "jlc-hardware-learning",
-  "version": "0.1.7",
-  "description": "面向 黑五EDA 原理图学习、区域提问、教学标注、本地导出与飞书项目学习笔记的持久化黑五画板。",
+  "version": "0.1.8",
+  "description": "\u9762\u5411 \u9ed1\u4e94EDA \u539f\u7406\u56fe\u5b66\u4e60\u3001\u533a\u57df\u63d0\u95ee\u3001\u6559\u5b66\u6807\u6ce8\u3001\u672c\u5730\u5bfc\u51fa\u4e0e\u98de\u4e66\u9879\u76ee\u5b66\u4e60\u7b14\u8bb0\u7684\u6301\u4e45\u5316\u9ed1\u4e94\u753b\u677f\u3002",
   "author": {
-    "name": "黑五EDA Hardware Workbench"
+    "name": "\u9ed1\u4e94EDA Hardware Workbench"
   },
   "license": "MIT",
   "keywords": [
@@ -17,10 +17,10 @@
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
-    "displayName": "黑五画板",
-    "shortDescription": "黑五画板：原理图学习、区域讲解与教学标注。",
-    "longDescription": "专用的黑五画板，可框选原理图区域、在 Codex 对话中提问、接收教学标注、导入身份校验后的原理图视觉证据、管理多个独立画板和图页、规划紧凑的飞书项目学习笔记，并导出 PNG、SVG 或 JSON。画板使用项目本地存储，保护导入的原理图证据，提供安全缩放和视口裁剪，不生成图片、不上传遥测数据，也不直接写入 EDA 工程；飞书远端写入仍需明确确认和 fresh read 验证。",
-    "developerName": "黑五EDA Hardware Workbench",
+    "displayName": "\u9ed1\u4e94\u753b\u677f",
+    "shortDescription": "\u9ed1\u4e94\u753b\u677f\uff1a\u539f\u7406\u56fe\u5b66\u4e60\u3001\u533a\u57df\u8bb2\u89e3\u4e0e\u6559\u5b66\u6807\u6ce8\u3002",
+    "longDescription": "\u4e13\u7528\u7684\u9ed1\u4e94\u753b\u677f\uff0c\u53ef\u6846\u9009\u539f\u7406\u56fe\u533a\u57df\u3001\u5728 Codex \u5bf9\u8bdd\u4e2d\u63d0\u95ee\u3001\u63a5\u6536\u6559\u5b66\u6807\u6ce8\u3001\u5bfc\u5165\u8eab\u4efd\u6821\u9a8c\u540e\u7684\u539f\u7406\u56fe\u89c6\u89c9\u8bc1\u636e\u3001\u7ba1\u7406\u591a\u4e2a\u72ec\u7acb\u753b\u677f\u548c\u56fe\u9875\u3001\u89c4\u5212\u7d27\u51d1\u7684\u98de\u4e66\u9879\u76ee\u5b66\u4e60\u7b14\u8bb0\uff0c\u5e76\u5bfc\u51fa PNG\u3001SVG \u6216 JSON\u3002\u753b\u677f\u4f7f\u7528\u9879\u76ee\u672c\u5730\u5b58\u50a8\uff0c\u4fdd\u62a4\u5bfc\u5165\u7684\u539f\u7406\u56fe\u8bc1\u636e\uff0c\u63d0\u4f9b\u5b89\u5168\u7f29\u653e\u548c\u89c6\u53e3\u88c1\u526a\uff0c\u4e0d\u751f\u6210\u56fe\u7247\u3001\u4e0d\u4e0a\u4f20\u9065\u6d4b\u6570\u636e\uff0c\u4e5f\u4e0d\u76f4\u63a5\u5199\u5165 EDA \u5de5\u7a0b\uff1b\u98de\u4e66\u8fdc\u7aef\u5199\u5165\u4ecd\u9700\u660e\u786e\u786e\u8ba4\u548c fresh read \u9a8c\u8bc1\u3002",
+    "developerName": "\u9ed1\u4e94EDA Hardware Workbench",
     "category": "Productivity",
     "capabilities": [
       "\u9ed1\u4e94\u753b\u677f",

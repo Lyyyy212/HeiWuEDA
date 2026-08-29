@@ -192,7 +192,10 @@ export function previewLegacyFeishuLearningMigration(input = {}) {
     projectId,
     projectUuid: projectId,
     projectName,
-  }, { updatedAt: binding.lastPublishedAt ?? notePackage.generatedAt });
+  }, {
+    projectOverviewWhiteboardToken: input.projectOverviewWhiteboardToken,
+    updatedAt: binding.lastPublishedAt ?? notePackage.generatedAt,
+  });
   registry = upsertFeishuPageBinding(registry, {
     projectId,
     canvasPageId,
@@ -204,7 +207,7 @@ export function previewLegacyFeishuLearningMigration(input = {}) {
     docUrl: binding.document.url,
     docRevision: String(inspection.document.revisionId),
     whiteboardToken: boards.learningBoard.token,
-    moduleIndexWhiteboardToken: boards.moduleIndexBoard.token,
+    legacyModuleIndexWhiteboardToken: boards.moduleIndexBoard.token,
     legacyContentDigest: notePackage.contentSha256,
     learningFrameMarkerStyle: binding.whiteboard?.markerStyle
       ?? notePackage.larkPlan?.whiteboard?.learningFrameMarkerStyle,

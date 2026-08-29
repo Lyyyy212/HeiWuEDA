@@ -10,6 +10,7 @@ const projectId = "3887ba22c860470abf2ab42453fdd249";
 const docToken = "CwGJdseLUoB3GlxIVEdc4zgZnBh";
 const learningBoardToken = "PhfGw0fY2htpI8bOVXqcAoB7nvc";
 const indexBoardToken = "E6uZwU99Qh3Xcqb4j8Mcs1xznOb";
+const projectOverviewWhiteboardToken = "ProjectOverviewBoardToken123";
 const digest = "a".repeat(64);
 const markerStyle = {
   colorOpacityPercent: 70,
@@ -85,12 +86,13 @@ const inspection = {
   legacyBrandingTerms: ["Cowart"],
 };
 
-test("legacy migration preview reuses the live document and both board tokens", () => {
+test("legacy migration reuses the schematic-page board and preserves the old index board", () => {
   const preview = previewLegacyFeishuLearningMigration({
     binding,
     notePackage,
     inspection,
     projectId,
+    projectOverviewWhiteboardToken,
     projectName: "【已测试】MPPT96V35A自动升降控制器",
   });
   const page = preview.registry.pages["page:page"];
@@ -111,7 +113,8 @@ test("legacy migration preview reuses the live document and both board tokens", 
   assert.equal(page.documentLocation, "drive");
   assert.equal(page.docToken, docToken);
   assert.equal(page.whiteboardToken, learningBoardToken);
-  assert.equal(page.moduleIndexWhiteboardToken, indexBoardToken);
+  assert.equal(page.legacyModuleIndexWhiteboardToken, indexBoardToken);
+  assert.equal(preview.registry.wiki.projectOverviewWhiteboardToken, projectOverviewWhiteboardToken);
   assert.equal(page.schematicPageUuid, "schematic-main");
   assert.equal(page.learningFrameMarkerStyle.colorOpacityPercent, 50);
   assert.equal(page.learningFrameMarkerStyle.numberOpacityPercent, 50);
@@ -139,6 +142,7 @@ test("legacy migration blocks mismatched live board identities", () => {
       )),
     },
     projectId,
+    projectOverviewWhiteboardToken,
     projectName: "项目",
   }), /learning-board token does not match/u);
 });

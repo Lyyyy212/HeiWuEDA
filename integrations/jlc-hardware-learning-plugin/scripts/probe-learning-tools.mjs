@@ -13,7 +13,10 @@ import {
   readHardwareLearningSelectionState,
   writeHardwareLearningSelectionState,
 } from "../mcp/lib/canvas-storage.mjs";
-import { buildConversationLearningQuestion } from "../mcp/learning/conversation-question.mjs";
+import {
+  buildConversationLearningQuestion,
+  buildQuickLearningContext,
+} from "../mcp/learning/conversation-question.mjs";
 
 const projectDir = await mkdtemp(join(tmpdir(), "jlc-hardware-learning-probe-"));
 try {
@@ -118,6 +121,11 @@ try {
   assert.equal(conversational.question.selection.canvasSelectionVersion, 2);
   assert.deepEqual(conversational.question.selection.selectedFrameNumbers, [1]);
   assert.ok(conversational.question.selection.shapes.some((shape) => shape.role === "source-image"));
+  const quickContext = buildQuickLearningContext(conversational.question);
+  assert.equal(quickContext.schemaVersion, "jlc.hardware-learning-quick-context.v1");
+  assert.deepEqual(quickContext.selection.selectedFrameNumbers, [1]);
+  assert.doesNotMatch(JSON.stringify(quickContext), /dataBase64|hardware-learning-canvas\.json/);
+  assert.ok(JSON.stringify(quickContext).length < 8192);
   assert.equal((await saveLearningQuestion({ projectDir, question: conversational.question })).replayed, false);
 
   const numbered = buildConversationLearningQuestion({

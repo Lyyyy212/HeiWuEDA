@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.9.1 - 2026-08-29
+
+### Added
+
+- Published the sanitized `黑五画板` `0.1.8` source from commit
+  `b14508ef53f8792a488c2d3bae971ee6d771529f`.
+- Added a compact hardware-learning question path with explicit frame-number
+  references, bounded quick context, response modes and opt-in annotation intent.
+- Added `JLC-FN-1.3`: one project overview board covers every registered
+  schematic page, while each real schematic page owns one shared learning board.
+- Split the canvas skill into focused operation, import, question and Feishu-sync
+  references so routine questions load only the instructions they need.
+
+### Changed
+
+- Replaced the per-page extra module-index-board requirement with an embedded
+  module map on the schematic-page learning board.
+- Preserved legacy module-index board bindings during migration without creating
+  new per-module boards or replacing existing board tokens.
+- Required exact schematic-page identity before routing frames, notes or dialogue
+  records to a Feishu page.
+
+### Verification boundary
+
+- `黑五画板` passes 109 tests plus metadata, artifact, cold-install, learning
+  tool and MCP probes; the public boundary scan excludes live project evidence,
+  tenant URLs, credentials and private identifiers.
+- No EasyEDA design write or Feishu remote write was performed for this release.
+  Runtime synchronization remains preview-first and confirmation-gated.
+
 ## 0.9.0 - 2026-08-28
 
 ### Added

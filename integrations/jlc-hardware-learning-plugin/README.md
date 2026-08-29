@@ -48,11 +48,9 @@ canvases/
 
 旧画板的文件名和元数据仅作为一次性兼容输入读取；下一次保存会使用新的 `hardware-learning-*` 文件名和 `hardwareLearning*` 元数据。
 
-## 飞书学习笔记
+## 飞书学习笔记（开发分支）
 
-飞书功能使用“项目名称展示、稳定项目 ID 绑定、一个画板图页对应一个飞书图页笔记”的模型。领域契约位于 `mcp/feishu/`，目录与同步边界见 `docs/feishu-learning-notes-architecture.md`。项目主页用正文标题组织 `00..99` 分类，只有真实原理图页才单独创建 Docx，避免产生大量空文档。
-
-所有迁移和持续同步都先生成只读预览，列出精确目标、修订号和计划指纹；只有收到与该预览一致的明确确认后才能写入。写入过程复用已有 Docx 和两张画板，只修改 JLC 受管区，并在 fresh read 验证成功后更新本地注册表。公开仓库仅包含 Fixture 测试数据，不包含真实飞书 token、租户 URL 或项目 UUID。
+飞书功能使用“项目名称展示、稳定项目 ID 绑定、一个画板图页对应一个飞书图页笔记”的模型。领域契约位于 `mcp/feishu/`，目录与同步边界见 `docs/feishu-learning-notes-architecture.md`。`get_feishu_learning_note_state` 用于只读预览目录和同步计划，`update_feishu_learning_note_state` 只登记经过线上回读验证的本地绑定。领域层不直接调用飞书 API；后续传输适配器负责 Wiki 节点、Docx 正文、已有画板 token 和跨项目 Base 索引，并遵守写前确认、幂等重试与写后回读验证。
 
 ## 环境变量
 

@@ -17,6 +17,7 @@ const SECTION_DESCRIPTIONS = Object.freeze({
 });
 
 const PROJECT_HOMEPAGE_NOTE = "笔记按项目集中管理；真实原理图页作为本项目下的独立文档。";
+const PROJECT_OVERVIEW_BOARD_HEADING = "工程原理图总画板";
 
 function requiredString(value, field) {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${field} is required.`);
@@ -40,17 +41,27 @@ function normalizedPages(pages = []) {
   })).sort((left, right) => left.canvasPageId.localeCompare(right.canvasPageId));
 }
 
-export function feishuProjectHomepageIndexDigest({ project, pages = [] } = {}) {
+export function feishuProjectHomepageIndexDigest({
+  project,
+  pages = [],
+  projectOverviewWhiteboardToken = null,
+} = {}) {
   const identity = {
     templateVersion: FEISHU_PROJECT_HOMEPAGE_TEMPLATE_VERSION,
     projectId: requiredString(project?.projectId, "project.projectId"),
+    projectOverviewWhiteboardToken: projectOverviewWhiteboardToken
+      ? requiredString(projectOverviewWhiteboardToken, "projectOverviewWhiteboardToken")
+      : null,
     sections: FEISHU_NOTE_SECTIONS.map(({ key, title }) => ({ key, title })),
     pages: normalizedPages(pages),
   };
   return createHash("sha256").update(JSON.stringify(identity)).digest("hex");
 }
 
-export function inspectFeishuProjectHomepage(content, { pages = [] } = {}) {
+export function inspectFeishuProjectHomepage(
+  content,
+  { pages = [], projectOverviewWhiteboardToken = null } = {},
+) {
   const xml = String(content ?? "");
   const normalized = normalizedPages(pages);
   return {
@@ -60,19 +71,39 @@ export function inspectFeishuProjectHomepage(content, { pages = [] } = {}) {
     missingPageDocTokens: normalized
       .filter((page) => page.docToken && !xml.includes(`doc-id=\"${page.docToken}\"`))
       .map((page) => page.docToken),
+    missingProjectOverviewWhiteboardToken: projectOverviewWhiteboardToken
+      && !xml.includes(`token=\"${projectOverviewWhiteboardToken}\"`)
+      ? projectOverviewWhiteboardToken
+      : null,
   };
 }
 
-export function renderFeishuProjectHomepageAppendXml({ project, pages = [], existingContent = "" } = {}) {
+export function renderFeishuProjectHomepageAppendXml({
+  project,
+  pages = [],
+  projectOverviewWhiteboardToken = null,
+  existingContent = "",
+} = {}) {
   requiredString(project?.projectId, "project.projectId");
   const projectName = requiredString(project?.projectName, "project.projectName");
   const normalized = normalizedPages(pages);
-  const inspection = inspectFeishuProjectHomepage(existingContent, { pages: normalized });
+  const overviewToken = projectOverviewWhiteboardToken
+    ? requiredString(projectOverviewWhiteboardToken, "projectOverviewWhiteboardToken")
+    : null;
+  const inspection = inspectFeishuProjectHomepage(existingContent, {
+    pages: normalized,
+    projectOverviewWhiteboardToken: overviewToken,
+  });
   const chunks = [];
   if (!String(existingContent).includes(PROJECT_HOMEPAGE_NOTE)) {
     chunks.push(
       `<callout emoji="📌" background-color="light-blue" border-color="blue"><p>项目：${escapeXml(projectName)}</p><p>${PROJECT_HOMEPAGE_NOTE}</p></callout>`,
     );
+  }
+  if (inspection.missingProjectOverviewWhiteboardToken) {
+    chunks.push(`<h1>${PROJECT_OVERVIEW_BOARD_HEADING}</h1>`);
+    chunks.push(`<whiteboard token="${escapeXml(overviewToken)}"></whiteboard>`);
+    chunks.push("<p>本画板集中展示当前工程的全部原理图，作为后续按图页学习与分类的总入口。</p>");
   }
   for (const section of FEISHU_NOTE_SECTIONS) {
     if (!inspection.missingSectionKeys.includes(section.key)) continue;
@@ -90,7 +121,11 @@ export function renderFeishuProjectHomepageAppendXml({ project, pages = [], exis
   }
   return {
     templateVersion: FEISHU_PROJECT_HOMEPAGE_TEMPLATE_VERSION,
-    indexDigest: feishuProjectHomepageIndexDigest({ project, pages: normalized }),
+    indexDigest: feishuProjectHomepageIndexDigest({
+      project,
+      pages: normalized,
+      projectOverviewWhiteboardToken: overviewToken,
+    }),
     inspection,
     xml: chunks.join(""),
   };

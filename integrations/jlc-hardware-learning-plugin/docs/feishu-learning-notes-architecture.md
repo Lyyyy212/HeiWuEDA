@@ -61,7 +61,7 @@ Codex 正常对话 / JLC Hardware Learning 画板
 
 ## 图页笔记规则
 
-每个图页笔记复用一个 `docToken`、主学习画板 `whiteboardToken` 和模块索引画板 `moduleIndexWhiteboardToken`。后续同步必须先读取现有正文中的两个 `board_token`；已有画板只能更新，禁止创建第二张空白画板代替。图页文档建议包含：
+每个项目主页复用一个 `projectOverviewWhiteboardToken`，该工程总画板覆盖工程内全部真实原理图页。每个图页笔记只复用一个 `docToken` 和一个图页学习画板 `whiteboardToken`；同一原理图页上的多个模块和学习框共用该画板。后续同步必须按已验证的 `schematicPageUuid` 分类，禁止按模块重复建板，也禁止用新空画板替换现有画板。旧版 `moduleIndexWhiteboardToken` 仅迁移为遗留资源保留。图页文档建议包含：
 
 1. 原理图学习画板；
 2. 学习框模块索引；
@@ -71,7 +71,7 @@ Codex 正常对话 / JLC Hardware Learning 画板
 
 学习框状态使用 `unstarted / learning / question-open / concluded / review-required`。一个问题可以关联同页多个学习框，但不能跨图页绑定。
 
-两张画板共享同一学习框样式配置：框线和编号色块透明度均为 50%，边框宽度缩放为 50%，学习框位置和尺寸保持不变；编号使用既定圆角矩形角标（约 `29.2544 × 28.41494`，字号 12，固定偏移 `-8/-8` 压在框的左上角）。原理图缩放时，学习框按图片变换映射，但编号牌尺寸、字号和角标偏移绝不参与缩放。模块颜色没有语义绑定，从柔和候选色中按图页稳定随机分配；同页在候选色用完前不得重复，编号牌跟随对应框色，已经分配的颜色在重新导出时保持不变。模块索引画板中的模块标签和说明分支必须跟随同号学习框颜色，标签边框、标签色块和说明分支边框统一为 50% 透明度与窄边框；末级说明分支只写对该模块的一句话总结，不写学习状态或“待学习”等占位词。只改样式或文案时不得改变思维导图关系、节点几何或原理图证据。完整执行和验收合同见 `skills/jlc-hardware-learning/references/feishu-learning-note-standard.md`；该配置是注册表字段，不是一次性渲染参数。
+图页学习画板使用统一学习框样式：框线和编号色块透明度均为 50%，边框宽度缩放为 50%；编号使用固定圆角矩形角标（约 `29.2544 × 28.41494`，字号 12，固定偏移 `-8/-8` 压在框的左上角）。原理图缩放时，学习框按图片变换映射，但编号牌尺寸、字号和角标偏移绝不参与缩放。模块颜色没有语义绑定，从柔和候选色中按图页稳定随机分配；同页多个模块在候选色用完前不得重复。模块标签和一句话总结分支直接位于该图页学习画板，并跟随同号学习框颜色。完整执行和验收合同见 `skills/jlc-hardware-learning/references/feishu-learning-note-standard.md`。
 
 ## 本地注册表
 
@@ -87,9 +87,9 @@ Codex 正常对话 / JLC Hardware Learning 画板
 
 - 默认 `--as user`，不使用 bot 身份猜测用户个人知识库。
 - 只读识别仅允许固定的 `docs +fetch` 命令，Windows 下直接执行已安装 CLI 的 JavaScript 入口，不经过 shell，也不接受任意 argv。
-- 同步计划声明 `wiki.node.ensure`、`wiki.document.move`、`doc.project-homepage.ensure`、`doc.whiteboard.ensure`、`doc.module-index-whiteboard.ensure` 等逻辑动作；`doc.project-homepage.ensure` 只增补缺失分类和图页索引，不覆盖用户笔记。实际写命令只能由确认后的传输适配器实现。
+- 同步计划声明 `wiki.node.ensure`、`wiki.document.move`、`doc.project-overview-whiteboard.ensure`、`doc.project-homepage.ensure`、`doc.whiteboard.ensure` 等逻辑动作；工程总画板动作携带全部原理图页清单，图页画板动作携带唯一原理图页身份，不再声明新建模块索引画板。`doc.project-homepage.ensure` 只增补缺失分类、工程总画板和图页索引，不覆盖用户笔记。实际写命令只能由确认后的传输适配器实现。
 - `execute_feishu_learning_note_migration` 必须同时收到 `confirmed=true`、精确 `planFingerprint` 和预览时的文档修订号；适配器会重新计算计划哈希，任一不一致都在首个远端写入前停止。
-- 持续同步先调用 `preview_feishu_learning_note_sync`。预览会重新读取每个目标 Docx，校验主画板和模块索引画板 token，加载已明确绑定的持久化问答记录，并返回精确 `block_insert_after` / `block_replace` 补丁、完整 `expectedDocumentRevisions` 与计划指纹；预览不写本地或远端。
+- 持续同步先调用 `preview_feishu_learning_note_sync`。预览会重新读取项目主页和每个目标图页 Docx，校验工程总画板与对应图页学习画板 token，核对学习框的 `schematicPageUuid` 归属，加载已明确绑定的持久化问答记录，并返回精确 `block_insert_after` / `block_replace` 补丁、完整 `expectedDocumentRevisions` 与计划指纹；预览不写本地或远端。
 - `execute_feishu_learning_note_sync` 只接受 `confirmed=true`、该次预览的精确 `planFingerprint` 和完整修订映射。模块索引与问答分别使用带内容摘要的 JLC 受管区；首次插入后，后续只替换这两个受管范围，不覆盖画板或用户维护的其他块。
 - 在任何图页正文同步前，必须存在与注册表项目一致的官方 EasyEDA `schematicPageUuid`。`bind_feishu_page_identity_from_learning_evidence` 只在注册表全部学习框都关联同一官方原理图页时写入本地绑定，绝不根据标题猜测。
 - `link_feishu_learning_dialogue_from_record` 从本地 question/run/answer 三类持久化记录读取问题、学习框、问题摘要和回答摘要；帧号、页面或摘要不一致时停止，不从聊天窗口抓取内容。
@@ -103,7 +103,7 @@ Codex 正常对话 / JLC Hardware Learning 画板
 
 ## 旧笔记迁移
 
-`inspect_feishu_learning_note_target` 对目标 Docx 做两次 fresh read，并提取标题、章节、模块标题、主学习画板和模块索引画板。`preview_feishu_learning_note_migration` 再校验旧 `learning.lark-binding.v1` 与 `learning.note-package.v1`：工程 UUID、图页 ID、内容摘要、文档 token 和两个画板 token 任一不一致都会停止。
+`inspect_feishu_learning_note_target` 对目标 Docx 做两次 fresh read，并提取标题、章节、模块标题、图页学习画板以及可能存在的遗留模块索引画板。`preview_feishu_learning_note_migration` 再校验旧 `learning.lark-binding.v1` 与 `learning.note-package.v1`：工程 UUID、图页 ID、内容摘要、文档 token、图页画板 token 或遗留画板 token 任一不一致都会停止；工程总画板必须单独创建、覆盖全部原理图页并绑定后才能执行迁移。
 
 迁移预览不会写本地或飞书。当前旧笔记是 Drive Docx 时，同步计划使用 `wiki.document.move` 把这份原文档直接迁入 `硬件学习笔记 / <项目名称> / <图页>`，不会复制新文档；`03 原理图学习` 只是项目主页中的分类标题和图页索引。移动和正文更新必须在用户确认精确动作清单后执行，并在成功后重新读取再写入本地注册表。
 
