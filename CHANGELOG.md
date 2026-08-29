@@ -5,7 +5,7 @@
 ### Added
 
 - Published the sanitized `黑五画板` `0.1.8` source from commit
-  `b14508ef53f8792a488c2d3bae971ee6d771529f`.
+  `71d36c6cd7dada6088afa820b788834a70879beb`.
 - Added a compact hardware-learning question path with explicit frame-number
   references, bounded quick context, response modes and opt-in annotation intent.
 - Added `JLC-FN-1.3`: one project overview board covers every registered

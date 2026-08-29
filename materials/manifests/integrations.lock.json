@@ -10,7 +10,7 @@
       "distributionMode": "public-vendored-source",
       "localPath": "../integrations/jlc-hardware-learning-plugin",
       "sourceRepository": "../integrations/jlc-hardware-learning-plugin",
-      "sourceCommit": "b14508ef53f8792a488c2d3bae971ee6d771529f",
+      "sourceCommit": "71d36c6cd7dada6088afa820b788834a70879beb",
       "version": "0.1.8",
       "license": "MIT",
       "licensePath": "../integrations/jlc-hardware-learning-plugin/LICENSE",
@@ -22,7 +22,7 @@
         },
         "releaseManifest": {
           "path": "../integrations/jlc-hardware-learning-plugin/mcp/generated/release-manifest.json",
-          "sha256": "9a840c07e0282e3eae47a01431f36bbeae749738415ada38d980ac4f5e3fa561"
+          "sha256": "62c466b43fd3b53a1793119f66eaa7b38143d5eb0331778d2bab4216861f8bcd"
         }
       },
       "runtime": {
