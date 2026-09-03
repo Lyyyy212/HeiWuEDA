@@ -5,10 +5,10 @@
 		"artifact": "hardware-workbench_v0.3.3.eext",
 		"sha256": "67CCB2E4B09D062FBD144917D2EEE2581F6C33B8A081B3CA720BC9DC5D3917F3"
 	},
-	"description": "黑五EDA 的嘉立创EDA只读工作台预览：连接学习画板与可追溯原理图流程，并通过固定白名单读取当前设计上下文。",
+	"description": "专为学习画板与原理图全流程打造的嘉立创EDA扩展：将选区、证据、讲解与笔记连成学习链，将需求、审查、BOM、受控更新与验收连成设计链。",
 	"categories": "Other",
 	"keywords": [
-		"黑五EDA",
+		"黑五工作台",
 		"学习画板",
 		"原理图全流程",
 		"Hardware Learning",

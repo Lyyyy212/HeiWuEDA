@@ -18,14 +18,22 @@ def find_workbench_root() -> Path:
     configured_root = os.environ.get("EASYEDA_WORKBENCH_ROOT")
     if configured_root:
         candidates.append(Path(configured_root))
-    candidates.extend((Path.cwd(), *Path(__file__).resolve().parents))
+    current = Path.cwd()
+    candidates.extend(
+        (
+            current,
+            current / "easyeda-hardware-workbench",
+            current / "HeiWuEDA",
+            *Path(__file__).resolve().parents,
+        ),
+    )
     for candidate in candidates:
         resolved = candidate.resolve()
         if (resolved / "materials" / "manifests" / "api-manifest.json").is_file():
             return resolved
     raise RuntimeError(
         "EasyEDA workbench materials are unavailable; set EASYEDA_WORKBENCH_ROOT "
-        "to the HeiWuEDA checkout"
+        "to the easyeda-hardware-workbench checkout"
     )
 
 
@@ -42,6 +50,15 @@ def activate_gateway() -> Path:
     configured_root = os.environ.get("EASYEDA_WORKBENCH_ROOT")
     if configured_root:
         candidates.append(Path(configured_root) / "packages" / "easyeda-gateway")
+
+    current = Path.cwd()
+    candidates.extend(
+        (
+            current / "packages" / "easyeda-gateway",
+            current / "easyeda-hardware-workbench" / "packages" / "easyeda-gateway",
+            current / "HeiWuEDA" / "packages" / "easyeda-gateway",
+        ),
+    )
 
     script = Path(__file__).resolve()
     candidates.extend(parent / "packages" / "easyeda-gateway" for parent in script.parents)

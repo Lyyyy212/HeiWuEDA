@@ -15,6 +15,8 @@
  */
 import * as extensionConfig from '../extension.json';
 
+declare const __WORKBENCH_LOCAL_GATEWAY__: boolean;
+
 // ─── Protocol identity ────────────────────────────────────────
 const SERVICE_ID = 'easyeda-bridge';
 const GATEWAY_ID = 'lyyyy.hardware-workbench';
@@ -22,6 +24,8 @@ const PRODUCT_ID = 'hardware-workbench';
 const PROTOCOL_VERSION = 2;
 const WS_ID_PREFIX = 'hardware-workbench-bridge';
 const ACCESS_POLICY = 'dedicated-extension-required';
+const CODE_OPERATION_ID = 'workbench.official-api.execute.v1';
+const CODE_PROFILE = 'easyeda-gateway-generated.v1';
 const WORKBENCH_IFRAME_ID = 'heiwu-workbench-window';
 const WORKBENCH_IFRAME_PATH = '/iframe/workbench.html';
 const GITHUB_REPOSITORY_URL = 'https://github.com/Lyyyy212/HeiWuEDA';
@@ -92,6 +96,14 @@ const OPERATION_CATALOG = Object.freeze([
 		stability: 'beta-document-api',
 		description: 'Read the current project and active document identity.',
 	},
+	...(__WORKBENCH_LOCAL_GATEWAY__
+		? [{
+				id: CODE_OPERATION_ID,
+				effect: 'guarded-read-write',
+				stability: 'local-gateway',
+				description: 'Execute code generated and hashed by the audited local EasyEDA gateway.',
+			}]
+		: []),
 	{
 		id: 'workbench.schematic.index.read.v1',
 		effect: 'read-only',
@@ -344,7 +356,7 @@ function cancelConnectionFlow(resetRetryCount = true): void {
 }
 
 function performReconnect(): void {
-	eda.sys_Message.showToastMessage('黑五EDA 正在重新连接…');
+	eda.sys_Message.showToastMessage('黑五工作台正在重新连接…');
 	cancelConnectionFlow();
 	void scanAndConnect(true);
 }
@@ -353,7 +365,7 @@ function performStopConnection(showToast = true): void {
 	cancelConnectionFlow();
 	lastError = 'Connection stopped by user';
 	if (showToast) {
-		eda.sys_Message.showToastMessage('已停止黑五EDA 连接');
+		eda.sys_Message.showToastMessage('已停止黑五工作台连接');
 	}
 }
 
@@ -366,7 +378,7 @@ async function dispatchControlCommand(command: GatewayControlRequest['command'])
 		) as GatewayControlResponse;
 		if (response?.handled) {
 			if (command === 'stop') {
-				eda.sys_Message.showToastMessage('已停止黑五EDA 连接');
+				eda.sys_Message.showToastMessage('已停止黑五工作台连接');
 			}
 			return;
 		}
@@ -462,7 +474,7 @@ export async function openWorkbenchWindow(): Promise<void> {
 						workbenchWindowOpen = false;
 						return true;
 					},
-					title: '黑五EDA',
+					title: '黑五工作台',
 				},
 			);
 			if (!opened) {
@@ -473,8 +485,8 @@ export async function openWorkbenchWindow(): Promise<void> {
 		catch (error: unknown) {
 			workbenchWindowOpen = false;
 			await eda.sys_Dialog.showInformationMessage(
-				`打开黑五EDA 失败：${error instanceof Error ? error.message : String(error)}`,
-				'黑五EDA',
+				`打开黑五工作台失败：${error instanceof Error ? error.message : String(error)}`,
+				'黑五工作台',
 			);
 		}
 	})();
@@ -502,11 +514,11 @@ export async function toggleAutoConnect(): Promise<void> {
 		lastError = null;
 		cancelConnectionFlow();
 		void scanAndConnect();
-		eda.sys_Message.showToastMessage('已启用黑五EDA 自动连接');
+		eda.sys_Message.showToastMessage('已启用黑五工作台自动连接');
 	}
 	else {
 		performStopConnection(false);
-		eda.sys_Message.showToastMessage('已禁用黑五EDA 自动连接');
+		eda.sys_Message.showToastMessage('已禁用黑五工作台自动连接');
 	}
 }
 
@@ -525,7 +537,7 @@ export async function about(): Promise<void> {
 				? `等待重连：${Math.max(0, statusInfo.nextRetryAt - Date.now())} ms`
 				: '未连接';
 	const details = [
-		`黑五EDA v${extensionConfig.version}`,
+		`黑五工作台 v${extensionConfig.version}`,
 		connectionText,
 		`Gateway ID: ${GATEWAY_ID}`,
 		`Protocol: ${PROTOCOL_VERSION}`,
@@ -536,7 +548,7 @@ export async function about(): Promise<void> {
 		details.push(`最后错误：${statusInfo.lastError}`);
 	}
 
-	eda.sys_Dialog.showInformationMessage(details.join('\n'), '黑五EDA 运行诊断');
+	eda.sys_Dialog.showInformationMessage(details.join('\n'), '黑五工作台运行诊断');
 }
 
 // ─── Discovery and connection ─────────────────────────────────────
@@ -634,7 +646,7 @@ async function scanAndConnect(force = false): Promise<void> {
 		connectedAt = Date.now();
 		void persistPreferredPort(candidate.port);
 		startHeartbeat(sessionId);
-		eda.sys_Message.showToastMessage('黑五EDA 已就绪');
+		eda.sys_Message.showToastMessage('黑五工作台已就绪');
 	}
 	finally {
 		if (isConnectionSessionActive(sessionId)) {
@@ -869,6 +881,34 @@ function requireNonEmptyString(value: unknown, name: string): string {
 	return value;
 }
 
+async function sha256Text(value: string): Promise<string> {
+	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+	return [...new Uint8Array(digest)]
+		.map(byte => byte.toString(16).padStart(2, '0'))
+		.join('');
+}
+
+async function executeGeneratedGatewayCode(args: Record<string, unknown>): Promise<unknown> {
+	requireExactKeys(args, ['code', 'codeSha256', 'profile']);
+	if (args.profile !== CODE_PROFILE) {
+		throw new Error('Unsupported generated-code profile');
+	}
+	const code = requireNonEmptyString(args.code, 'code');
+	if (new TextEncoder().encode(code).byteLength > 768 * 1024) {
+		throw new Error('Generated code exceeds 768 KiB');
+	}
+	const expectedDigest = requireNonEmptyString(args.codeSha256, 'codeSha256');
+	if (!/^[0-9a-f]{64}$/.test(expectedDigest) || await sha256Text(code) !== expectedDigest) {
+		throw new Error('Generated-code digest mismatch');
+	}
+	const DynamicRunner = Object.getPrototypeOf(async () => undefined).constructor as (
+		parameterName: string,
+		body: string,
+	) => (edaApi: typeof eda) => Promise<unknown>;
+	const execute = DynamicRunner('eda', code);
+	return execute(eda);
+}
+
 async function readCurrentContext(): Promise<CurrentContext> {
 	const [project, document] = await Promise.all([
 		eda.dmt_Project.getCurrentProjectInfo(),
@@ -932,6 +972,10 @@ async function dispatchOperation(operation: string, rawArgs: BridgeMessage['args
 	if (operation === 'workbench.context.read.v1') {
 		requireExactKeys(args, []);
 		return readCurrentContext();
+	}
+
+	if (__WORKBENCH_LOCAL_GATEWAY__ && operation === CODE_OPERATION_ID) {
+		return executeGeneratedGatewayCode(args);
 	}
 
 	requireExactKeys(args, ['expectedProjectUuid', 'expectedDocumentUuid']);

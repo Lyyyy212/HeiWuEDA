@@ -31,19 +31,21 @@ function addFile(zip: JSZip, name: string, data: Buffer): void {
 
 const integrationRoot = path.resolve(__dirname, '..');
 const workbenchRoot = path.resolve(integrationRoot, '..', '..');
-const upstreamGatewayRoot = path.join(
+const upstreamGatewayLicense = path.join(
 	workbenchRoot,
-	'materials',
-	'sources',
-	'core',
-	'eext-run-api-gateway',
+	'packages',
+	'easyeda-gateway',
+	'LICENSES',
+	'Apache-2.0.txt',
 );
 
 async function main(): Promise<void> {
+	const localGateway = process.argv.includes('--local');
 	const ignored = ignore().add([
 		'.git/',
 		'build/',
 		'config/',
+		'dist-local/',
 		'node_modules/',
 		'scripts/',
 		'src/',
@@ -68,6 +70,9 @@ async function main(): Promise<void> {
 	for (const file of files) {
 		addFile(zip, file, await fs.readFile(path.join(integrationRoot, file)));
 	}
+	if (localGateway) {
+		addFile(zip, 'dist/index.js', await fs.readFile(path.join(integrationRoot, 'dist-local', 'index.js')));
+	}
 
 	addFile(zip, 'LICENSE', await fs.readFile(path.join(workbenchRoot, 'LICENSE')));
 	addFile(zip, 'NOTICE', await fs.readFile(path.join(workbenchRoot, 'NOTICE')));
@@ -75,12 +80,15 @@ async function main(): Promise<void> {
 	addFile(
 		zip,
 		'LICENSES/Apache-2.0.txt',
-		await fs.readFile(path.join(upstreamGatewayRoot, 'LICENSE')),
+		await fs.readFile(upstreamGatewayLicense),
 	);
 
 	const outputDirectory = path.join(integrationRoot, 'build', 'dist');
 	await fs.ensureDir(outputDirectory);
-	const output = path.join(outputDirectory, `${extensionConfig.name}_v${extensionConfig.version}.eext`);
+	const packageName = localGateway
+		? `${extensionConfig.name}-local_v${extensionConfig.version}.eext`
+		: `${extensionConfig.name}_v${extensionConfig.version}.eext`;
+	const output = path.join(outputDirectory, packageName);
 	await fs.writeFile(output, await zip.generateAsync({
 		type: 'nodebuffer',
 		compression: 'DEFLATE',

@@ -36,7 +36,7 @@ EasyEDA 项目数据。原创部分依据 [PolyForm Noncommercial 1.0.0](LICENSE
 
 ### 30 秒导览
 
-1. **连接设计**：打开嘉立创EDA工程，通过官方 Bridge 接入当前窗口。
+1. **连接设计**：打开嘉立创EDA工程，通过本项目专属 Bridge 接入当前窗口。
 2. **确认对象**：黑五EDA 核对工程、图页和文档类型，防止对错页面操作。
 3. **选择链路**：要推进项目就进入“硬件设计链”；要理解电路就进入“硬件学习链”。
 4. **留下证据**：读取、审查、导出和受控写回都会生成可核对记录，而不是只返回一句结论。
@@ -61,7 +61,7 @@ EasyEDA 项目数据。原创部分依据 [PolyForm Noncommercial 1.0.0](LICENSE
 | API 契约与注册表 | `easyeda_gateway/contract.py`、`api-manifest.json` | 锁定官方方法 ID、签名、枚举和风险等级；拒绝未知 API | 两条链路共享 |
 | Bridge 客户端与窗口守卫 | `client.py`、`window_guard.py`、`executor.py` | 自动发现本地 Bridge、验证 `easyeda-bridge` 握手、绑定窗口/工程/文档身份 | 两条链路共享 |
 | 黑五EDA Gateway 扩展 | `integrations/zhiyuaneda-gateway/` | 嘉立创EDA侧专属连接器、并行发现、重连、心跳和连接状态 | 两条链路共享 |
-| 黑五EDA 工作台扩展预览 | `integrations/heiwu-workbench-extension/` | 协议 v2、专属身份与 3 项固定白名单读取操作；不替代完整 Gateway | 只读商店候选 |
+| 黑五工作台扩展 | `integrations/heiwu-workbench-extension/` | 同时构建 3 项固定只读操作的商店安全包，以及供 lifecycle skill 使用的项目专属本地 Gateway 包 | 两条链路共享 |
 | 页面与板级文档导航 | `page_navigator.py`、`board_navigator.py` | 列出页面、按 UUID 精确切换、跨页遍历并恢复原页；不保存设计 | 两条链路共享 |
 | 原理图读取与证据 | `composite.py`、`exporter.py`、`formal_exporter.py`、`drc.py` | 元件/引脚/网络/拓扑读取，PNG/PDF、BOM、网表、EPRO、DRC 和证据包 | 设计链；为学习链供证 |
 | PCB 分析与制造数据 | `official_plugins.py`、`ibom.py` | PCB 设计报告、18 项 DFM、制造 SVG、GenCAD 1.4、交互装配 BOM | 设计链 |
@@ -196,9 +196,9 @@ python -m pip install ./packages/easyeda-gateway
 python -m easyeda_gateway --version
 ```
 
-环境要求：Python 3.11+、Node.js 18+、嘉立创EDA专业版，以及本仓库的
-黑五EDA Gateway 开发预览包或官方
-[Run API Gateway](https://jlc-ext.com/item/oshwhub/run-api-gateway) 扩展。
+环境要求：Python 3.11+、Node.js 18+、嘉立创EDA专业版，以及本仓库
+`integrations/heiwu-workbench-extension/` 构建出的项目专属本地 Gateway 包。通用
+[Run API Gateway](https://jlc-ext.com/item/oshwhub/run-api-gateway) 只作为上游参考，当前 skill 不会回退连接它。
 
 ### 连接并确认身份
 
@@ -209,8 +209,11 @@ python skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py windows
 python skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py export-capabilities
 ```
 
-`discover` 会扫描 `49620-49629` 并验证服务标识为 `easyeda-bridge`；`windows` 返回后续操作
-需要绑定的窗口、工程 UUID 和当前文档 UUID。
+`discover` 会扫描本机 `127.0.0.1:49620-49629`。端口不是固定地址；发现结果必须同时满足
+`service=easyeda-bridge`、`gatewayId=lyyyy.hardware-workbench`、
+`productId=hardware-workbench`、`protocolVersion=2` 和 `edaConnected=true`。
+skill 使用返回的 `bridgeUrl`；`windows` 返回后续操作需要绑定的窗口、工程 UUID 和当前文档 UUID。
+只匹配端口或服务名的通用 Bridge 会被拒绝。
 
 ### 构建专属 黑五EDA Gateway
 
@@ -223,7 +226,7 @@ npm run quality
 开发预览包输出到 `build/dist/zhiyuaneda-gateway_v0.1.0.eext`。当前版本用于本地联调，
 仍保留官方 Bridge 的兼容执行协议，不应直接作为扩展广场正式提交包。
 
-### 构建协议 v2 只读工作台候选
+### 构建黑五工作台双版本
 
 ```bash
 cd integrations/heiwu-workbench-extension
@@ -231,8 +234,12 @@ npm ci
 npm run quality
 ```
 
-候选包输出到 `build/dist/hardware-workbench_v0.4.6.eext`。它拒绝任意代码执行，只提供
-操作目录、当前上下文和身份绑定后的原理图索引读取；正式商店上传与真实客户端验收仍为人工门禁。
+`0.4.14` 会生成两个用途隔离的包：
+
+- `build/dist/hardware-workbench_v0.4.14.eext`：商店安全包，只提供操作目录、当前上下文和身份绑定后的原理图索引读取。
+- `build/dist/hardware-workbench-local_v0.4.14.eext`：项目专属本地包，额外提供经过配置档案和 SHA-256 摘要校验的 `workbench.official-api.execute.v1`，用于完整 lifecycle skill。
+
+连接成功不等于允许修改或保存设计。正式商店上传、真实客户端连接和任何设计写入仍是相互独立的验收门禁。
 
 ### 初始化设计链
 
@@ -286,7 +293,7 @@ HeiWuEDA/
 ├─ skills/easyeda-hardware-lifecycle/         # 设计链与学习链编排器
 ├─ integrations/jlc-hardware-learning-plugin/ # 学习画板、MCP 和本地存储
 ├─ integrations/zhiyuaneda-gateway/           # 完整兼容链路的专属 Gateway 扩展
-├─ integrations/heiwu-workbench-extension/    # 协议 v2 三操作只读工作台预览
+├─ integrations/heiwu-workbench-extension/    # 商店安全包与项目专属本地 Gateway 双构建
 ├─ materials/manifests/                       # API 清单、来源锁和集成配置
 ├─ materials/contracts/                       # 生命周期与学习数据契约
 ├─ materials/references/                      # 架构、边界和开发规格
@@ -305,7 +312,8 @@ HeiWuEDA/
 - Schema 与 API 契约中的既有 `easyeda.*` 标识
 - 当前 GitHub 仓库 slug 与克隆目录：`HeiWuEDA`
 - 专属网关目录与 npm 包：`zhiyuaneda-gateway` / `@lyyyy/zhiyuaneda-gateway`
-- 网关注册身份：`lyyyy.zhiyuaneda` / `zhiyuaneda`
+- 当前项目专属网关身份：`lyyyy.hardware-workbench` / `hardware-workbench` / protocol `2`
+- 旧兼容预览身份：`lyyyy.zhiyuaneda` / `zhiyuaneda`（保留源码，不作为当前 skill 的回退网关）
 - 既有菜单、存储与消息标识：`ZhiYuanEDA*` / `zhiyuaneda.*` / `zhiyuaneda-*`
 
 ## 验证与发布状态
@@ -314,13 +322,13 @@ GitHub Actions 会执行公开边界扫描、Gateway 单元测试、wheel 许可
 学习契约校验、插件冷安装探测和 MCP 探测。离线测试只证明代码、契约和发布包一致；真实 EasyEDA 验收
 仍需连接官方 Bridge，并记录操作前后的工程与文档身份。
 
-- 黑五EDA 项目发布：`0.9.1`。
+- 黑五EDA 项目发布：`0.9.2`。
 - Python Gateway：`0.8.0`。
 - 黑五EDA Gateway 扩展：`0.1.0` GitHub 开发预览。
-- 黑五EDA 工作台扩展：`0.4.6` 协议 v2 只读开发预览，仅开放 3 项固定操作。
+- 黑五工作台扩展：`0.4.14`；商店包开放 3 项固定只读操作，本地专属包额外开放 1 项摘要校验操作。
 - 黑五画板插件：`0.1.8`，Widget URI 为 `ui://widget/jlc-hardware-learning/canvas-0.1.8.html`。
 - GitHub 源码发布：已就绪，默认分支为 `main`。
-- 嘉立创EDA扩展广场：[黑五EDA公开分发页](https://jlc-ext.com/item/lyyyy-212/hardware-workbench)；具体上架版本和客户端更新状态以扩展广场及真实客户端回读为准，CI 通过不等于某个候选版本已经发布。
+- 嘉立创EDA扩展广场：[黑五工作台公开分发页](https://jlc-ext.com/item/lyyyy-212/hardware-workbench)；页面在本次同步时显示 `0.4.14` 更新记录，客户端能否完成更新与专属连接仍需真实窗口回读，CI 通过不等于运行连接已经验收。
 
 参与贡献前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)，版本变化见
 [`CHANGELOG.md`](CHANGELOG.md)，发布步骤见 [`PUBLISHING.md`](PUBLISHING.md)。

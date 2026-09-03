@@ -7,6 +7,18 @@ description: Orchestrate an EasyEDA hardware project from concept and architectu
 
 Treat this skill as the lifecycle orchestrator. Keep design judgment, official API transport, evidence capture, BOM sourcing, and writeback as separate modules with explicit contracts.
 
+## Dedicated gateway contract
+
+For every live EasyEDA operation in this workbench, use only the project-dedicated endpoint returned by `py scripts/easyeda_gateway.py discover`. A usable endpoint must satisfy all of the following at the same time:
+
+- `service = easyeda-bridge`
+- `gatewayId = lyyyy.hardware-workbench`
+- `productId = hardware-workbench`
+- `protocolVersion = 2`
+- `edaConnected = true`
+
+The service name or listening port alone is never sufficient. Do not use the generic Bridge bundled with `easyeda-api`, do not fall back to a Bridge whose `/health` omits the dedicated identity, and do not guess that port 49620 is the selected endpoint. If discovery reports no dedicated endpoint, run `py scripts/easyeda_gateway.py start-bridge`, then repeat discovery and require a registered Hardware Workbench EasyEDA window before continuing. Use the returned `bridgeUrl`; when multiple windows are present, resolve the explicit `windowId` before any operation.
+
 ## Route the request
 
 - For system requirements, alternatives, partitioning, power tree, interfaces, or cost targets, run the `concept` stage.

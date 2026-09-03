@@ -1,8 +1,8 @@
 {
 	"name": "@lyyyy/heiwu-workbench-extension",
-	"version": "0.4.6",
+	"version": "0.4.14",
 	"private": true,
-	"description": "黑五EDA：面向学习画板与原理图流程的嘉立创EDA只读工作台预览",
+	"description": "黑五工作台：面向学习画板与原理图全流程的嘉立创EDA扩展",
 	"author": "Lyyyy",
 	"license": "PolyForm-Noncommercial-1.0.0",
 	"repository": {
@@ -14,12 +14,14 @@
 	},
 	"scripts": {
 		"compile": "rimraf ./dist/ && ts-node ./config/esbuild.prod.ts",
+		"compile:local": "rimraf ./dist-local/ && ts-node ./config/esbuild.prod.ts --local",
 		"lint": "eslint",
 		"typecheck": "tsc --noEmit",
 		"build": "npm run compile && ts-node ./build/packaged.ts",
+		"build:local": "npm run compile:local && ts-node ./build/packaged.ts --local",
 		"test": "node --test tests/*.test.mjs",
 		"release:validate": "node scripts/validate-release.mjs",
-		"quality": "npm run lint && npm run typecheck && npm run build && npm run test && npm run release:validate"
+		"quality": "npm run lint && npm run typecheck && npm run build && npm run build:local && npm run test && npm run release:validate"
 	},
 	"devDependencies": {
 		"@antfu/eslint-config": "^5.4.1",

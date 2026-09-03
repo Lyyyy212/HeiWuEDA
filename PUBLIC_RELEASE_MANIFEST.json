@@ -1,6 +1,6 @@
 {
   "schemaVersion": "easyeda.github-public-release.v1",
-  "generatedAt": "2026-08-29T11:20:04+08:00",
+  "generatedAt": "2026-09-03T20:16:09+08:00",
   "publisher": "Lyyyy",
   "product": "黑五EDA",
   "license": "PolyForm-Noncommercial-1.0.0",
@@ -134,16 +134,31 @@
     },
     {
       "path": "integrations/heiwu-workbench-extension",
-      "version": "0.4.6",
+      "version": "0.4.14",
       "copiedTrackedFiles": 28,
       "historyIncluded": false,
-      "releaseStatus": "protocol-v2-read-only-developer-preview",
+      "releaseStatus": "marketplace-read-only-and-dedicated-local-gateway",
       "allowedOperations": [
         "workbench.catalog.read.v1",
         "workbench.context.read.v1",
         "workbench.schematic.index.read.v1"
       ],
-      "officialMarketplacePublished": false
+      "localGatewayOperations": [
+        "workbench.catalog.read.v1",
+        "workbench.context.read.v1",
+        "workbench.official-api.execute.v1",
+        "workbench.schematic.index.read.v1"
+      ],
+      "gatewayIdentity": {
+        "service": "easyeda-bridge",
+        "gatewayId": "lyyyy.hardware-workbench",
+        "productId": "hardware-workbench",
+        "protocolVersion": 2,
+        "addressRange": "http://127.0.0.1:49620-49629"
+      },
+      "officialMarketplacePublished": true,
+      "marketplaceVersionObserved": "0.4.14",
+      "marketplaceObservedAt": "2026-09-03"
     }
   ]
 }

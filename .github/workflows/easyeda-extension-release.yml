@@ -44,12 +44,19 @@ jobs:
       - name: Verify reproducible package hash
         shell: bash
         run: |
-          artifact="$(find build/dist -maxdepth 1 -name 'hardware-workbench_v*.eext' -print -quit)"
-          first_hash="$(sha256sum "$artifact" | cut -d ' ' -f 1)"
+          marketplace_artifact="$(find build/dist -maxdepth 1 -name 'hardware-workbench_v*.eext' -print -quit)"
+          local_artifact="$(find build/dist -maxdepth 1 -name 'hardware-workbench-local_v*.eext' -print -quit)"
+          first_marketplace_hash="$(sha256sum "$marketplace_artifact" | cut -d ' ' -f 1)"
+          first_local_hash="$(sha256sum "$local_artifact" | cut -d ' ' -f 1)"
           npm run build
-          second_hash="$(sha256sum "$artifact" | cut -d ' ' -f 1)"
-          test "$first_hash" = "$second_hash"
-          printf '%s  %s\n' "$second_hash" "$artifact" > build/dist/SHA256SUMS.txt
+          npm run build:local
+          second_marketplace_hash="$(sha256sum "$marketplace_artifact" | cut -d ' ' -f 1)"
+          second_local_hash="$(sha256sum "$local_artifact" | cut -d ' ' -f 1)"
+          test "$first_marketplace_hash" = "$second_marketplace_hash"
+          test "$first_local_hash" = "$second_local_hash"
+          printf '%s  %s\n%s  %s\n' \
+            "$second_marketplace_hash" "$marketplace_artifact" \
+            "$second_local_hash" "$local_artifact" > build/dist/SHA256SUMS.txt
 
       - name: Upload reviewed marketplace candidate
         uses: actions/upload-artifact@v7
@@ -57,5 +64,6 @@ jobs:
           name: hardware-workbench-${{ github.ref_name }}
           path: |
             integrations/heiwu-workbench-extension/build/dist/hardware-workbench_v*.eext
+            integrations/heiwu-workbench-extension/build/dist/hardware-workbench-local_v*.eext
             integrations/heiwu-workbench-extension/build/dist/SHA256SUMS.txt
           if-no-files-found: error

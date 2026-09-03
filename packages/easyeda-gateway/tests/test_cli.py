@@ -11,7 +11,12 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from easyeda_gateway.cli import _bridge_popen_options, _build_parser, _default_manifest
+from easyeda_gateway.cli import (
+    _bridge_popen_options,
+    _build_parser,
+    _default_manifest,
+    _find_workbench_path,
+)
 from easyeda_gateway.version import GATEWAY_VERSION
 
 
@@ -34,6 +39,34 @@ class CliTests(unittest.TestCase):
             hashlib.sha256(workbench_manifest.read_bytes()).hexdigest(),
             hashlib.sha256(package_manifest.read_bytes()).hexdigest(),
         )
+
+    def test_find_workbench_path_honors_explicit_root(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary) / "checkout"
+            relative = Path("sentinel") / "bridge.mjs"
+            target = root / relative
+            target.parent.mkdir(parents=True)
+            target.write_text("// bridge", encoding="utf-8")
+            with patch.dict(os.environ, {"EASYEDA_WORKBENCH_ROOT": str(root)}, clear=True):
+                found = _find_workbench_path(relative)
+
+        self.assertEqual(target.resolve(), found)
+
+    def test_find_workbench_path_accepts_named_child_checkout(self) -> None:
+        for checkout_name in ("easyeda-hardware-workbench", "HeiWuEDA"):
+            with self.subTest(checkout_name=checkout_name), TemporaryDirectory() as temporary:
+                parent = Path(temporary)
+                relative = Path("sentinel") / "bridge.mjs"
+                target = parent / checkout_name / relative
+                target.parent.mkdir(parents=True)
+                target.write_text("// bridge", encoding="utf-8")
+                with (
+                    patch.dict(os.environ, {}, clear=True),
+                    patch("easyeda_gateway.cli.Path.cwd", return_value=parent),
+                ):
+                    found = _find_workbench_path(relative)
+
+                self.assertEqual(target.resolve(), found)
 
     def test_every_registered_command_exposes_help(self) -> None:
         parser = _build_parser()

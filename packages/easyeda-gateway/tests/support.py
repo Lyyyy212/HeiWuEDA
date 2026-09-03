@@ -11,33 +11,51 @@ class MockBridge:
         self,
         execute_result: dict[str, Any] | None = None,
         execute_error: tuple[int, str] | None = None,
+        gateway_id: str | None = "lyyyy.hardware-workbench",
+        product_id: str | None = "hardware-workbench",
+        protocol_version: int | None = 2,
     ):
         self.requests: list[dict[str, Any]] = []
         self.execute_result = execute_result
         self.execute_error = execute_error
+        self.gateway_id = gateway_id
+        self.product_id = product_id
+        self.protocol_version = protocol_version
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:
                 if self.path == "/health":
-                    self._send(
-                        200,
-                        {
-                            "service": "easyeda-bridge",
-                            "status": "ok",
-                            "edaConnected": True,
-                            "edaWindowCount": 1,
-                            "activeWindowId": "window-1",
-                            "pendingRequests": 0,
-                            "timestamp": 1,
-                        },
-                    )
+                    health = {
+                        "service": "easyeda-bridge",
+                        "status": "ok",
+                        "edaConnected": True,
+                        "edaWindowCount": 1,
+                        "activeWindowId": "window-1",
+                        "pendingRequests": 0,
+                        "timestamp": 1,
+                    }
+                    if owner.gateway_id is not None:
+                        health["gatewayId"] = owner.gateway_id
+                    if owner.product_id is not None:
+                        health["productId"] = owner.product_id
+                    if owner.protocol_version is not None:
+                        health["protocolVersion"] = owner.protocol_version
+                    self._send(200, health)
                     return
                 if self.path == "/eda-windows":
+                    window = {
+                        "windowId": "window-1",
+                        "connected": True,
+                        "active": True,
+                        "gatewayId": owner.gateway_id,
+                        "productId": owner.product_id,
+                        "protocolVersion": owner.protocol_version,
+                    }
                     self._send(
                         200,
                         {
-                            "windows": [{"windowId": "window-1", "connected": True, "active": True}],
+                            "windows": [window],
                             "activeWindowId": "window-1",
                             "count": 1,
                         },
@@ -52,7 +70,7 @@ class MockBridge:
                 if self.path == "/eda-windows/select":
                     self._send(200, {"success": True, "activeWindowId": payload["windowId"]})
                     return
-                if self.path == "/execute":
+                if self.path == "/operations/execute":
                     if owner.execute_error is not None:
                         status, message = owner.execute_error
                         self._send(status, {"success": False, "error": message})

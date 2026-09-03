@@ -79,7 +79,7 @@ class CompositeTests(unittest.TestCase):
         self.assertEqual(result.derived, {"count": 0})
         self.assertEqual(envelope["risk"], "READ")
         self.assertEqual(request["template"]["templateId"], "pcb.snapshot.v1")
-        self.assertEqual(mock.requests[-1]["path"], "/execute")
+        self.assertEqual(mock.requests[-1]["path"], "/operations/execute")
 
 
 if __name__ == "__main__":

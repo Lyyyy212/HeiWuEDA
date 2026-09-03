@@ -3,7 +3,7 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<title>黑五EDA</title>
+		<title>黑五工作台</title>
 		<style>
 			:root {
 				color-scheme: light dark;
@@ -275,12 +275,12 @@
 	<body>
 		<main class="app">
 			<header class="brand">
-				<img class="brand-mark" src="../images/logo.png" alt="黑五EDA 五叶草头像" />
+				<img class="brand-mark" src="../images/logo.png" alt="黑五工作台五叶草头像" />
 				<div class="brand-copy">
-					<h1>黑五EDA</h1>
+					<h1>黑五工作台</h1>
 					<p class="subtitle">嘉立创EDA专属拓展</p>
 				</div>
-				<div id="version" class="version">v0.4.6</div>
+			<div id="version" class="version">v0.4.14</div>
 			</header>
 
 			<section id="status-card" class="status-card" data-state="connecting" aria-live="polite">
@@ -377,7 +377,7 @@
 					setStatusCard(
 						status.lastError ? 'error' : 'disconnected',
 						'专属网关未连接',
-						status.lastError || '请确认黑五EDA Bridge 已启动。',
+						status.lastError || '请确认黑五工作台 Bridge 已启动。',
 					);
 				}
 
@@ -423,7 +423,7 @@
 
 				async function reconnect() {
 					elements.reconnectButton.disabled = true;
-					setStatusCard('connecting', '正在重新连接', '重新扫描并验证黑五EDA 专属 Bridge。');
+					setStatusCard('connecting', '正在重新连接', '重新扫描并验证黑五工作台专属 Bridge。');
 					try {
 						await eda.sys_MessageBus.rpcCall(CONTROL_TOPIC, { command: 'reconnect' }, 1000);
 					}

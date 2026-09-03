@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createServer, get as httpGet } from 'node:http';
 import { createConnection } from 'node:net';
 import process from 'node:process';
@@ -12,9 +12,12 @@ export const GATEWAY_ID = 'lyyyy.hardware-workbench';
 export const PRODUCT_ID = 'hardware-workbench';
 export const PROTOCOL_VERSION = 2;
 export const ACCESS_POLICY = 'dedicated-extension-required';
+export const CODE_OPERATION_ID = 'workbench.official-api.execute.v1';
+export const CODE_PROFILE = 'easyeda-gateway-generated.v1';
 export const OPERATION_IDS = Object.freeze([
 	'workbench.catalog.read.v1',
 	'workbench.context.read.v1',
+	CODE_OPERATION_ID,
 	'workbench.schematic.index.read.v1',
 ]);
 
@@ -45,7 +48,9 @@ function validateOperationRequest(operation, args) {
 	const normalizedArgs = args ?? {};
 	const allowedKeys = operation === 'workbench.schematic.index.read.v1'
 		? ['expectedProjectUuid', 'expectedDocumentUuid']
-		: [];
+		: operation === CODE_OPERATION_ID
+			? ['code', 'codeSha256', 'profile']
+			: [];
 	const unexpectedKeys = Object.keys(normalizedArgs).filter(key => !allowedKeys.includes(key));
 	if (unexpectedKeys.length > 0)
 		throw operationRequestError(`Unexpected operation args: ${unexpectedKeys.join(', ')}`);
@@ -54,6 +59,19 @@ function validateOperationRequest(operation, args) {
 			if (typeof normalizedArgs[key] !== 'string' || !normalizedArgs[key].trim())
 				throw operationRequestError(`${key} must be a non-empty string`);
 		}
+	}
+	if (operation === CODE_OPERATION_ID) {
+		if (normalizedArgs.profile !== CODE_PROFILE)
+			throw operationRequestError('Unsupported generated-code profile');
+		if (typeof normalizedArgs.code !== 'string' || !normalizedArgs.code.trim())
+			throw operationRequestError('code must be a non-empty string');
+		if (Buffer.byteLength(normalizedArgs.code, 'utf8') > 768 * 1024)
+			throw operationRequestError('Generated code exceeds 768 KiB');
+		if (typeof normalizedArgs.codeSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(normalizedArgs.codeSha256))
+			throw operationRequestError('codeSha256 must be a lowercase SHA-256 digest');
+		const actualDigest = createHash('sha256').update(normalizedArgs.code, 'utf8').digest('hex');
+		if (actualDigest !== normalizedArgs.codeSha256)
+			throw operationRequestError('Generated-code digest mismatch');
 	}
 	return normalizedArgs;
 }

@@ -1,6 +1,15 @@
 # 更新记录
 
-本文件记录黑五EDA 嘉立创EDA工作台扩展的公开候选版本。版本号遵循语义化版本；官方扩展更新必须沿用同一个 `uuid`，并使用严格递增的新版本号。
+本文件记录黑五工作台嘉立创EDA扩展的公开候选版本。版本号遵循语义化版本；官方扩展更新必须沿用同一个 `uuid`，并使用严格递增的新版本号。
+
+## [0.4.14] - 2026-08-28
+
+### 专属 Gateway 修复
+
+- 将嘉立创EDA官方 `eda` 对象显式注入摘要校验后的本地 Gateway 执行函数，修复正式网表、PDF 等生成代码报 `eda is not defined`。
+- 增加 `build:local`，单独生成 `hardware-workbench-local_v0.4.14.eext`；商店包继续保持三项固定只读操作，不携带动态执行通道。
+- Python Gateway 与 lifecycle skill 现在强制核对 `lyyyy.hardware-workbench`、`hardware-workbench` 和协议 v2，不再回退到通用 Bridge 或猜测固定端口。
+- GitHub 公开副本继续使用抽象教程图；内部商店截图、真实工程画面和账号信息没有同步。
 
 ## [0.4.6] - 2026-08-28
 

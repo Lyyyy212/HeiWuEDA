@@ -85,17 +85,23 @@ The restricted marketplace candidate is maintained separately under
 ```json
 {
   "name": "hardware-workbench",
-  "displayName": "黑五EDA",
-  "version": "0.4.6",
+  "displayName": "黑五工作台",
+  "version": "0.4.14",
   "publisher": "Lyyyy",
   "protocolVersion": 2
 }
 ```
 
-It rejects arbitrary code and exposes only `workbench.catalog.read.v1`,
-`workbench.context.read.v1` and `workbench.schematic.index.read.v1`. It is a
-read-only developer preview, not a replacement for the complete compatibility
-gateway. The public marketplace page exists, but do not claim that a particular
-candidate version is published until the UUID ownership, direct client import,
-`service=easyeda-bridge`, `edaConnected=true`, active window, protocol identity
-and all three operations have been fresh-read in EasyEDA.
+The marketplace package rejects arbitrary code and exposes only
+`workbench.catalog.read.v1`, `workbench.context.read.v1` and
+`workbench.schematic.index.read.v1`. The same source also builds a separate
+`hardware-workbench-local_v*.eext` package for this repository's lifecycle
+skill. That local package additionally accepts `workbench.official-api.execute.v1`
+only when the dedicated identity, audited profile and SHA-256 code digest match.
+
+The public marketplace page displayed the `0.4.14` update record during the
+2026-09-03 source sync. This is not a permanent runtime assertion: before a
+release claim, fresh-read the UUID ownership, direct client import,
+`service=easyeda-bridge`, `gatewayId=lyyyy.hardware-workbench`,
+`productId=hardware-workbench`, `protocolVersion=2`, `edaConnected=true`, active
+window and the expected operation catalog in EasyEDA.

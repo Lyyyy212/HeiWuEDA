@@ -89,7 +89,10 @@ class ExecutorTests(unittest.TestCase):
             self.assertIn("result.json", envelope["files"])
             payload = mock.requests[-1]["payload"]
             self.assertEqual(payload["windowId"], "window-1")
-            self.assertIn("eda.dmt_Project.getCurrentProjectInfo()", payload["code"])
+            self.assertIn(
+                "eda.dmt_Project.getCurrentProjectInfo()",
+                payload["args"]["code"],
+            )
 
     def test_write_execution_requires_trusted_bridge_runtime(self) -> None:
         plan = {

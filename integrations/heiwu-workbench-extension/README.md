@@ -1,14 +1,14 @@
-# 黑五EDA 工作台扩展（协议 v2 只读预览）
+# 黑五工作台扩展（商店安全包 + 项目专属网关包）
 
-**面向学习画板与原理图流程的嘉立创EDA只读入口预览。**
+**面向学习画板与原理图全流程的嘉立创EDA扩展。**
 
-黑五EDA 将“看懂一张原理图”和“完成一套可验收的原理图设计”放进同一个工程上下文。当前 `0.4.6` 是协议 v2 开发预览，只开放操作目录、当前上下文和原理图索引三项只读能力；完整学习链与设计链由仓库中的画板插件、受控连接模块和生命周期模块共同完成，本扩展不冒充这些模块的全部功能。
+黑五工作台将“看懂一张原理图”和“完成一套可验收的原理图设计”放进同一个工程上下文。当前 `0.4.14` 同时生成两种协议 v2 包：商店安全包只开放操作目录、当前上下文和原理图索引三项只读能力；项目专属本地包额外开放经过配置档案和 SHA-256 摘要校验的 Gateway 代码通道，供仓库中的 lifecycle skill 使用。
 
 [查看 GitHub 项目与使用文档](https://github.com/Lyyyy212/HeiWuEDA)
 
-[在嘉立创EDA扩展广场查看并安装黑五EDA](https://jlc-ext.com/item/lyyyy-212/hardware-workbench)
+[在嘉立创EDA扩展广场查看并安装黑五工作台](https://jlc-ext.com/item/lyyyy-212/hardware-workbench)
 
-![黑五EDA 两大核心功能概览](assets/generated/heiwu-workbench-two-core-flows.png)
+![黑五工作台两大核心功能概览](assets/generated/heiwu-workbench-two-core-flows.png)
 
 左侧展示学习画板如何组织编号学习框、问题与知识卡片；右侧展示原理图从需求到最终验收的完整工程链。
 
@@ -59,18 +59,45 @@
 
 这条流程把“画完原理图”与“证明原理图可以交付”区分开：单元检查、原理图外观、引脚与网络语义、规则检查、BOM 证据和最终导出分别验证，任何一项都不能替代其他验收门禁。
 
-## 为什么使用黑五EDA 只读预览
+## 为什么使用黑五工作台
 
 - **绑定当前设计对象**：入口直接关联当前工程和活动文档，减少选错工程、图页或对象的风险。
 - **统一学习与设计上下文**：学习画板产生的编号、问题和证据可以继续服务于原理图审查与设计决策。
 - **保留过程证据**：不仅展示结果，也记录问题、来源、门禁、回读和验收边界。
 - **控制设计修改**：默认先读取和解释；需要修改时，先确定范围、计划与回滚点，再进行受控操作。
 
-安装后，从嘉立创EDA顶部菜单选择 **黑五EDA → 打开黑五EDA** 进入紧凑状态页。该预览只负责协议 v2 的安全入口与三项只读操作；它不是现有完整连接链路的替代品。
+安装后，从嘉立创EDA顶部菜单选择 **黑五工作台 → 打开黑五工作台** 进入紧凑状态页。商店包负责协议 v2 的安全入口与三项只读操作；完整 lifecycle skill 需要下面的项目专属本地包。
+
+## 项目专属网关连接
+
+这个项目不使用固定的远程网关网址。Bridge 只监听本机 `127.0.0.1:49620-49629`，实际地址由启动时的空闲端口决定。skill 必须通过发现命令取得 `bridgeUrl`，并同时核对以下身份，不能只根据端口或 `service` 猜测：
+
+```text
+service = easyeda-bridge
+gatewayId = lyyyy.hardware-workbench
+productId = hardware-workbench
+protocolVersion = 2
+edaConnected = true
+```
+
+构建和连接：
+
+```bash
+npm ci
+npm run build:local
+python ../../skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py start-bridge
+python ../../skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py discover
+python ../../skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py windows
+```
+
+- 商店安全包：`build/dist/hardware-workbench_v0.4.14.eext`，固定 3 项只读操作。
+- 项目专属本地包：`build/dist/hardware-workbench-local_v0.4.14.eext`，额外提供 `workbench.official-api.execute.v1`。
+- skill 发现不到上述专属身份时会直接停止，不会回退到通用 EasyEDA Bridge，也不会默认把 `49620` 当成正确端口。
+- 连接成功本身不授权修改或保存设计；任何写入仍需经过对应生命周期门禁和明确授权。
 
 ## 版本与更新
 
-候选版本沿用同一个扩展 UUID，并通过递增的语义化版本号发布。`0.4.0` 起，扩展只接受固定的只读操作目录，不再接收任意脚本；未知操作、工程不匹配或活动文档不匹配都会被拒绝。
+候选版本沿用同一个扩展 UUID，并通过递增的语义化版本号发布。商店构建只接受固定的只读操作目录；项目专属本地构建只接受受审计配置档案、代码摘要和专属身份同时匹配的请求。未知操作、工程不匹配或活动文档不匹配都会被拒绝。
 
 源码仓库会自动执行检查、测试、可重复打包和身份校验，并生成带 SHA-256 的候选包。公开扩展页为 <https://jlc-ext.com/item/lyyyy-212/hardware-workbench>。嘉立创官方扩展平台的上传、审核和发布仍由维护者人工完成；CI 产物不等同于已上架版本。具体上架版本以及客户端能否自动安装商店更新，以扩展广场和真实客户端验证为准。
 

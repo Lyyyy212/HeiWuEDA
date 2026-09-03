@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, webcrypto } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -9,6 +9,7 @@ import JSZip from 'jszip';
 
 const integrationRoot = path.resolve(import.meta.dirname, '..');
 const bundleSource = fs.readFileSync(path.join(integrationRoot, 'dist', 'index.js'), 'utf8');
+const localBundleSource = fs.readFileSync(path.join(integrationRoot, 'dist-local', 'index.js'), 'utf8');
 const workbenchHtml = fs.readFileSync(path.join(integrationRoot, 'iframe', 'workbench.html'), 'utf8');
 const extensionDetails = fs.readFileSync(path.join(integrationRoot, 'README.md'), 'utf8');
 const extensionConfig = JSON.parse(fs.readFileSync(path.join(integrationRoot, 'extension.json'), 'utf8'));
@@ -18,6 +19,12 @@ const packagedExtensionPath = path.join(
 	'dist',
 	`hardware-workbench_v${extensionConfig.version}.eext`,
 );
+const packagedLocalExtensionPath = path.join(
+	integrationRoot,
+	'build',
+	'dist',
+	`hardware-workbench-local_v${extensionConfig.version}.eext`,
+);
 const autoConnectKey = 'hardwareWorkbench.gateway.autoConnect';
 const statusTopic = 'hardware-workbench-gateway-status';
 
@@ -25,7 +32,7 @@ function wait(milliseconds) {
 	return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
-function createHarness(initialStorage = {}) {
+function createHarness(initialStorage = {}, runtimeSource = bundleSource) {
 	const sockets = new Map();
 	const sent = [];
 	const storage = new Map(Object.entries(initialStorage));
@@ -162,12 +169,14 @@ function createHarness(initialStorage = {}) {
 		clearTimeout,
 		console,
 		crypto: { randomUUID },
+		TextEncoder,
 		eda,
 		process,
 		setInterval,
 		setTimeout,
 	});
-	vm.runInContext(bundleSource, context);
+	context.crypto.subtle = webcrypto.subtle;
+	vm.runInContext(runtimeSource, context);
 	async function closeFrameFromUi(id) {
 		const frame = frames.get(id);
 		if (!frame)
@@ -348,6 +357,66 @@ test('dispatches only allowlisted operations carrying the dedicated bridge ident
 	harness.api.deactivate();
 });
 
+test('local gateway build executes only digest-bound generated code', async () => {
+	const harness = createHarness({}, localBundleSource);
+	harness.api.activate();
+	const [socketId, socket] = socketForPort(harness, 49620);
+	await socket.onMessage({
+		data: JSON.stringify({
+			type: 'handshake',
+			service: 'easyeda-bridge',
+			gatewayId: 'lyyyy.hardware-workbench',
+			productId: 'hardware-workbench',
+			protocolVersion: 2,
+			registrationNonce: 'nonce-local',
+		}),
+	});
+	await acknowledgeRegistration(harness, socketId, socket);
+
+	const code = 'const project = await eda.dmt_Project.getCurrentProjectInfo(); return { route: "dedicated-generated-code", projectUuid: project.uuid };';
+	await socket.onMessage({
+		data: JSON.stringify({
+			type: 'operation',
+			id: 'generated-code',
+			operation: 'workbench.official-api.execute.v1',
+			args: {
+				code,
+				codeSha256: createHash('sha256').update(code).digest('hex'),
+				profile: 'easyeda-gateway-generated.v1',
+			},
+			gatewayId: 'lyyyy.hardware-workbench',
+			productId: 'hardware-workbench',
+			protocolVersion: 2,
+		}),
+	});
+	await wait(10);
+	const generated = harness.sent.find(item => item.socketId === socketId && item.payload.id === 'generated-code');
+	assert.equal(generated.payload.type, 'result');
+	assert.equal(generated.payload.result.route, 'dedicated-generated-code');
+	assert.equal(generated.payload.result.projectUuid, 'project-1');
+
+	await socket.onMessage({
+		data: JSON.stringify({
+			type: 'operation',
+			id: 'tampered-code',
+			operation: 'workbench.official-api.execute.v1',
+			args: {
+				code,
+				codeSha256: '0'.repeat(64),
+				profile: 'easyeda-gateway-generated.v1',
+			},
+			gatewayId: 'lyyyy.hardware-workbench',
+			productId: 'hardware-workbench',
+			protocolVersion: 2,
+		}),
+	});
+	await wait(10);
+	const rejected = harness.sent.find(item => item.socketId === socketId && item.payload.id === 'tampered-code');
+	assert.equal(rejected.payload.type, 'error');
+	assert.match(rejected.payload.error, /digest mismatch/);
+	harness.api.deactivate();
+});
+
 test('binds the schematic index read to the expected project and document', async () => {
 	const harness = createHarness();
 	harness.api.activate();
@@ -435,7 +504,7 @@ test('opens one reusable Heiwu Workbench feature window with the product name', 
 	assert.equal(openActions[0].id, 'heiwu-workbench-window');
 	assert.equal(openActions[0].width, 420);
 	assert.equal(openActions[0].height, 520);
-	assert.equal(openActions[0].props.title, '黑五EDA');
+	assert.equal(openActions[0].props.title, '黑五工作台');
 	assert.equal(openActions[0].props.minimizeButton, true);
 	assert.equal(openActions[0].props.maximizeButton, true);
 	assert.equal(typeof openActions[0].props.onBeforeCloseCallFn, 'function');
@@ -461,9 +530,9 @@ test('reopens the workbench after the native close button leaves a stale fixed I
 });
 
 test('workbench iframe restores the compact status dashboard and uses the injected eda API', () => {
-	assert.match(workbenchHtml, /<title>黑五EDA<\/title>/);
-	assert.match(workbenchHtml, /<h1>黑五EDA<\/h1>/);
-	assert.match(workbenchHtml, /<img class="brand-mark" src="\.\.\/images\/logo\.png" alt="黑五EDA 五叶草头像" \/>/);
+	assert.match(workbenchHtml, /<title>黑五工作台<\/title>/);
+	assert.match(workbenchHtml, /<h1>黑五工作台<\/h1>/);
+	assert.match(workbenchHtml, /<img class="brand-mark" src="\.\.\/images\/logo\.png" alt="黑五工作台五叶草头像" \/>/);
 	assert.doesNotMatch(workbenchHtml, /<div class="brand-mark"[^>]*>五<\/div>/);
 	assert.match(workbenchHtml, /当前工程/);
 	assert.match(workbenchHtml, /专属 Bridge/);
@@ -478,7 +547,7 @@ test('workbench iframe restores the compact status dashboard and uses the inject
 });
 
 test('extension-manager details focus on the two product flows with local visuals', () => {
-	assert.match(extensionDetails, /^# 黑五EDA/m);
+	assert.match(extensionDetails, /^# 黑五工作台/m);
 	assert.match(extensionDetails, /学习画板：把原理图变成可追溯的学习材料/);
 	assert.match(extensionDetails, /原理图全流程：把设计推进变成可审查、可回读、可验收的工程链/);
 	assert.match(extensionDetails, /https:\/\/github\.com\/Lyyyy212\/HeiWuEDA/);
@@ -486,13 +555,17 @@ test('extension-manager details focus on the two product flows with local visual
 	assert.match(extensionDetails, /assets\/generated\/learning-workflow\.svg/);
 	assert.match(extensionDetails, /assets\/generated\/frame-question-model\.svg/);
 	assert.match(extensionDetails, /assets\/generated\/schematic-lifecycle-concept\.png/);
-	assert.doesNotMatch(extensionDetails, /网关|gateway|bridge|websocket|4962/i);
+	assert.match(extensionDetails, /gatewayId = lyyyy\.hardware-workbench/);
+	assert.match(extensionDetails, /productId = hardware-workbench/);
+	assert.match(extensionDetails, /protocolVersion = 2/);
+	assert.match(extensionDetails, /黑五工作台 → 打开黑五工作台/);
 	assert.doesNotMatch(extensionDetails, /图片来源|录屏|截帧|安全裁切|Image 2 生成/);
 
 	const localImages = [...extensionDetails.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)]
 		.map(match => match[1]);
 	assert.equal(localImages.length, 4);
 	for (const localImage of localImages) {
+		assert.match(localImage, /^assets\/generated\//);
 		assert.equal(fs.existsSync(path.join(integrationRoot, localImage)), true, localImage);
 	}
 });
@@ -500,20 +573,24 @@ test('extension-manager details focus on the two product flows with local visual
 test('manifest exposes only the Heiwu Workbench feature page and GitHub entry', () => {
 	assert.equal(extensionConfig.name, 'hardware-workbench');
 	assert.equal(extensionConfig.uuid, '647e863e3bd34060949c51f22d52de05');
-	assert.equal(extensionConfig.displayName, '黑五EDA');
+	assert.equal(extensionConfig.displayName, '黑五工作台');
 	assert.equal(extensionConfig.images.logo, './images/logo.png');
 	assert.equal(extensionConfig.publisher, 'Lyyyy');
+	assert.deepEqual(extensionConfig.repository, {
+		type: 'github',
+		url: 'https://github.com/Lyyyy212/HeiWuEDA',
+	});
 	assert.match(extensionConfig.version, /^\d+\.\d+\.\d+$/);
 	for (const menus of Object.values(extensionConfig.headerMenus)) {
-		assert.equal(menus[0].title, '黑五EDA');
+		assert.equal(menus[0].title, '黑五工作台');
 		assert.deepEqual(
 			menus[0].menuItems.map(item => item.title),
-			['打开黑五EDA', 'GitHub 项目'],
+			['打开黑五工作台', 'GitHub 项目'],
 		);
 	}
 });
 
-test('opens the real HeiWuEDA GitHub repository through the EasyEDA window API', () => {
+test('opens the canonical HeiWuEDA GitHub repository through the EasyEDA window API', () => {
 	const harness = createHarness({ [autoConnectKey]: false });
 	harness.api.openGithubRepository();
 	assert.deepEqual(harness.openedUrls, ['https://github.com/Lyyyy212/HeiWuEDA']);
@@ -551,4 +628,10 @@ test('package contains the workbench iframe and excludes development-only files'
 	assert.equal(zip.file(/^tests\//).length, 0);
 	const bundle = await zip.file('dist/index.js').async('string');
 	assert.doesNotMatch(bundle, /AsyncFunction|new\s+Function|\beval\s*\(/);
+	assert.doesNotMatch(bundle, /workbench\.official-api\.execute\.v1/);
+
+	const localZip = await JSZip.loadAsync(fs.readFileSync(packagedLocalExtensionPath));
+	const localBundle = await localZip.file('dist/index.js').async('string');
+	assert.match(localBundle, /workbench\.official-api\.execute\.v1/);
+	assert.match(localBundle, /easyeda-gateway-generated\.v1/);
 });

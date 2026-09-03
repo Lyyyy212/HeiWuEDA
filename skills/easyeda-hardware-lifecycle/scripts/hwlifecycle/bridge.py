@@ -49,7 +49,7 @@ class OfficialBridgeClient:
                 return requested_window_id
             raise BridgeError(f"requested EasyEDA window is not connected: {requested_window_id}")
         if not connected:
-            raise BridgeError("no EasyEDA window is connected to the official bridge")
+            raise BridgeError("no EasyEDA window is connected to the dedicated Hardware Workbench bridge")
         if len(connected) > 1:
             window_ids = ", ".join(item["windowId"] for item in connected)
             raise BridgeError(
@@ -59,12 +59,28 @@ class OfficialBridgeClient:
         return connected[0]["windowId"]
 
     def execute(self, code: str, *, window_id: str) -> Any:
-        """Compatibility hook for the audited read-only lifecycle template."""
+        """Run audited generated code through the protocol-v2 local-only operation."""
         response = self._client.execute_code(code, window_id)
         returned_window = response.get("windowId")
         if returned_window not in (None, window_id):
             raise BridgeError(
                 f"bridge executed on unexpected window: {returned_window!r} != {window_id!r}"
+            )
+        return response.get("result")
+
+    def execute_operation(
+        self,
+        operation: str,
+        *,
+        args: dict[str, Any] | None = None,
+        window_id: str,
+    ) -> Any:
+        """Execute one protocol-v2 operation from the fixed store-safe catalog."""
+        response = self._client.execute_operation(operation, args, window_id)
+        returned_window = response.get("windowId")
+        if returned_window not in (None, window_id):
+            raise BridgeError(
+                f"bridge operated on unexpected window: {returned_window!r} != {window_id!r}"
             )
         return response.get("result")
 

@@ -74,7 +74,7 @@ invariant(
 );
 invariant(releasing.includes('手工上传到嘉立创官方扩展平台'), 'Release guide must preserve the manual official upload boundary');
 
-const menuTitles = ['打开黑五EDA', 'GitHub 项目'];
+const menuTitles = ['打开黑五工作台', 'GitHub 项目'];
 for (const [context, menus] of Object.entries(extension.headerMenus ?? {})) {
 	invariant(menus.length === 1, `${context} must expose exactly one top-level workbench menu`);
 	invariant(menus[0].title === identity.displayName, `${context} menu title differs from the identity lock`);
@@ -140,6 +140,24 @@ invariant(
 );
 const packagedBundle = await zip.file('dist/index.js').async('string');
 assertNoDynamicExecution('Packaged runtime', packagedBundle);
+invariant(
+	!packagedBundle.includes('workbench.official-api.execute.v1'),
+	'Marketplace package must not contain the local generated-code operation',
+);
+
+const localArtifactName = `${extension.name}-local_v${extension.version}.eext`;
+const localArtifactPath = path.join(integrationRoot, 'build', 'dist', localArtifactName);
+invariant(fs.existsSync(localArtifactPath), `Local gateway artifact is missing: ${localArtifactName}`);
+const localZip = await JSZip.loadAsync(fs.readFileSync(localArtifactPath));
+const localBundle = await localZip.file('dist/index.js').async('string');
+invariant(
+	localBundle.includes('workbench.official-api.execute.v1'),
+	'Local gateway package is missing the generated-code operation',
+);
+invariant(
+	localBundle.includes('easyeda-gateway-generated.v1'),
+	'Local gateway package is missing the audited code profile',
+);
 
 const workflowPath = path.join(repositoryRoot, '.github', 'workflows', 'easyeda-extension-release.yml');
 invariant(fs.existsSync(workflowPath), 'Automated extension build workflow is missing');

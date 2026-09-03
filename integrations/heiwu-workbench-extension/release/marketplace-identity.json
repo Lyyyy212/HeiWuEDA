@@ -2,7 +2,7 @@
 	"schemaVersion": 1,
 	"name": "hardware-workbench",
 	"uuid": "647e863e3bd34060949c51f22d52de05",
-	"displayName": "黑五EDA",
+	"displayName": "黑五工作台",
 	"publisher": "Lyyyy",
 	"edaEngine": "~3.2.0",
 	"repository": {

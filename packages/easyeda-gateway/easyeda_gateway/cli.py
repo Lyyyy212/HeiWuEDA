@@ -14,7 +14,14 @@ import time
 from typing import Any, Mapping, Sequence
 from uuid import uuid4
 
-from .client import BridgeClient, BridgeError, discover_bridge
+from .client import (
+    WORKBENCH_GATEWAY_ID,
+    WORKBENCH_PRODUCT_ID,
+    WORKBENCH_PROTOCOL_VERSION,
+    BridgeClient,
+    BridgeError,
+    discover_bridge,
+)
 from .bom import compare_boms, load_bom
 from .board_navigator import BoardDocumentNavigationSpec, EasyedaBoardDocumentNavigator
 from .composite import CompositeReadExecutor
@@ -59,7 +66,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Guarded API adapter for the official EasyEDA bridge")
+    parser = argparse.ArgumentParser(
+        description="Guarded API adapter for the dedicated Hardware Workbench EasyEDA bridge",
+    )
     parser.add_argument("--version", action="version", version=GATEWAY_VERSION)
     parser.set_defaults(handler=lambda _: parser.print_help())
     subparsers = parser.add_subparsers(dest="command")
@@ -78,7 +87,10 @@ def _build_parser() -> argparse.ArgumentParser:
     digest.add_argument("--write", action="store_true")
     digest.set_defaults(handler=_digest_plan)
 
-    discover = subparsers.add_parser("discover", help="discover and verify the official local bridge")
+    discover = subparsers.add_parser(
+        "discover",
+        help="discover and verify the dedicated Hardware Workbench local bridge",
+    )
     discover.set_defaults(handler=_discover)
 
     windows = subparsers.add_parser("windows", help="list connected EasyEDA windows")
@@ -392,7 +404,10 @@ def _build_parser() -> argparse.ArgumentParser:
     ibom.add_argument("--output", type=Path, default=Path("artifacts/interactive-bom.html"))
     ibom.set_defaults(handler=_ibom_export)
 
-    start = subparsers.add_parser("start-bridge", help="start the official bridge script in background")
+    start = subparsers.add_parser(
+        "start-bridge",
+        help="start the project-dedicated bridge script in background",
+    )
     start.add_argument("--script", type=Path, default=_default_bridge_script())
     start.add_argument("--log", type=Path, default=Path(".runtime/easyeda-bridge.log"))
     start.add_argument("--metadata", type=Path, default=Path(".runtime/easyeda-bridge.json"))
@@ -921,6 +936,9 @@ def _start_bridge(args: argparse.Namespace) -> dict[str, Any]:
             and metadata.get("schemaVersion") == "easyeda.gateway.bridge-runtime.v1"
             and metadata.get("bridgeUrl") == existing.base_url
             and metadata.get("service") == "easyeda-bridge"
+            and metadata.get("gatewayId") == WORKBENCH_GATEWAY_ID
+            and metadata.get("productId") == WORKBENCH_PRODUCT_ID
+            and metadata.get("protocolVersion") == WORKBENCH_PROTOCOL_VERSION
         )
         return {
             "success": True,
@@ -931,12 +949,12 @@ def _start_bridge(args: argparse.Namespace) -> dict[str, Any]:
         }
     script = args.script.resolve()
     if not script.is_file():
-        raise ValueError(f"Official bridge script not found: {script}")
+        raise ValueError(f"Dedicated bridge script not found: {script}")
     package_root = script.parent.parent
     if not (package_root / "node_modules" / "ws").exists():
         raise ValueError(
-            f"Official bridge dependency 'ws' is not installed under {package_root}; "
-            "use the installed easyeda-api skill or run npm install in a writable copy",
+            f"Dedicated bridge dependency 'ws' is not installed under {package_root}; "
+            "run npm install in integrations/heiwu-workbench-extension",
         )
     node = shutil.which("node")
     if not node:
@@ -955,12 +973,17 @@ def _start_bridge(args: argparse.Namespace) -> dict[str, Any]:
     deadline = time.monotonic() + 8.0
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise ValueError(f"Official bridge exited with code {process.returncode}; inspect {args.log}")
+            raise ValueError(
+                f"Dedicated bridge exited with code {process.returncode}; inspect {args.log}",
+            )
         try:
             client = discover_bridge(timeout=0.25)
             metadata = {
                 "schemaVersion": "easyeda.gateway.bridge-runtime.v1",
                 "service": "easyeda-bridge",
+                "gatewayId": WORKBENCH_GATEWAY_ID,
+                "productId": WORKBENCH_PRODUCT_ID,
+                "protocolVersion": WORKBENCH_PROTOCOL_VERSION,
                 "bridgeUrl": client.base_url,
                 "gatewayVersion": GATEWAY_VERSION,
                 "pid": process.pid,
@@ -980,7 +1003,7 @@ def _start_bridge(args: argparse.Namespace) -> dict[str, Any]:
             }
         except BridgeError:
             time.sleep(0.25)
-    raise ValueError(f"Official bridge did not become ready; inspect {args.log}")
+    raise ValueError(f"Dedicated bridge did not become ready; inspect {args.log}")
 
 
 def _bridge_popen_options(platform_name: str | None = None) -> dict[str, Any]:
@@ -1017,20 +1040,27 @@ def _default_bridge_script() -> Path:
     configured = os.environ.get("EASYEDA_BRIDGE_SCRIPT")
     if configured:
         return Path(configured)
-    home = Path.home()
-    installed_candidates = [
-        home / ".codex" / "skills" / "easyeda-api-skill" / "scripts" / "bridge-server.mjs",
-        home / ".agents" / "skills" / "easyeda-api" / "scripts" / "bridge-server.mjs",
-        home / ".config" / "opencode" / "skills" / "easyeda-api" / "scripts" / "bridge-server.mjs",
-    ]
-    for candidate in installed_candidates:
-        if candidate.is_file() and (candidate.parent.parent / "node_modules" / "ws").exists():
-            return candidate
-    return _find_workbench_path(Path("materials/sources/core/easyeda-api-skill/scripts/bridge-server.mjs"))
+    return _find_workbench_path(
+        Path(
+            "integrations/heiwu-workbench-extension/"
+            "scripts/workbench-bridge-server.mjs",
+        ),
+    )
 
 
 def _find_workbench_path(relative: Path) -> Path:
-    candidates = [Path.cwd() / relative]
+    candidates: list[Path] = []
+    configured_root = os.environ.get("EASYEDA_WORKBENCH_ROOT")
+    if configured_root:
+        candidates.append(Path(configured_root) / relative)
+    current = Path.cwd()
+    candidates.extend(
+        (
+            current / relative,
+            current / "easyeda-hardware-workbench" / relative,
+            current / "HeiWuEDA" / relative,
+        ),
+    )
     candidates.extend(parent / relative for parent in Path(__file__).resolve().parents)
     for candidate in candidates:
         if candidate.exists():

@@ -90,6 +90,9 @@ class MockBridgeHandler(BaseHTTPRequestHandler):
                 200,
                 {
                     "service": "easyeda-bridge",
+                    "gatewayId": "lyyyy.hardware-workbench",
+                    "productId": "hardware-workbench",
+                    "protocolVersion": 2,
                     "status": "ok",
                     "edaConnected": True,
                     "edaWindowCount": len(self.windows),
@@ -98,19 +101,28 @@ class MockBridgeHandler(BaseHTTPRequestHandler):
             )
             return
         if self.path == "/eda-windows":
+            windows = [
+                {
+                    **window,
+                    "gatewayId": "lyyyy.hardware-workbench",
+                    "productId": "hardware-workbench",
+                    "protocolVersion": 2,
+                }
+                for window in self.windows
+            ]
             self._send(
                 200,
                 {
-                    "windows": self.windows,
-                    "activeWindowId": self.windows[0]["windowId"] if self.windows else None,
-                    "count": len(self.windows),
+                    "windows": windows,
+                    "activeWindowId": windows[0]["windowId"] if windows else None,
+                    "count": len(windows),
                 },
             )
             return
         self._send(404, {"error": "not found"})
 
     def do_POST(self) -> None:
-        if self.path != "/execute":
+        if self.path != "/operations/execute":
             self._send(404, {"error": "not found"})
             return
         size = int(self.headers.get("Content-Length", "0"))
@@ -118,7 +130,10 @@ class MockBridgeHandler(BaseHTTPRequestHandler):
         if request.get("windowId") != WINDOW_ID:
             self._send(400, {"success": False, "error": "wrong window"})
             return
-        code = request.get("code")
+        if request.get("operation") != "workbench.official-api.execute.v1":
+            self._send(400, {"success": False, "error": "wrong operation"})
+            return
+        code = (request.get("args") or {}).get("code")
         result = identity_result() if code == IDENTITY_CODE else snapshot_result()
         self._send(200, {"success": True, "result": result, "windowId": WINDOW_ID})
 

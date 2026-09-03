@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 
 import { WebSocket } from 'ws';
@@ -121,6 +122,36 @@ test('requires dedicated registration and forwards only allowlisted operations',
 		assert.equal(authorized.status, 200);
 		assert.deepEqual(authorized.value.result, { route: 'dedicated-extension' });
 		assert.equal(authorized.value.windowId, 'dedicated-window');
+
+		const code = 'return { route: "dedicated-generated-code" };';
+		const codeSeen = waitForMessage(edaSocket).then((message) => {
+			assert.equal(message.operation, 'workbench.official-api.execute.v1');
+			assert.equal(message.args.code, code);
+			edaSocket.send(JSON.stringify({
+				...identity,
+				id: message.id,
+				result: { route: 'dedicated-generated-code' },
+				type: 'result',
+			}));
+		});
+		const codePromise = requestJson(`${baseUrl}/operations/execute`, {
+			body: JSON.stringify({
+				...identity,
+				args: {
+					code,
+					codeSha256: createHash('sha256').update(code).digest('hex'),
+					profile: 'easyeda-gateway-generated.v1',
+				},
+				operation: 'workbench.official-api.execute.v1',
+				windowId: 'dedicated-window',
+			}),
+			headers: { 'Content-Type': 'application/json' },
+			method: 'POST',
+		});
+		await codeSeen;
+		const codeResponse = await codePromise;
+		assert.equal(codeResponse.status, 200);
+		assert.deepEqual(codeResponse.value.result, { route: 'dedicated-generated-code' });
 
 		const unknown = await requestJson(`${baseUrl}/operations/execute`, {
 			body: JSON.stringify({

@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.9.2 - 2026-09-03
+
+### Added
+
+- Published the project-dedicated Gateway contract for
+  `lyyyy.hardware-workbench` / `hardware-workbench` / protocol v2.
+- Added a separate `hardware-workbench-local_v0.4.14.eext` build for the full
+  lifecycle skill while retaining the three-operation marketplace-safe build.
+- Added digest-bound generated-code transport tests and GitHub Actions artifact
+  output for both extension variants.
+
+### Changed
+
+- Updated the public workbench extension source from `0.4.6` to `0.4.14` and
+  fixed the local generated-code runtime so the official `eda` object is
+  available to formal netlist, PDF and other audited gateway templates.
+- Made Python discovery and lifecycle instructions reject generic or foreign
+  Bridges instead of selecting one by service name or port alone.
+- Documented the localhost discovery range and exact health identity in the
+  repository; the actual `bridgeUrl` remains startup-selected.
+
+### Verification boundary
+
+- Gateway tests pass 148 cases; lifecycle tests pass 57 cases with 8
+  environment-dependent skips; the workbench extension passes lint,
+  typecheck, 15 runtime tests, dual builds and release validation.
+- The marketplace package contains only three fixed read-only operations. The
+  fourth digest-bound operation exists only in the separately named local
+  package and still does not authorize a design save by itself.
+- Real engineering screenshots, runtime evidence, account data, tracking query
+  parameters and private project identifiers remain excluded from GitHub.
+
 ## 0.9.1 - 2026-08-29
 
 ### Added

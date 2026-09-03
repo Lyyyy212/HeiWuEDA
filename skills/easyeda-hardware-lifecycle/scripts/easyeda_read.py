@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Discover the official EasyEDA bridge and capture guarded read-only evidence."""
+"""Discover the project-dedicated EasyEDA bridge and capture guarded read-only evidence."""
 
 from __future__ import annotations
 

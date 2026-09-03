@@ -1,10 +1,16 @@
-# 黑五EDA Gateway
+# EasyEDA Workbench Gateway
 
-这是工作台的底层 EasyEDA API 适配层。它复用官方 `easyeda-api` Bridge Server 与官方 `Run API Gateway` 扩展，不修改上游材料快照，也不向业务模块暴露任意 JavaScript 执行入口。
+这是工作台的底层 EasyEDA API 适配层。它使用项目自有的专属 Bridge 和“黑五工作台”嘉立创EDA扩展，不修改上游材料快照。
+
+> **双构建协议边界（v2）**：正式商店扩展不接收 JavaScript，只开放读取操作目录、当前上下文和工程/文档绑定的原理图索引。本机功能构建额外开放 `workbench.official-api.execute.v1`，仅接收底层网关生成、带固定 profile 和 SHA-256 摘要的官方 API 程序。原理图全流程测试必须安装本机功能构建；正式扩展不会静默回退到通用 Bridge。
 
 ## 安全边界
 
-- 仅连接 `127.0.0.1` / `localhost`，并验证 `/health` 的 `service === "easyeda-bridge"`。
+- 仅连接 `127.0.0.1` / `localhost`，并同时验证 `service`、
+  `gatewayId === "lyyyy.hardware-workbench"`、`productId === "hardware-workbench"`
+  和协议版本。
+- 不再回退到未声明 `gatewayId` 的官方通用 Bridge。专属 Bridge
+  只登记回传了正确身份和当次握手随机数的项目扩展窗口。
 - 业务调用使用锁定清单中的规范方法 ID，例如 `DMT_Project.getCurrentProjectInfo#1`。
 - 安装包内置与工作台同哈希的锁定 API manifest；在工作台外执行时不依赖当前目录，开发态仍优先使用仓库材料。
 - 调用参数是 JSON；枚举使用 `{ "$enum": "EPCB_LayerId.TOP" }`，执行器会先核对枚举与成员。
@@ -15,7 +21,7 @@
 - 原理图图页导航使用独立的 `EPHEMERAL_NAVIGATION` 固定适配器：只允许在当前工程、当前原理图内按 UUID 列出/激活/遍历图页，不保存、不关闭图页、不修改文档；遍历会恢复原页，超时不重试。
 - 每次执行生成 `request.json`、`result.json` 和 `envelope.json`，记录清单身份、Bridge 身份、目标窗口和 SHA-256。
 - `schematic-snapshot`、`pcb-report` 与 `ibom-export` 只能选择内置固定模板，不能接受任意 JavaScript；读取前后会再次核对工程、文档和文档类型。
-- 所有导出先经过能力矩阵和共享的单飞熔断器：未知、仅文档声明或已知会卡页的组合在 `/execute` 前拒绝；一次 Bridge 请求只执行一个官方调用，超时不重试并保持熔断器 `OPEN`。
+- 原理图导出、导航、审查和器件标准化继续经过原有能力矩阵、身份守卫和证据层；本机功能构建只改变传输路由，不绕过这些检查。
 - `schematic-export` 是独立的固定兼容适配器：普通计划仍拒绝 deprecated 方法，只有该适配器能用官方旧导出方法生成不覆盖的本地证据文件。当前仅放行 whole-schematic PNG/PDF，所有 current-page 视觉导出均因已知卡页风险被阻断。多图页的官方 PNG 可能返回一个仅含 PNG 的 ZIP；适配器会按官方条目顺序安全校验并暴露页清单，不会将该容器误当成坏 PNG，也不会借用 EPRO 渲染。`schematic-native-pdf-render` 可把已经封存的官方 PDF 在本地渲染为最长边默认 6144 px 的逐页 PNG；它不连接 Bridge，也不重复官方导出。
 
 ## 已移植能力
@@ -82,7 +88,7 @@ py skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py bom-diff --old o
 py skills/easyeda-hardware-lifecycle/scripts/easyeda_gateway.py start-bridge
 ```
 
-这只启动固定的官方 Bridge 脚本；不会自动安装依赖或替换 EasyEDA 扩展。EasyEDA 专业版仍需安装参考页中的 `Run API Gateway`，并在扩展管理器开启“允许外部交互”。PDF 校验使用 Python `pypdf`（包依赖已声明），高清逐页渲染使用 Poppler `pdftoppm`，可通过 `--pdftoppm` 指定。旧 EPRO 渲染依赖仍保留给维护测试，但产品命令不会执行该渲染。
+这只启动固定的项目专属 Bridge 脚本；不会自动安装依赖或替换 EasyEDA 扩展。原理图全流程使用 `integrations/heiwu-workbench-extension/build/dist/hardware-workbench-local_*.eext`；正式商店包只支持固定只读操作。两者都要求专属 `gatewayId`，只安装官方 `Run API Gateway` 不能使用本工作台功能。PDF 校验使用 Python `pypdf`，高清逐页渲染使用 Poppler `pdftoppm`。
 
 `current-page` PNG/PDF/SVG、whole-schematic SVG、BOM XLSX、Protel2 网表和 EPRO2 当前都会在 Bridge 调用前拒绝；DFM、制造 SVG 和 GenCAD 已完成本机真实 PCB 串行资格测试。两个 EPRO 图像渲染命令仍按产品策略拒绝。不要为了“试一下”绕过矩阵；HTTP 超时不能取消 EasyEDA 内部仍在运行的导出。
 
@@ -106,4 +112,4 @@ navigator = EasyedaPageNavigator(registry, discover_bridge())
 pages = navigator.execute(SchematicPageNavigationSpec("list"), "evidence/page-navigation")
 ```
 
-原始 `/execute` 只存在于本包的 `BridgeClient` 内部；生命周期兼容入口也复用该传输。普通计划应通过 `BridgeExecutor`，跨多个读取 API 的迁移能力应通过 `CompositeReadExecutor` 的命名模板执行。
+协议 v2 的唯一传输入口是 `BridgeClient.execute_operation()` 和 `/operations/execute`，旧 `/execute` 永久返回 410。`execute_code()` 只是本机网关内部兼容入口：它把已审计生成代码封装为 `workbench.official-api.execute.v1` 并附加 profile 与 SHA-256；正式扩展不包含该操作。
